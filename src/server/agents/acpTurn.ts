@@ -7,7 +7,7 @@ import { commandLine, isPublishCommand } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
 import { RELAY_ROOT } from '../protect';
-import { AcpEndedCalls, acpTokens, endedAnswer, JsonRpcConnection, RpcError } from './acp';
+import { AcpEndedCalls, acpTokens, askUnlessEnded, endedAnswer, JsonRpcConnection, RpcError } from './acp';
 import { defaultOpenDeps, startOpenProcess, type OpenAgentProcess, type OpenProcessDeps, type OpenRunContext } from './open';
 import {
   AgentRunError,
@@ -804,22 +804,14 @@ async function acpSession(
     // Not covered by the permission: the user decides, when the conversation asks.
     if (!decision.allow && (!own || ('ask' in own && own.ask)) && o.requestApproval) {
       const options = Array.isArray(params?.options) ? params.options : [];
-      const watched = endedCalls.watch(params?.sessionId, call.toolCallId, withdrawn);
-      // A call it already reported ended (refused along with another, say): nobody is asked.
-      if (watched.signal.aborted && !withdrawn?.aborted) {
-        watched.done();
-        return endedAnswer(options);
-      }
-      let answer: Awaited<ReturnType<NonNullable<typeof o.requestApproval>>>;
-      try {
-        answer = await o.requestApproval(acpApprovalRequest(info, o.permission), watched.signal);
-      } finally {
-        watched.done();
-      }
+      // Not asked, or withdrawn, when the agent withdrew it (no answer goes) or reported its call ended
+      // (refused along with another, say): neither is the user's refusal.
+      const asked = await askUnlessEnded(endedCalls, params, withdrawn, (signal) =>
+        o.requestApproval!(acpApprovalRequest(info, o.permission), signal),
+      );
       if (userAborted || o.signal.aborted) return cancelled;
-      // Withdrawn by the agent meanwhile (no answer goes), or its call ended: not the user's refusal.
-      if (withdrawn?.aborted) return cancelled;
-      if (watched.signal.aborted) return endedAnswer(options);
+      if ('gone' in asked) return asked.gone === 'withdrawn' ? cancelled : endedAnswer(options);
+      const answer = asked.answer;
       decision = answer.allow ? { allow: true } : acpDeclined(info, answer.note);
     }
     if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, decision.label);

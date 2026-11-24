@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { AcpEndedCalls, endedAnswer, JsonRpcConnection, RpcError } from '../src/server/agents/acp';
+import { AcpEndedCalls, askUnlessEnded, endedAnswer, JsonRpcConnection, RpcError } from '../src/server/agents/acp';
 import {
   createGrokUpdateHandler,
   describeGrokCancel,
@@ -672,6 +672,96 @@ describe('the tool calls an ACP agent reports ended, against its permission requ
     calls.note('s1', { sessionUpdate: 'agent_message_chunk', status: 'failed', toolCallId: 'c2' });
     calls.note('s1', { sessionUpdate: 'tool_call_update', status: 'failed' });
     expect(calls.watch('s1', 'c2').signal.aborted).toBe(false);
+  });
+
+  it('never takes a call of another session that ended for one still live (an id given in two sessions)', () => {
+    // The parent's call_1 is under way; a subagent's own call_1 completes: the parent's request is still asked.
+    const calls = new AcpEndedCalls();
+    calls.note('parent', update('call_1', 'in_progress', 'tool_call'));
+    calls.note('child', update('call_1', 'pending', 'tool_call'));
+    calls.note('child', update('call_1', 'completed'));
+    const parent = calls.watch('parent', 'call_1');
+    expect(parent.signal.aborted).toBe(false);
+    calls.note('child', update('call_1', 'failed'));
+    expect(parent.signal.aborted).toBe(false);
+    calls.note('parent', update('call_1', 'failed'));
+    expect(parent.signal.aborted).toBe(true);
+
+    // The other way round: the parent's own call_1 ended; a subagent's call_1, announced by an update
+    // alone (as Cline does), asks under the parent's session: asked, and withdrawn once that one ends.
+    const other = new AcpEndedCalls();
+    other.note('parent', update('call_1', 'pending', 'tool_call'));
+    other.note('parent', update('call_1', 'completed'));
+    other.note('child', update('call_1', 'in_progress'));
+    const sub = other.watch('parent', 'call_1');
+    expect(sub.signal.aborted).toBe(false);
+    other.note('child', update('call_1', 'completed'));
+    expect(sub.signal.aborted).toBe(true);
+  });
+
+  it('takes any update but a final one for a call going on, one with no status too (Muse Code’s network notes)', () => {
+    const calls = new AcpEndedCalls();
+    calls.note('s1', update('c1', 'pending', 'tool_call'));
+    calls.note('s1', update('c1', 'completed'));
+    expect(calls.watch('s1', 'c1').signal.aborted).toBe(true);
+    // Its process asks about a host after the call ended, a note with no status first: asked.
+    calls.note('s1', {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'c1',
+      content: [{ type: 'content', content: { type: 'text', text: 'network example.com' } }],
+    });
+    expect(calls.watch('s1', 'c1').signal.aborted).toBe(false);
+    // agy's order when a turn is cancelled: in progress, then failed, while its request waits.
+    const agy = new AcpEndedCalls();
+    agy.note('s1', update('a1', 'in_progress', 'tool_call'));
+    agy.note('s1', update('a1', 'pending'));
+    const waiting = agy.watch('s1', 'a1');
+    agy.note('s1', update('a1', 'in_progress'));
+    expect(waiting.signal.aborted).toBe(false);
+    agy.note('s1', update('a1', 'failed'));
+    expect(waiting.signal.aborted).toBe(true);
+  });
+
+  it('asks through askUnlessEnded only while the call is live, and says why it did not', async () => {
+    const params = (toolCallId: string) => ({ sessionId: 's1', toolCall: { toolCallId } });
+    const calls = new AcpEndedCalls();
+    // Asked and answered.
+    calls.note('s1', update('a', 'pending', 'tool_call'));
+    await expect(askUnlessEnded(calls, params('a'), undefined, async () => 'yes')).resolves.toEqual({ answer: 'yes' });
+    // Already ended: not asked.
+    calls.note('s1', update('b', 'pending', 'tool_call'));
+    calls.note('s1', update('b', 'failed'));
+    let asked = 0;
+    const count = async () => {
+      asked++;
+      return 'no';
+    };
+    await expect(askUnlessEnded(calls, params('b'), undefined, count)).resolves.toEqual({ gone: 'ended' });
+    expect(asked).toBe(0);
+    // Ended while it waits: what the ask then answers does not count.
+    calls.note('s1', update('c', 'pending', 'tool_call'));
+    const during = askUnlessEnded(
+      calls,
+      params('c'),
+      undefined,
+      (signal) => new Promise((r) => signal.addEventListener('abort', () => r('late'))),
+    );
+    calls.note('s1', update('c', 'completed'));
+    await expect(during).resolves.toEqual({ gone: 'ended' });
+    // Withdrawn by the agent itself: no answer to send.
+    const agent = new AbortController();
+    calls.note('s1', update('d', 'pending', 'tool_call'));
+    const pulled = askUnlessEnded(
+      calls,
+      params('d'),
+      agent.signal,
+      (signal) => new Promise((r) => signal.addEventListener('abort', () => r('late'))),
+    );
+    agent.abort();
+    await expect(pulled).resolves.toEqual({ gone: 'withdrawn' });
+    // Done with each: a call ending later touches nothing.
+    calls.note('s1', update('a', 'failed'));
+    await expect(askUnlessEnded(calls, params('e'), undefined, async () => 'asked')).resolves.toEqual({ answer: 'asked' });
   });
 
   it('answers a request about an ended call refused once, never always, with nothing for the model', () => {

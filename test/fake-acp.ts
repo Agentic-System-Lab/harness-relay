@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 /*
  * A stand-in for an ACP agent on stdio (JSON-RPC, one message per line), for tests of the generic ACP
@@ -166,4 +166,34 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
 export function writeFakeAcp(path: string): string {
   writeFileSync(path, FAKE_ACP, { mode: 0o755 });
   return path;
+}
+
+/**
+ * A recorded ACP exchange (`test/fixtures/<agent>/*.jsonl`) changed so that the agent reports the call of
+ * its first permission request `failed` right after asking, without withdrawing the request, as OpenCode
+ * 1.19.5 does with a call it refused along with another the user declined: written to `dest` (returned),
+ * for a stand-in that replays it (fake-muse, fake-copilot, fake-antigravity).
+ */
+export function endedAfterAsk(src: string, dest: string): string {
+  const lines = readFileSync(src, 'utf8').split('\n').filter(Boolean);
+  const at = lines.findIndex((l) => {
+    const o = JSON.parse(l) as { dir: string; msg: { method?: string } };
+    return o.dir === 'agent->client' && o.msg.method === 'session/request_permission';
+  });
+  if (at < 0) throw new Error(`${src} asks no permission`);
+  const asked = (JSON.parse(lines[at]!) as { msg: { params: { sessionId: string; toolCall: { toolCallId: string } } } }).msg.params;
+  const ended = {
+    dir: 'agent->client',
+    msg: {
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId: asked.sessionId,
+        update: { sessionUpdate: 'tool_call_update', toolCallId: asked.toolCall.toolCallId, status: 'failed' },
+      },
+    },
+  };
+  lines.splice(at + 1, 0, JSON.stringify(ended));
+  writeFileSync(dest, lines.join('\n') + '\n');
+  return dest;
 }

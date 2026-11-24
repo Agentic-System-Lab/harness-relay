@@ -33,6 +33,7 @@ import {
   acpPrompt,
   answerPermission,
   AcpEndedCalls,
+  askUnlessEnded,
   endedAnswer,
 } from './acp';
 import {
@@ -1555,21 +1556,11 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
     let decision = grokPermissionDecision(o.permission, call);
     // Not covered by the permission: the user decides, when the conversation asks.
     if (!decision.allow && o.requestApproval) {
-      const watched = endedCalls.watch(params?.sessionId, call.toolCallId, withdrawn);
-      // A call it already reported ended: nobody is asked.
-      if (watched.signal.aborted && !withdrawn?.aborted) {
-        watched.done();
-        return endedAnswer(Array.isArray(params?.options) ? params.options : []);
-      }
-      let answer: Awaited<ReturnType<NonNullable<typeof o.requestApproval>>>;
-      try {
-        answer = await o.requestApproval(grokApprovalRequest(call), watched.signal);
-      } finally {
-        watched.done();
-      }
-      // Withdrawn by the CLI meanwhile (no answer goes), or its call ended: not the user's refusal.
-      if (withdrawn?.aborted) return null;
-      if (watched.signal.aborted) return endedAnswer(Array.isArray(params?.options) ? params.options : []);
+      // Not asked, or withdrawn, when the CLI withdrew it (no answer goes) or reported its call ended:
+      // neither is the user's refusal.
+      const asked = await askUnlessEnded(endedCalls, params, withdrawn, (signal) => o.requestApproval!(grokApprovalRequest(call), signal));
+      if ('gone' in asked) return asked.gone === 'withdrawn' ? null : endedAnswer(Array.isArray(params?.options) ? params.options : []);
+      const answer = asked.answer;
       decision = answer.allow ? { allow: true } : declined(call, answer.note);
     }
     if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, decision.label);

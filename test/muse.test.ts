@@ -84,6 +84,7 @@ import { museHooks, museMcpServers, parseMuseSkills } from '../src/server/native
 import { relayTmpDir, RUN_TMP_PREFIXES } from '../src/server/protect';
 import { MUSE_HOME_ENV, MUSE_KEY_ONLY_ENV } from '../src/server/settings';
 import { isEndpointCli, type ApprovalAnswer } from '../src/shared/types';
+import { endedAfterAsk } from './fake-acp';
 import { writeFakeMuse } from './fake-muse';
 import { slow } from './timeouts';
 
@@ -1770,6 +1771,24 @@ describe.skipIf(process.platform === 'win32')(
       // Never "always allow": Muse would keep the rule for the workspace.
       expect(answers(cmd)).toEqual(['allow_once']);
       expect(ends(cmd)).toEqual([expect.objectContaining({ ok: true, output: 'hello' })]);
+    });
+
+    it('refuses once a request whose call Muse reports ended as it asks, never as the user’s refusal nor kept for the call', async () => {
+      const r = run(undefined, { permission: 'read-only', prompt: 'RUN: cat a.txt' });
+      // Muse reports the call it asks about failed in the same breath (as OpenCode does with a call it refused):
+      // read with the request, it is not asked; read just after, its card is withdrawn. Either way no answer
+      // the user could give counts (the orchestrator answers no once it closed the card).
+      r.o.env.FAKE_MUSE_FIXTURE = endedAfterAsk(join(FIX, 'ro-cmd.jsonl'), join(r.home, 'ended.jsonl'));
+      const signals: AbortSignal[] = [];
+      r.o.requestApproval = (_req, signal) => {
+        signals.push(signal!);
+        return new Promise((resolve) => signal!.addEventListener('abort', () => resolve({ allow: false })));
+      };
+      await withLang('en', () => museRunner.run(r.o));
+      expect(signals.every((s) => s.aborted)).toBe(true);
+      // Muse's reject-once option (its `abort`), with no reason for the model.
+      expect(r.log().find((l) => l.result?.outcome)!.result).toEqual({ outcome: { outcome: 'selected', optionId: 'abort' } });
+      expect(JSON.stringify(ends(r))).not.toMatch(/declined/i);
     });
 
     it('read-only: fetches a page Muse asks about without asking the user, once only', async () => {

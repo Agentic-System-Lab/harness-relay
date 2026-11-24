@@ -49,6 +49,7 @@ import { antigravityDefaultModel, parseAntigravityModels } from '../src/server/m
 import { antigravityMcpServers, antigravityMemoryFiles, nativeProblemText, parseAntigravityProbe } from '../src/server/native';
 import { ANTIGRAVITY_HOME_ENV } from '../src/server/settings';
 import type { ApprovalAnswer } from '../src/shared/types';
+import { endedAfterAsk } from './fake-acp';
 import { writeFakeAntigravity } from './fake-antigravity';
 
 /*
@@ -792,6 +793,25 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
       'Let me look.',
       'Done: wrote hello.txt.',
     ]);
+  });
+
+  it('refuses once a request whose call agy reports ended as it asks, never as the user’s refusal', async () => {
+    const r = run(undefined, { model: 'gemini-3.8-flash', effort: 'high' });
+    // Its first command (`ls`) reported failed as it is asked about: not asked, or its card withdrawn; the
+    // second, still live, is asked and answered as usual.
+    r.o.env.FAKE_AGY_FIXTURE = endedAfterAsk(join(FIX, 'edit.jsonl'), join(r.home, 'ended.jsonl'));
+    const asked: { detail?: string; signal: AbortSignal }[] = [];
+    r.o.requestApproval = (req, signal) => {
+      asked.push({ detail: req.detail, signal: signal! });
+      if (req.detail !== 'ls') return Promise.resolve({ allow: true });
+      return new Promise((resolve) => signal!.addEventListener('abort', () => resolve({ allow: false })));
+    };
+    await withLang('en', () => antigravityRunner.run(r.o)).catch(() => undefined);
+    expect(asked.filter((a) => a.detail === 'ls').every((a) => a.signal.aborted)).toBe(true);
+    expect(asked.map((a) => a.detail)).toContain('false');
+    expect(r.log().find((l) => l.result?.outcome)!.result).toEqual({ outcome: { outcome: 'selected', optionId: 'deny' } });
+    const declined = withLang('en', () => t().approvalDeclined);
+    expect(JSON.stringify(r.events.filter((e) => e.type === 'tool_end'))).not.toContain(declined);
   });
 
   it('resumes a session, briefing it again only when the briefing changed', async () => {

@@ -206,15 +206,20 @@ function keep<K>(set: Set<K> | Map<K, unknown>, key: K, value?: unknown): void {
  * still hands over (OpenCode 1.19.5 refuses every request of a session once one is declined, and hands
  * one of them over a few milliseconds before or after it reports that call failed; left unanswered, it
  * blocks every later request of the session), or stop waiting for an answer without saying so, and then
- * report the call ended. A request whose call the agent reports ended while it
- * waits is withdrawn (its card says so), and a request about a call whose latest word is that it ended
- * is not asked at all; either is answered as refused (`endedAnswer()`), without a reason for the model.
- * A call is known by its id in the session that announced it (a subagent may ask under its parent's
- * session), and announced again it is a new call (an id a model gave once more).
+ * report the call ended. A request whose call the agent reports ended while it waits is withdrawn (its
+ * card says so), and a request about a call that no session has live any more, only ended, is not asked
+ * at all; either is answered as refused (`endedAnswer()`), without a reason for the model.
+ *
+ * An id is not unique: a subagent's session may give one its parent uses too, and a model may give one
+ * again (a user's own server numbering each answer's calls). So a call is known by its id in a session:
+ * live there from a `tool_call` or any update but a final one (one with no status too, such as Muse's
+ * network notes), ended there from a final one. A request is about its own session's call when that
+ * one is live, else about the session that made the id live last (a subagent asking under its parent's
+ * session); it is refused unasked only when no session has the id live and one it would be about ended.
  */
 export class AcpEndedCalls {
-  /** The session each call was last announced in, by its id. */
-  private sessions = new Map<string, string>();
+  /** The sessions in which each call id is live, the one that made it live last at the end. */
+  private live = new Map<string, string[]>();
   private waiting = new Map<string, Set<AbortController>>();
   private ended = new Set<string>();
 
@@ -225,14 +230,17 @@ export class AcpEndedCalls {
     const id = typeof update.toolCallId === 'string' ? update.toolCallId : '';
     if (!id) return;
     const session = typeof sessionId === 'string' ? sessionId : '';
-    if (kind === 'tool_call') keep(this.sessions, id, session);
     const key = `${session}\u0000${id}`;
+    const sessions = (this.live.get(id) ?? []).filter((s) => s !== session);
     const status = typeof update.status === 'string' ? update.status : '';
     if (!ENDED_CALL.has(status)) {
-      // Under way (again): a new call, or one an earlier word said nothing final about.
-      if (kind === 'tool_call' || status) this.ended.delete(key);
+      // Under way: a new call, or one going on.
+      this.ended.delete(key);
+      keep(this.live, id, [...sessions, session]);
       return;
     }
+    if (sessions.length) keep(this.live, id, sessions);
+    else this.live.delete(id);
     keep(this.ended, key);
     for (const c of this.waiting.get(key) ?? []) c.abort();
     this.waiting.delete(key);
@@ -246,10 +254,12 @@ export class AcpEndedCalls {
   watch(sessionId: unknown, toolCallId: unknown, withdrawn?: AbortSignal): { signal: AbortSignal; done: () => void } {
     const id = typeof toolCallId === 'string' ? toolCallId : '';
     if (!id) return { signal: withdrawn ?? new AbortController().signal, done: () => undefined };
-    const session = this.sessions.get(id) ?? (typeof sessionId === 'string' ? sessionId : '');
+    const asked = typeof sessionId === 'string' ? sessionId : '';
+    const live = this.live.get(id) ?? [];
+    const session = live.includes(asked) ? asked : (live.at(-1) ?? asked);
     const key = `${session}\u0000${id}`;
     const c = new AbortController();
-    if (this.ended.has(key)) c.abort();
+    if (!live.length && this.ended.has(key)) c.abort();
     else {
       const set = this.waiting.get(key) ?? new Set();
       set.add(c);
@@ -263,6 +273,30 @@ export class AcpEndedCalls {
         if (set && !set.size) this.waiting.delete(key);
       },
     };
+  }
+}
+
+/**
+ * A permission request asked through `ask` unless its call ended (`AcpEndedCalls`): `gone` when the
+ * agent withdrew it (no answer is to be sent: `withdrawn`) or its call ended before or while it waited
+ * (answer `endedAnswer()`: not the user's refusal), else the answer. `ask` gets the signal to give
+ * `requestApproval`.
+ */
+export async function askUnlessEnded<T>(
+  calls: AcpEndedCalls,
+  params: any,
+  withdrawn: AbortSignal | undefined,
+  ask: (signal: AbortSignal) => Promise<T>,
+): Promise<{ gone: 'withdrawn' | 'ended' } | { answer: T }> {
+  const watched = calls.watch(params?.sessionId, params?.toolCall?.toolCallId, withdrawn);
+  try {
+    if (!watched.signal.aborted) {
+      const answer = await ask(watched.signal);
+      if (!watched.signal.aborted) return { answer };
+    }
+    return { gone: withdrawn?.aborted ? 'withdrawn' : 'ended' };
+  } finally {
+    watched.done();
   }
 }
 
