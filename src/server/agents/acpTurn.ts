@@ -777,7 +777,7 @@ async function acpSession(
     const update = spec.filterUpdate ? spec.filterUpdate({ sessionId, update: params.update, _meta: params._meta }, ctx) : params.update;
     for (const u of Array.isArray(update) ? update : update ? [update] : []) updates.handle(u);
   };
-  conn.onRequest = async (method, params) => {
+  conn.onRequest = async (method, params, withdrawn) => {
     if (method !== 'session/request_permission') {
       // Never done for the agent (it would run outside the relay sandbox): answered as the spec says, or refused.
       const answer = spec.clientRequest?.(method, params);
@@ -800,7 +800,7 @@ async function acpSession(
     let decision = own ?? acpPermissionDecision(o.permission, info, cli);
     // Not covered by the permission: the user decides, when the conversation asks.
     if (!decision.allow && (!own || ('ask' in own && own.ask)) && o.requestApproval) {
-      const answer = await o.requestApproval(acpApprovalRequest(info, o.permission));
+      const answer = await o.requestApproval(acpApprovalRequest(info, o.permission), withdrawn);
       if (userAborted || o.signal.aborted) return cancelled;
       decision = answer.allow ? { allow: true } : acpDeclined(info, answer.note);
     }

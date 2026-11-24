@@ -204,11 +204,18 @@ function claudeStream() {
 
   const reply = (m, response) => out({ type: 'control_response', response: { subtype: 'success', request_id: m.request_id, response } });
   const refuse = (m, error) => out({ type: 'control_response', response: { subtype: 'error', request_id: m.request_id, error } });
-  o.ask = (request) =>
+  /** `withdrawMs`: it stops waiting then, as Claude Code does when its own rule or hook decided first. */
+  o.ask = (request, withdrawMs) =>
     new Promise((resolve) => {
       const requestId = newId('perm');
       pending.set(requestId, resolve);
       out({ type: 'control_request', request_id: requestId, request: { subtype: 'can_use_tool', ...request } });
+      if (withdrawMs !== undefined)
+        setTimeout(() => {
+          if (!pending.delete(requestId)) return;
+          out({ type: 'control_cancel_request', request_id: requestId });
+          resolve({ behavior: 'allow', withdrawn: true });
+        }, withdrawMs);
     });
   // The hooks `initialize` registered, by event: the callback a tool's call goes to, if any.
   o.hooks = {};
@@ -534,11 +541,15 @@ async function claudeTurn(steps, o) {
     const a = await o.hook('PostToolUse', { tool_name, tool_input, tool_response });
     return a && a.decision === 'block' && a.reason ? `The team's after hook said: ${String(a.reason).split('\n').slice(-1)[0]} ` : '';
   };
-  /** Asks (or not) to use a tool beyond what it may do by itself: { ok, note }. */
-  const permission = async (tool_name, input) => {
+  /** Asks (or not) to use a tool beyond what it may do by itself: { ok, note, withdrawn }. */
+  const permission = async (tool_name, input, withdrawMs) => {
     if (!o.asks) return { ok: false, message: `Permission to use ${tool_name} has been denied.` };
-    const answer = await o.ask({ tool_name, input, tool_use_id: `toolu_ask_${++n}_${process.pid}` });
-    return { ok: answer.behavior === 'allow', message: answer.message || `Permission to use ${tool_name} has been denied.` };
+    const answer = await o.ask({ tool_name, input, tool_use_id: `toolu_ask_${++n}_${process.pid}` }, withdrawMs);
+    return {
+      ok: answer.behavior === 'allow',
+      withdrawn: Boolean(answer.withdrawn),
+      message: answer.message || `Permission to use ${tool_name} has been denied.`,
+    };
   };
 
   for (const step of steps) {
@@ -586,8 +597,9 @@ async function claudeTurn(steps, o) {
         full += `The team's hook refused the command: ${refused.split('\n').slice(-1)[0]} `;
         continue;
       }
-      const p = o.mode === 'bypassPermissions' ? { ok: true } : await permission('Bash', input);
+      const p = o.mode === 'bypassPermissions' ? { ok: true } : await permission('Bash', input, step.withdrawMs);
       await tool('Bash', input, async () => (p.ok ? { content: 'e2e-approval', isError: false } : { content: p.message, isError: true }));
+      if (p.withdrawn) full += 'It stopped waiting for an answer and decided by its own rule. ';
       full += p.ok ? 'The command ran: e2e-approval. ' : declined('command', noteIn(p.message));
       if (p.ok) full += await hookAfter('Bash', input, { stdout: 'e2e-approval', stderr: '' });
     }

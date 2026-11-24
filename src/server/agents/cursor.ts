@@ -730,7 +730,7 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
     if (params?.sessionId !== sessionId) return void updates.child(String(params?.sessionId), params?.update);
     updates.handle(params.update);
   };
-  conn.onRequest = async (method, params) => {
+  conn.onRequest = async (method, params, withdrawn) => {
     // Its to-do list in agent mode, sent as a request it does not wait for (no session id in it).
     if (method === 'cursor/update_todos') {
       if (!replaying) updates.todos(params);
@@ -751,7 +751,7 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
     let decision = cursorPermissionDecision(o.permission, call, o.cwd, o.addDirs);
     let label = t().cursorRefused;
     if (!decision.allow && o.requestApproval) {
-      const answer = await o.requestApproval(cursorApprovalRequest(call, o.cwd, o.addDirs));
+      const answer = await o.requestApproval(cursorApprovalRequest(call, o.cwd, o.addDirs), withdrawn);
       decision = answer.allow ? { allow: true } : { allow: false, reason: answer.note ?? '' };
       label = declinedLabel(answer.note);
     }

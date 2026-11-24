@@ -281,6 +281,25 @@ describe('the generic ACP turn', () => {
   );
 
   it.skipIf(process.platform === 'win32')(
+    'tells the card when the agent withdraws its request, and answers only "cancelled" to it',
+    async () => {
+      const r = run({ FAKE_ACP_SCENARIO: 'permission', FAKE_ACP_WITHDRAW: '1' }, { permission: 'read-only' });
+      let withdrawn: AbortSignal | undefined;
+      r.o.requestApproval = (_req, signal) => {
+        withdrawn = signal;
+        // The orchestrator answers once it closed the card.
+        return new Promise((resolve) => signal!.addEventListener('abort', () => resolve({ allow: true })));
+      };
+      await acpTurn(r.o, spec(), deps(fakeSandbox([])));
+      expect(withdrawn!.aborted).toBe(true);
+      // One answer to it, JSON-RPC's "cancelled", and never the allow that came after.
+      expect(r.log().filter((m) => m.id === 100 && !m.method)).toEqual([
+        expect.objectContaining({ id: 100, error: { code: -32800, message: 'Request cancelled' } }),
+      ]);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
     'tells the model in the briefing what a refusal means when the agent cannot pass the reason on',
     async () => {
       const plain = run({ FAKE_ACP_SCENARIO: 'permission' }, { permission: 'read-only' });

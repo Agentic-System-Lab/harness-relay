@@ -576,8 +576,8 @@ export function wrapClineConnection(conn: JsonRpcConnection, sessionId: string, 
   const file = clineSessionFile(dataDir, sessionId);
   const before = readClineUsage(file);
   const answer = conn.onRequest;
-  conn.onRequest = (method, params) => {
-    const inner = Promise.resolve().then(() => answer?.(method, params));
+  conn.onRequest = (method, params, withdrawn) => {
+    const inner = Promise.resolve().then(() => answer?.(method, params, withdrawn));
     if (method !== 'session/request_permission') return inner;
     const cancelled = { outcome: { outcome: 'cancelled' } };
     if (signal.aborted) return cancelled;

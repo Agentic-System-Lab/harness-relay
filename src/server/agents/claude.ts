@@ -1783,6 +1783,12 @@ async function runClaudeTurn(
   });
   const respond = (requestId: string, response: unknown) =>
     send({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response } });
+  // What else keeps the input open once the turn has its result: approvals waiting, background
+  // subagents at work, a turn Claude Code starts by itself after one.
+  const hold = new ClaudeInputHold(() => maybeEndInput(), {
+    followUp: CLAUDE_FOLLOW_UP_MS,
+    background: claudeBackgroundHoldMs(o.nativeOn),
+  });
 
   const onControl = (req: ClaudeControlRequest) => {
     if (req.subtype === 'hook_callback') {
@@ -1819,15 +1825,23 @@ async function runClaudeTurn(
       return;
     }
     const outside = claudeOutsideSandbox(req.request, writes);
-    void ask(claudeApprovalRequest(tool, input, req.request.description, outside)).then(
-      (answer) =>
-        respond(
-          req.requestId,
-          answer.allow
-            ? { behavior: 'allow', updatedInput: claudeAllowedInput(req.request, outside) }
-            : { behavior: 'deny', message: declinedMessage(answer.note) },
-        ),
-      () => respond(req.requestId, { behavior: 'deny', message: 'Not allowed.' }),
+    // Withdrawn by Claude Code meanwhile (`control_cancel_request`): no answer goes.
+    const withdrawn = hold.ask(req.requestId);
+    void ask(claudeApprovalRequest(tool, input, req.request.description, outside), withdrawn).then(
+      (answer) => {
+        if (!withdrawn.aborted)
+          respond(
+            req.requestId,
+            answer.allow
+              ? { behavior: 'allow', updatedInput: claudeAllowedInput(req.request, outside) }
+              : { behavior: 'deny', message: declinedMessage(answer.note) },
+          );
+        hold.settled(req.requestId);
+      },
+      () => {
+        if (!withdrawn.aborted) respond(req.requestId, { behavior: 'deny', message: 'Not allowed.' });
+        hold.settled(req.requestId);
+      },
     );
   };
 
@@ -1851,8 +1865,10 @@ async function runClaudeTurn(
     steering.close();
     child?.stdin?.end();
   };
+  // The user's stop ends it whatever else holds it, but a message sent into the turn (its turn's result
+  // says what it used).
   const maybeEndInput = () => {
-    if (parser.result && !steering.holdsInput()) endInput();
+    if (parser.result && !steering.holdsInput() && (o.signal.aborted || !hold.holds())) endInput();
   };
   steering.onChange = maybeEndInput;
   // Our own stop as well as the user's, to end the run when its subagents cannot be left out.
@@ -1866,6 +1882,8 @@ async function runClaudeTurn(
     send({ type: 'control_request', request_id: `interrupt-${randomUUID()}`, request: { subtype: 'interrupt' } });
     grace = setTimeout(() => stop.abort(), stopGraceMs);
     grace.unref();
+    // Answered already, its input held for its background work: that ends now.
+    maybeEndInput();
   };
   if (o.signal.aborted) stop.abort();
   else o.signal.addEventListener('abort', relayStop, { once: true });
@@ -1908,15 +1926,23 @@ async function runClaudeTurn(
         const msg = parseJsonLine(line);
         if (msg && gate(msg)) return;
       }
-      // Only a lifecycle or result line can change what holds the input: the others go by unparsed here.
-      const ev = line.includes('"command_lifecycle"') || line.includes('"result"') ? parseJsonLine(line) : null;
+      // An approval Claude Code no longer waits for (its own hook or rule decided first): its card says so.
+      if (line.includes('"control_cancel_request"')) {
+        const cancel = parseJsonLine(line);
+        if (cancel?.type === 'control_cancel_request') return void hold.withdraw(String(cancel.request_id ?? ''));
+      }
+      // Only a lifecycle, result or system line can change what holds the input: the others go by unparsed here.
+      const ev =
+        line.includes('"command_lifecycle"') || line.includes('"result"') || line.includes('"system"') ? parseJsonLine(line) : null;
       if (ev && steering.handle(ev)) return;
       parser.handle(line);
+      if (ev) hold.handle(ev);
       if (ev?.type === 'result') maybeEndInput();
     },
   }).finally(() => {
     o.signal.removeEventListener('abort', relayStop);
     clearTimeout(grace);
+    hold.close();
     // Gone: no message can go in any more.
     inputEnded = true;
     o.onSteer?.(undefined);
@@ -1951,6 +1977,158 @@ async function runClaudeTurn(
     ...usage,
     ...(run.jsonSchema && !unshaped && r.structured_output !== undefined ? { structured: r.structured_output } : {}),
   };
+}
+
+/**
+ * How long the input stays open, once the turn has its result, for the turn Claude Code starts by itself
+ * after a background task ended (to tell the model what it said): it starts within milliseconds, unless
+ * the task's news went into a turn already running, and then none comes.
+ */
+export const CLAUDE_FOLLOW_UP_MS = 3000;
+
+/** Claude Code's own wait for its background work once the turn has answered, by default (`claudeFeatureEnv`). */
+export const CLAUDE_BG_WAIT_DEFAULT_MS = 10 * 60_000;
+
+/** How long the input stays open for background subagents at work once the turn has its result: as long as Claude Code waits for them. */
+export function claudeBackgroundHoldMs(on: readonly NativeOnPart[] = [], turnMs: number = TURN_TIMEOUT_MS): number {
+  const set = Number(claudeFeatureEnv(on, turnMs).CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS);
+  return Number.isFinite(set) && set > 0 ? set : CLAUDE_BG_WAIT_DEFAULT_MS;
+}
+
+/**
+ * What else keeps a run's input open once its turn has a result, besides the messages sent into it
+ * (`ClaudeSteering`). Once its input ends, Claude Code refuses every approval still waiting ("Tool
+ * permission stream closed before response received", Claude Code 2.1.331) and every one asked after,
+ * without a card: a background subagent's request that came while the turn answered had its card
+ * expire with the run, unanswered, while the subagent went on without it. So the input stays open:
+ * - while an approval Claude Code asked for (`can_use_tool`) waits for its answer, unless Claude Code
+ *   withdrew it (`control_cancel_request`, when its own hook or rule decided first: `withdraw()`);
+ * - while a background subagent or workflow is at work (`background_tasks_changed`; not a background
+ *   command, which may run as long as a server does), for at most `backgroundMs` after the result, as
+ *   long as Claude Code itself waits for them;
+ * - while a turn Claude Code started by itself after the result runs (its `system` `init`), and for
+ *   `followUpMs` after a background task ended, for that turn to start.
+ * The user's stop ends it all the same (the runner's `maybeEndInput`).
+ */
+export class ClaudeInputHold {
+  /** Approvals asked for and not answered yet, by request id: aborted when withdrawn. */
+  private asks = new Map<string, AbortController>();
+  /** Background subagents and workflows at work, by task id. */
+  private agents = new Set<string>();
+  private answered = false;
+  /** A turn Claude Code started after the latest result runs. */
+  private turnRunning = false;
+  /** A background task ended since the latest turn started: Claude Code starts one to say so. */
+  private newsWaits = false;
+  private followUp: NodeJS.Timeout | undefined;
+  private background: NodeJS.Timeout | undefined;
+  private backgroundOver = false;
+
+  constructor(
+    private onChange: () => void,
+    private ms: { followUp: number; background: number } = { followUp: CLAUDE_FOLLOW_UP_MS, background: CLAUDE_BG_WAIT_DEFAULT_MS },
+  ) {}
+
+  /** An approval Claude Code asked for: its signal aborts if Claude Code withdraws it. */
+  ask(requestId: string): AbortSignal {
+    const c = new AbortController();
+    this.asks.set(requestId, c);
+    return c.signal;
+  }
+
+  /** Its answer went out (or it was withdrawn): it no longer holds the input. */
+  settled(requestId: string): void {
+    if (this.asks.delete(requestId)) this.onChange();
+  }
+
+  /** Claude Code withdrew a request of its own (`control_cancel_request`): true when it was an approval waiting. */
+  withdraw(requestId: string): boolean {
+    const c = this.asks.get(requestId);
+    if (!c) return false;
+    this.asks.delete(requestId);
+    c.abort();
+    this.onChange();
+    return true;
+  }
+
+  /** A line of Claude Code's output, parsed. */
+  handle(ev: Record<string, any>): void {
+    if (ev.type === 'result') {
+      this.answered = true;
+      this.turnRunning = false;
+      if (this.newsWaits) this.waitForFollowUp();
+      if (this.agents.size) this.waitForBackground();
+      return;
+    }
+    if (ev.type !== 'system') return;
+    if (ev.subtype === 'init') {
+      // Each turn starts with one; after a result, it is a turn Claude Code started by itself.
+      if (!this.answered) return;
+      this.turnRunning = true;
+      this.newsWaits = false;
+      this.clearFollowUp();
+      this.onChange();
+    } else if (ev.subtype === 'background_tasks_changed' && Array.isArray(ev.tasks)) {
+      const now = new Set<string>(
+        ev.tasks
+          .filter((t: any) => t && t.task_type !== 'local_bash' && typeof t.task_id === 'string')
+          .map((t: any) => t.task_id as string),
+      );
+      const ended = [...this.agents].some((id) => !now.has(id));
+      this.agents = now;
+      if (ended) this.taskEnded();
+      if (!now.size) {
+        clearTimeout(this.background);
+        this.background = undefined;
+      } else if (this.answered) this.waitForBackground();
+      this.onChange();
+    } else if (ev.subtype === 'task_notification') {
+      // A background command's news too: its turn follows, and may ask.
+      this.taskEnded();
+      this.onChange();
+    }
+  }
+
+  holds(): boolean {
+    return this.asks.size > 0 || (this.agents.size > 0 && !this.backgroundOver) || this.turnRunning || this.followUp !== undefined;
+  }
+
+  /** The run is over: no timer left. */
+  close(): void {
+    this.clearFollowUp();
+    clearTimeout(this.background);
+    this.background = undefined;
+  }
+
+  private taskEnded(): void {
+    this.newsWaits = true;
+    if (this.answered && !this.turnRunning) this.waitForFollowUp();
+  }
+
+  private waitForFollowUp(): void {
+    if (this.followUp) return;
+    this.followUp = setTimeout(() => {
+      this.followUp = undefined;
+      this.newsWaits = false;
+      this.onChange();
+    }, this.ms.followUp);
+    this.followUp.unref?.();
+  }
+
+  private clearFollowUp(): void {
+    clearTimeout(this.followUp);
+    this.followUp = undefined;
+  }
+
+  private waitForBackground(): void {
+    if (this.background || this.backgroundOver) return;
+    this.background = setTimeout(() => {
+      this.background = undefined;
+      this.backgroundOver = true;
+      this.onChange();
+    }, this.ms.background);
+    this.background.unref?.();
+  }
 }
 
 /** How long a message sent into a running turn waits for Claude Code to say it took it (`command_lifecycle`). */

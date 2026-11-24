@@ -1162,7 +1162,7 @@ async function museTurn(o: RunOptions, runDir: string, protectedPaths: readonly 
   };
   /** The answer each call got, for the same call asked about again. */
   const answered = new Map<string, AcpDecision>();
-  conn.onRequest = async (method, params) => {
+  conn.onRequest = async (method, params, withdrawn) => {
     if (method !== 'session/request_permission') throw new RpcError(-32601, `${method} is not supported`);
     const options: { optionId: string; kind: string }[] = Array.isArray(params?.options) ? params.options : [];
     const id = String(params?.toolCall?.toolCallId ?? '');
@@ -1183,7 +1183,7 @@ async function museTurn(o: RunOptions, runDir: string, protectedPaths: readonly 
       decision = { allow: false, reason: verdict.reason };
       label = verdict.reason;
     } else if (o.requestApproval) {
-      const answer = await o.requestApproval(museApprovalRequest(o.permission, call, o.cwd, o.addDirs));
+      const answer = await o.requestApproval(museApprovalRequest(o.permission, call, o.cwd, o.addDirs), withdrawn);
       decision = answer.allow ? { allow: true } : { allow: false, reason: answer.note ?? '' };
       label = answer.note ? `${t().approvalDeclined} ${answer.note}` : t().approvalDeclined;
     } else decision = { allow: false, reason: 'Not covered by the permission' };

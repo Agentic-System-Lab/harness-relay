@@ -23,6 +23,8 @@ const DIRECTIVES = {
     'run a command that needs approval (`echo e2e-approval`; with `=publish`, `npm publish e2e-approval`, which asks in edit mode too; with `=long`, `LONG_COMMAND`, a heredoc of six lines that an answered approval folds), then say whether it ran',
   flag: 'as the lead agent reviewing a request ("Approve for me"), find it potentially unsafe instead of approving it',
   slowapprove: 'as the lead agent reviewing a request ("Approve for me"), take `=<seconds>` (ten by default) to answer',
+  withdraw:
+    "with e2e:approve, stop waiting for the answer after `=<seconds>` (one by default) and run the command anyway, as when the CLI's own rule or hook decided first (Claude Code's fake only: `control_cancel_request`)",
   fetch: 'reach the URL given (a host the run may not reach without asking), then say whether it could',
   write: 'write the file named (relative to the working directory)',
   writeother: 'write the file named in the first other working directory the CLI was given (none: it says so)',
@@ -405,6 +407,7 @@ function plan(prompt, turn) {
     steps.push({
       type: 'approve',
       command: d.approve === 'publish' ? 'npm publish e2e-approval' : d.approve === 'long' ? LONG_COMMAND : 'echo e2e-approval',
+      ...(d.withdraw ? { withdrawMs: slowMs(d.withdraw === true ? 1 : d.withdraw) } : {}),
     });
   if (typeof d.fetch === 'string') steps.push({ type: 'fetch', url: d.fetch });
   if (typeof d.mcp === 'string') {

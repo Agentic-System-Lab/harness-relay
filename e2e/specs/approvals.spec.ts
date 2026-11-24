@@ -144,14 +144,20 @@ test.describe('approvals', () => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit', approvals: 'auto' });
     await send(page, 'Print a line e2e:approve e2e:slowapprove=60');
     const card = page.getByRole('region', { name: '@Claude wants to run a command' });
-    await expect(card.locator('.approval-waiting')).toHaveText('Lead agent reviewing');
+    await expect(card.locator('.approval-waiting')).toHaveText('Lead agent reviewing…');
     await expect(card.locator('.approval-review')).toHaveText(
-      'The lead agent is checking whether this is safe; you can answer now if you like.',
+      'The lead agent is checking whether this is safe, usually within seconds: what it judges safe goes ahead without waiting for you, and it stops to ask you only about the rest. You can also decide now, without waiting for it.',
     );
-    // It waits for nobody yet: no banner, and the chat does not need the user.
+    // It waits for nobody yet, and does not look as if it did: not the card that waits for the user (the
+    // logo turning, no pause sign), its answers secondary and no note to give; no banner, and the chat
+    // does not need the user.
+    await expect(card).toHaveClass(/\breviewing\b/);
+    await expect(card.locator('.approval-icon .logo-spinner')).toHaveCount(1);
+    await expect(card.locator('.approval-note')).toHaveCount(0);
+    await expect(card.getByRole('button', { name: 'Allow without waiting' })).toHaveClass(/\bghost\b/);
     await expect(page.locator('.approval-banner')).toHaveCount(0);
     await expect(page.locator('.conv-item.active .conv-status')).not.toHaveText('Needs you');
-    await card.getByRole('button', { name: 'Allow', exact: true }).click();
+    await card.getByRole('button', { name: 'Allow without waiting' }).click();
     const reply = await finishedReply(page, 'Claude');
     await expect(reply).toContainText('The command ran: e2e-approval.');
     // The user's answer, not the lead agent's.
@@ -169,6 +175,28 @@ test.describe('approvals', () => {
     await publish.getByRole('button', { name: 'Decline' }).click();
     await expect(replies(page, 'Claude')).toHaveCount(2);
     await expect((await finishedReply(page, 'Claude')).locator('.approval-done')).toContainText('Declined');
+  });
+
+  test('a request the CLI stops waiting for while the lead agent reviews it says so at once, and the reply goes on', async ({
+    page,
+    relay,
+  }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit', approvals: 'auto' });
+    await send(page, 'Print a line e2e:approve e2e:slowapprove=60 e2e:withdraw=2');
+    const card = page.getByRole('region', { name: '@Claude wants to run a command' });
+    await expect(card.locator('.approval-waiting')).toHaveText('Lead agent reviewing…');
+    // Claude Code withdraws it (`control_cancel_request`): neither approved for the user nor expired.
+    const reply = await finishedReply(page, 'Claude');
+    await expect(page.locator('.approval-card')).toHaveCount(0);
+    const line = reply.locator('.approval-done.withdrawn');
+    await expect(line).toContainText('echo e2e-approval');
+    await expect(line).toContainText(
+      'Withdrawn: its CLI decided without waiting for your answer (by a rule or hook of its own, say), and an answer no longer reaches it',
+    );
+    await expect(line).not.toContainText('Approved for you');
+    await expect(line.locator('.approval-mark')).toHaveText('↩');
+    await expect(reply).toContainText('It stopped waiting for an answer and decided by its own rule. The command ran: e2e-approval.');
+    await expect(page.locator('.conv-item.active .conv-status', { hasText: 'Needs you' })).toHaveCount(0);
   });
 
   test('a long command, once answered, shows its first line, how many lines follow and the answer, and opens to all of it', async ({

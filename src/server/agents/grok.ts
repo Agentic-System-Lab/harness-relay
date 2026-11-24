@@ -1537,13 +1537,13 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
     if (params?.sessionId !== sessionId) return void updates.child(String(params?.sessionId), params?.update);
     updates.handle(params.update);
   };
-  conn.onRequest = async (method, params) => {
+  conn.onRequest = async (method, params, withdrawn) => {
     if (method !== 'session/request_permission') throw new RpcError(-32601, `${method} is not supported`);
     const call: GrokToolCall = params?.toolCall ?? {};
     let decision = grokPermissionDecision(o.permission, call);
     // Not covered by the permission: the user decides, when the conversation asks.
     if (!decision.allow && o.requestApproval) {
-      const answer = await o.requestApproval(grokApprovalRequest(call));
+      const answer = await o.requestApproval(grokApprovalRequest(call), withdrawn);
       decision = answer.allow ? { allow: true } : declined(call, answer.note);
     }
     if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, decision.label);

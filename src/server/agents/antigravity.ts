@@ -991,7 +991,7 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
     if (!sessionId || params?.sessionId !== sessionId) return;
     updates.handle(u);
   };
-  conn.onRequest = async (method, params) => {
+  conn.onRequest = async (method, params, withdrawn) => {
     if (method !== 'session/request_permission') throw new RpcError(-32601, `${method} is not supported`);
     const options: { optionId: string; kind: string }[] = Array.isArray(params?.options) ? params.options : [];
     const call = (params?.toolCall ?? {}) as AntigravityToolCall;
@@ -1003,7 +1003,7 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
       decision = { allow: false, reason: verdict.reason };
       label = `${verdict.reason}${t().antigravityEndsTurn}`;
     } else if (o.requestApproval) {
-      const answer = await o.requestApproval(antigravityApprovalRequest(o.permission, call, o.cwd, o.addDirs));
+      const answer = await o.requestApproval(antigravityApprovalRequest(o.permission, call, o.cwd, o.addDirs), withdrawn);
       decision = answer.allow ? { allow: true } : { allow: false, reason: answer.note ?? '' };
       label = declinedLabel(answer.note);
     } else decision = { allow: false, reason: 'Not covered by the permission' };

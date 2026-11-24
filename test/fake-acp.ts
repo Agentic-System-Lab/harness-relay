@@ -15,7 +15,8 @@ import { writeFileSync } from 'node:fs';
  *   - `permission`: announces `FAKE_ACP_ANNOUNCE` (JSON, a `tool_call`; default the call below), asks
  *     `session/request_permission` about `FAKE_ACP_CALL` (JSON, the tool call; an edit by default), then
  *     reports the call completed when allowed and failed when not (the announced one too, with
- *     `FAKE_ACP_END_ANNOUNCED`), and says the outcome it got in its reply;
+ *     `FAKE_ACP_END_ANNOUNCED`), and says the outcome it got in its reply; with `FAKE_ACP_WITHDRAW` it
+ *     withdraws the request itself after 100 ms (`$/cancel_request`), as an agent whose own rule decided;
  *   - `client`: asks the client to write a file, read one and start a terminal (as some agents do although
  *     `initialize` said the client does none of these), and says what it got back;
  *   - `hang`: starts a tool call and says something, then waits; a `session/cancel` ends the prompt with
@@ -45,7 +46,12 @@ const scenario = env.FAKE_ACP_SCENARIO || 'basic';
 let nextId = 100;
 const waiting = new Map();
 let cancel;
-const ask = (method, params) => new Promise((resolve) => { const id = nextId++; waiting.set(id, resolve); send({ id, method, params }); });
+const ask = (method, params) => new Promise((resolve) => {
+  const id = nextId++;
+  waiting.set(id, resolve);
+  send({ id, method, params });
+  if (env.FAKE_ACP_WITHDRAW && method === 'session/request_permission') setTimeout(() => send({ method: '$/cancel_request', params: { id } }), 100);
+});
 const rejected = (v) => env.FAKE_ACP_REJECT && v === env.FAKE_ACP_REJECT;
 
 async function prompt(id, p) {

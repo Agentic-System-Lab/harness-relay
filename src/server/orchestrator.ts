@@ -6488,14 +6488,17 @@ export class Orchestrator {
     // Ask the user in the chat; the CLI waits until they answer (or the run is stopped). In a run a
     // schedule started, only what the conversation always allows goes through; the rest is refused.
     // With "Approve for me", the lead agent reviews each request first: what it approves goes through
-    // (in a schedule's run too), and the user is asked about the rest as before.
+    // (in a schedule's run too), and the user is asked about the rest as before. A CLI that stops
+    // waiting for the answer while its turn goes on (`withdrawn`, from its adapter) has its card say so
+    // at once: neither the user's answer nor the lead agent's verdict would reach it any more.
     const requestApproval =
       conv.settings.approvals === 'deny'
         ? undefined
-        : async (req: ApprovalRequest): Promise<ApprovalAnswer> => {
+        : async (req: ApprovalRequest, withdrawn?: AbortSignal): Promise<ApprovalAnswer> => {
             // Asked after the turn ended (a request queued behind another one, say): it expired, as
             // the turn's own waiting requests did. No card is shown, and nothing can lock the folder.
-            if (turnOver) return { allow: false };
+            // Withdrawn before it was asked: nobody waits for an answer.
+            if (turnOver || withdrawn?.aborted) return { allow: false };
             // Keys come from the command as it will run; `detail` may be tidied up for display.
             // A request nothing tells apart gets no keys: no "always allow" (it would allow every such request).
             const keys = req.noRule ? [] : approvalKeys(req.kind, req.command ?? req.detail, req.tool);
@@ -6534,24 +6537,29 @@ export class Orchestrator {
             this.store.saveMessage(conv.id, msg, true);
 
             waiting.add(part.id);
-            let answer = await new Promise<ApprovalAnswer & { expired?: boolean; unattended?: boolean }>((resolve) => {
+            type Answer = ApprovalAnswer & { expired?: boolean; unattended?: boolean; withdrawn?: boolean };
+            let answer = await new Promise<Answer>((resolve) => {
               const onAbort = () => resolve({ allow: false, expired: true });
+              const onWithdrawn = () => pending.resolve({ allow: false, withdrawn: true });
               run.abort.signal.addEventListener('abort', onAbort, { once: true });
+              withdrawn?.addEventListener('abort', onWithdrawn, { once: true });
               const pending = {
                 convId: conv.id,
                 reviewing,
                 /** Answered: a verdict that lands in the same moment changes nothing. */
                 done: false,
-                resolve: (a: ApprovalAnswer & { expired?: boolean; unattended?: boolean }) => {
+                resolve: (a: Answer) => {
                   if (pending.done) return;
                   pending.done = true;
                   run.abort.signal.removeEventListener('abort', onAbort);
+                  withdrawn?.removeEventListener('abort', onWithdrawn);
                   resolve(a);
                 },
               };
               this.approvals.set(part.id, pending);
               this.emitStatus(conv.id);
               if (run.abort.signal.aborted) onAbort();
+              else if (withdrawn?.aborted) onWithdrawn();
               // Approved before it was shown (the same request earlier in the run): it goes through at once.
               else if (part.review?.status === 'approved') pending.resolve({ allow: true });
               else if (reviewing)
@@ -6578,7 +6586,7 @@ export class Orchestrator {
             if (busy) answer = { allow: false, note: busy };
             // What the reviewer would have approved, the lock refused: not approved after all.
             if (busy && part.review?.status === 'approved') delete part.review;
-            part.status = answer.expired ? 'expired' : answer.allow ? 'allowed' : 'denied';
+            part.status = answer.expired ? 'expired' : answer.withdrawn ? 'withdrawn' : answer.allow ? 'allowed' : 'denied';
             // Refused unattended after the review: the card says why, and the agent hears what it would without one.
             if (answer.unattended) {
               part.note =
@@ -6615,11 +6623,11 @@ export class Orchestrator {
     const gatewayNames = this.gateway?.toolNames() ?? [];
     const cliApproval = (relayOn: boolean): RunOptions['requestApproval'] =>
       relayOn
-        ? async (req: ApprovalRequest): Promise<ApprovalAnswer> =>
+        ? async (req: ApprovalRequest, withdrawn?: AbortSignal): Promise<ApprovalAnswer> =>
             gatewayToolNamed(gatewayNames, req, agent.provider)
               ? { allow: true }
               : requestApproval
-                ? requestApproval(req)
+                ? requestApproval(req, withdrawn)
                 : { allow: false }
         : requestApproval;
     const toOutbox = (o: { tool: string; title: string; preview: OutboxItem['preview']; args: Record<string, unknown> }): OutboxItem => {

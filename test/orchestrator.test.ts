@@ -853,6 +853,29 @@ describe('approvals', () => {
     expect(approvals(reloaded).map((a) => a.status)).toEqual(['allowed', 'allowed']);
   });
 
+  it('says so on the card when the CLI stops waiting for the answer while its turn goes on', async () => {
+    const conv = solo();
+    const cli = new AbortController();
+    let answered: unknown;
+    fake.inTurn = async (_name, o) => {
+      answered = await o.requestApproval!({ kind: 'command', detail: 'npm test', reason: 'Run the tests' }, cli.signal);
+      // Asked again with a signal already aborted: no card at all.
+      await o.requestApproval!({ kind: 'command', detail: 'npm run lint' }, cli.signal);
+    };
+    await orchestrator.send(conv.id, 'test it');
+    await vi.waitFor(() => expect(orchestrator.isWaiting(conv.id)).toBe(true));
+    const pending = pendingApproval(conv)!;
+    cli.abort();
+    await finish(conv.id);
+    expect(answered).toEqual({ allow: false });
+    expect(approvals(conv)).toEqual([expect.objectContaining({ id: pending.id, status: 'withdrawn', detail: 'npm test' })]);
+    expect(orchestrator.isWaiting(conv.id)).toBe(false);
+    // The user's answer comes too late: nothing waits for it.
+    expect(() => orchestrator.answerApproval(conv.id, pending.id, { allow: true })).toThrow();
+    expect(conv.allowRules ?? []).toEqual([]);
+    expect(approvals(new Store(db).get(conv.id)!).map((a) => a.status)).toEqual(['withdrawn']);
+  });
+
   it('passes a decline note to the agent, and expires requests when the run is stopped', async () => {
     const conv = solo();
     await orchestrator.send(conv.id, 'please install');

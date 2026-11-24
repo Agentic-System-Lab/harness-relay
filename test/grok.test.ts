@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { JsonRpcConnection, RpcError } from '../src/server/agents/acp';
 import {
   createGrokUpdateHandler,
@@ -557,6 +557,47 @@ describe('JSON-RPC connection', () => {
     conn.close(new Error('grok exited'));
     await expect(pending).rejects.toThrow('grok exited');
     await expect(conn.request('initialize')).rejects.toThrow('grok exited');
+  });
+
+  it("tells a request's handler when the agent withdraws it, and sends no answer to it then", async () => {
+    const sent: any[] = [];
+    const conn = new JsonRpcConnection((line) => sent.push(JSON.parse(line)));
+    const signals = new Map<unknown, AbortSignal>();
+    const answers = new Map<unknown, (v: unknown) => void>();
+    conn.onRequest = (_method, params, withdrawn) => {
+      signals.set(params.n, withdrawn!);
+      return new Promise((resolve) => answers.set(params.n, resolve));
+    };
+    conn.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'session/request_permission', params: { n: 1 } }));
+    conn.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 'eight', method: 'session/request_permission', params: { n: 2 } }));
+    conn.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'session/request_permission', params: { n: 3 } }));
+    await vi.waitFor(() => expect(signals.size).toBe(3));
+
+    // JSON-RPC's `$/cancel_request`: the handler hears it, and the request is answered "cancelled", once.
+    conn.handleLine(JSON.stringify({ jsonrpc: '2.0', method: '$/cancel_request', params: { id: 7 } }));
+    expect(signals.get(1)!.aborted).toBe(true);
+    expect(sent).toEqual([{ jsonrpc: '2.0', id: 7, error: { code: -32800, message: 'Request cancelled' } }]);
+    answers.get(1)!({ outcome: { outcome: 'selected', optionId: 'allow-once' } });
+
+    // An adapter's own word for it (Codex's `serverRequest/resolved`): no answer at all; a string id too.
+    expect(conn.withdraw('eight')).toBe(true);
+    expect(signals.get(2)!.aborted).toBe(true);
+    answers.get(2)!({ outcome: { outcome: 'selected', optionId: 'allow-once' } });
+
+    // Nothing waits under an id answered, unknown or missing.
+    expect(conn.withdraw(7)).toBe(false);
+    expect(conn.withdraw(42)).toBe(false);
+    expect(conn.withdraw(undefined)).toBe(false);
+    conn.handleLine(JSON.stringify({ jsonrpc: '2.0', method: '$/cancel_request', params: { id: 42 } }));
+
+    // The one still waiting is answered as usual, and can no longer be withdrawn.
+    answers.get(3)!({ outcome: { outcome: 'selected', optionId: 'reject-once' } });
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(signals.get(3)!.aborted).toBe(false);
+    expect(sent[1]).toEqual({ jsonrpc: '2.0', id: 9, result: { outcome: { outcome: 'selected', optionId: 'reject-once' } } });
+    expect(conn.withdraw(9)).toBe(false);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toHaveLength(2);
   });
 });
 

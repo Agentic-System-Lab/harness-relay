@@ -21,10 +21,16 @@ export class JsonRpcConnection {
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   private closedWith: Error | undefined;
+  /** The peer's requests not answered yet, by id (as JSON: an id may be a number or a string). */
+  private incoming = new Map<string, AbortController>();
 
   onNotification?: (method: string, params: any) => void;
-  /** Answers a request from the peer; throw an RpcError to reply with an error. */
-  onRequest?: (method: string, params: any) => unknown | Promise<unknown>;
+  /**
+   * Answers a request from the peer; throw an RpcError to reply with an error. `withdrawn` aborts once
+   * the peer no longer waits for the answer (`$/cancel_request`, or `withdraw()`): what the handler
+   * then returns is not sent.
+   */
+  onRequest?: (method: string, params: any, withdrawn?: AbortSignal) => unknown | Promise<unknown>;
 
   /** `versionField: false` leaves out `"jsonrpc": "2.0"` (Codex's app-server protocol omits it). */
   constructor(
@@ -60,25 +66,51 @@ export class JsonRpcConnection {
       return;
     }
     if (!hasId) {
+      // The peer gave up on a request of its own (JSON-RPC's `$/cancel_request`, as LSP and ACP have it).
+      if (msg.method === '$/cancel_request') {
+        if (this.withdraw(msg.params?.id))
+          this.send({ jsonrpc: '2.0', id: msg.params.id, error: { code: -32800, message: 'Request cancelled' } });
+        return;
+      }
       this.onNotification?.(msg.method, msg.params);
       return;
     }
     const { id, method, params } = msg;
+    const key = JSON.stringify(id);
+    const withdrawn = new AbortController();
+    this.incoming.set(key, withdrawn);
+    const answer = (reply: Record<string, unknown>) => {
+      if (this.incoming.get(key) === withdrawn) this.incoming.delete(key);
+      if (!withdrawn.signal.aborted) this.send({ jsonrpc: '2.0', id, ...reply });
+    };
     Promise.resolve()
       .then(() => {
         if (!this.onRequest) throw new RpcError(-32601, `${method} is not supported`);
-        return this.onRequest(method, params);
+        return this.onRequest(method, params, withdrawn.signal);
       })
       .then(
-        (result) => this.send({ jsonrpc: '2.0', id, result: result ?? null }),
+        (result) => answer({ result: result ?? null }),
         (err: unknown) =>
-          this.send({
-            jsonrpc: '2.0',
-            id,
+          answer({
             error: { code: err instanceof RpcError ? err.code : -32603, message: err instanceof Error ? err.message : String(err) },
           }),
       );
   };
+
+  /**
+   * The peer no longer waits for its request `id` (it said so in a notification of its own, as Codex's
+   * `serverRequest/resolved`): its handler's signal aborts and no answer is sent. False when no such
+   * request waits for an answer.
+   */
+  withdraw(id: unknown): boolean {
+    if (id === undefined || id === null) return false;
+    const key = JSON.stringify(id);
+    const pending = this.incoming.get(key);
+    if (!pending) return false;
+    this.incoming.delete(key);
+    pending.abort();
+    return true;
+  }
 
   /** The peer is gone: fail every outstanding and future request with `err`. */
   close(err: Error): void {
