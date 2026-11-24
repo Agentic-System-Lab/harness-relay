@@ -620,6 +620,9 @@ export const api = {
   /** Try a saved fixed command (in the background: its card follows it). */
   tryCommand: (id: string, commandId: string, b: { extra?: string; stdin?: string; confirm?: boolean }) =>
     request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/try`, b),
+  /** Stop a fixed command's run that this chat's card follows. */
+  stopCommand: (id: string, commandId: string) =>
+    request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/stop`, {}),
   /** Approve what changed in a fixed command's code: the code whose diff had this digest is pinned again (nothing runs). */
   approveCommand: (id: string, commandId: string, digest: string) =>
     request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/approve`, {

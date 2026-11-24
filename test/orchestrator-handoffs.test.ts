@@ -35,6 +35,7 @@ import {
   withLang,
 } from './orchestrator-harness';
 import { slow } from './timeouts';
+import { t } from '../src/server/i18n';
 
 const keys = new Map<string, string>();
 let ran: { env: NodeJS.ProcessEnv; stdin?: string }[] = [];
@@ -320,14 +321,15 @@ describe('fixed command cards', () => {
     const closing = orchestrator as unknown as { closing: boolean };
     try {
       await orchestrator.tryCommand(conv.id, id);
-      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('running'));
-      // A server that stopped during it starts with the card ended, so that it can be tried again.
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run).toMatchObject({ status: 'running', endsAt: expect.any(Number) }));
+      // A server that stopped during it starts with the card ended (stopped, no time limit left), so that it can be tried again.
       const { Store } = await import('../src/server/store');
       const after = new Store(db).get(conv.id)!;
       const card = agentMessages(after)
         .flatMap((m) => m.parts)
         .find((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command')!;
-      expect(card.run).toMatchObject({ status: 'error' });
+      expect(card.run).toMatchObject({ status: 'error', stopped: true });
+      expect(card.run?.endsAt).toBeUndefined();
       orchestrator.stopAll();
       await vi.waitFor(() => expect(aborted).toBe(true));
       await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).not.toBe('running'));
@@ -389,6 +391,112 @@ describe('fixed command cards', () => {
       await orchestrator.send(conv.id, 'after');
       await finish(conv.id);
       expect(userTexts(conv.id)).toContain('after');
+    } finally {
+      orchestrator.fixedCommandDeps = deps;
+    }
+  });
+
+  it('shows on its card while it runs when it stops, its output so far and the hosts refused it, and stops it from there', async () => {
+    const { conv, msg, part } = await propose();
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
+    let aborted = false;
+    const deps = orchestrator.fixedCommandDeps;
+    let refused: string[] = [];
+    orchestrator.fixedCommandDeps = {
+      ...deps,
+      progressMs: 5,
+      sandboxCommand: (async (bin: string, args: string[], env: NodeJS.ProcessEnv, spec: never) => ({
+        ...(await (deps.sandboxCommand as unknown as (...a: unknown[]) => Promise<object>)(bin, args, env, spec)),
+        run: { refusedHosts: refused },
+      })) as never,
+      runProcess: (async (p: { signal?: AbortSignal; onLine?: (line: string) => void }) => {
+        p.onLine!('Uploading submission.csv');
+        refused.push('www.googleapis.com');
+        return new Promise((done) =>
+          p.signal!.addEventListener('abort', () => {
+            aborted = true;
+            done({
+              code: null,
+              signal: 'SIGTERM',
+              stdout: 'Uploading submission.csv\n',
+              stdoutBytes: Buffer.alloc(0),
+              stdoutTruncated: false,
+              stdoutSize: 0,
+              stderr: '',
+              aborted: true,
+              timedOut: false,
+            });
+          }),
+        );
+      }) as never,
+    };
+    try {
+      // Not running: nothing to stop.
+      expect(() => orchestrator.stopCommand(conv.id, id)).toThrow(expect.objectContaining({ status: 409 }));
+      await orchestrator.tryCommand(conv.id, id);
+      await vi.waitFor(() =>
+        expect(partOf(conv.id, 'command').part.run).toMatchObject({
+          status: 'running',
+          output: 'Uploading submission.csv',
+          refusedHosts: ['www.googleapis.com'],
+          endsAt: expect.any(Number),
+        }),
+      );
+      // Another conversation of the same folder does not stop it: its card does not follow this run.
+      const other = conversation({ mode: 'relay' });
+      expect(() => orchestrator.stopCommand(other.id, id)).toThrow(expect.objectContaining({ status: 409 }));
+      expect(aborted).toBe(false);
+      orchestrator.stopCommand(conv.id, id);
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('error'));
+      expect(aborted).toBe(true);
+      expect(partOf(conv.id, 'command').part.run).toMatchObject({
+        reason: t().stoppedNote,
+        stopped: true,
+        output: 'Uploading submission.csv',
+        refusedHosts: ['www.googleapis.com'],
+      });
+      expect(partOf(conv.id, 'command').part.run?.endsAt).toBeUndefined();
+      // Its folder let go: the chat takes a message again.
+      fake.reply = () => 'Done.';
+      await orchestrator.send(conv.id, 'after');
+      await finish(conv.id);
+      expect(userTexts(conv.id)).toContain('after');
+    } finally {
+      refused = [];
+      orchestrator.fixedCommandDeps = deps;
+    }
+  });
+
+  it('stops its run when its conversation is deleted', async () => {
+    const { conv, msg, part } = await propose();
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
+    let aborted = false;
+    const deps = orchestrator.fixedCommandDeps;
+    orchestrator.fixedCommandDeps = {
+      ...deps,
+      runProcess: (async (p: { signal?: AbortSignal }) =>
+        new Promise((done) =>
+          p.signal!.addEventListener('abort', () => {
+            aborted = true;
+            done({
+              code: null,
+              signal: 'SIGTERM',
+              stdout: '',
+              stdoutBytes: Buffer.alloc(0),
+              stdoutTruncated: false,
+              stdoutSize: 0,
+              stderr: '',
+              aborted: true,
+              timedOut: false,
+            });
+          }),
+        )) as never,
+    };
+    try {
+      await orchestrator.tryCommand(conv.id, id);
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('running'));
+      await orchestrator.deleteConversation(conv.id);
+      await vi.waitFor(() => expect(aborted).toBe(true));
     } finally {
       orchestrator.fixedCommandDeps = deps;
     }
@@ -810,6 +918,29 @@ describe('a schedule that runs a fixed command first', () => {
     ).toContain('failed (exit code 2)');
   });
 
+  it('tells the team, with what it found, the hosts the sandbox refused it', async () => {
+    const { conv } = await scheduled();
+    const deps = orchestrator.fixedCommandDeps;
+    orchestrator.fixedCommandDeps = {
+      ...deps,
+      sandboxCommand: (async (bin: string, args: string[], env: NodeJS.ProcessEnv, spec: never) => ({
+        ...(await (deps.sandboxCommand as unknown as (...a: unknown[]) => Promise<object>)(bin, args, env, spec)),
+        run: { refusedHosts: ['api.other.com'] },
+      })) as never,
+    };
+    try {
+      play = () => ({ code: 10, stdout: '2 new items' });
+      expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
+      await finish(conv.id);
+      const message = store.get(conv.id)!.messages.find((m) => m.author.kind === 'user')!;
+      expect(message.event).toContain(
+        'found something new (exit code 10). The sandbox refused the hosts it tried to reach, which are not among its hosts: api.other.com.',
+      );
+    } finally {
+      orchestrator.fixedCommandDeps = deps;
+    }
+  });
+
   it('does not run, nor send, once its code changed; and fails for a command that is gone', async () => {
     const { conv, id } = await scheduled();
     writeFileSync(join(project, 'check.py'), 'print("changed")\n');
@@ -1010,6 +1141,28 @@ describe('a schedule that only runs its fixed command (commandOnly)', () => {
     expect(calls).toHaveLength(0);
     expect(store.get(conv.id)!.messages.some((m) => m.author.kind === 'user')).toBe(false);
     expect(ran).toHaveLength(3);
+  });
+
+  it('notes a run that ended with 0 although the sandbox refused it hosts: what it was to do may not have been done', async () => {
+    const { conv } = await commandOnly();
+    const deps = orchestrator.fixedCommandDeps;
+    orchestrator.fixedCommandDeps = {
+      ...deps,
+      sandboxCommand: (async (bin: string, args: string[], env: NodeJS.ProcessEnv, spec: never) => ({
+        ...(await (deps.sandboxCommand as unknown as (...a: unknown[]) => Promise<object>)(bin, args, env, spec)),
+        run: { refusedHosts: ['www.googleapis.com'] },
+      })) as never,
+    };
+    try {
+      play = () => ({ code: 0, stdout: 'Submitted' });
+      expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'ran' });
+      const note = store.get(conv.id)!.messages.at(-1)!;
+      expect(note.author.kind).toBe('system');
+      expect(textOf(note)).toContain('沙箱擋下了它要連的主機：www.googleapis.com');
+      expect(calls).toHaveLength(0);
+    } finally {
+      orchestrator.fixedCommandDeps = deps;
+    }
   });
 
   it('runs while the team waits for the user, and without a team', async () => {

@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FolderHandoffs } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { finishedReply, replies, send, settled } from '../support/app';
+import { composer, finishedReply, replies, send, settled } from '../support/app';
 import { chatWith, cli, relaySandbox } from '../support/clis';
 
 /*
@@ -236,5 +236,64 @@ test.describe('secrets and fixed commands', () => {
     await expect(note.locator('.handoff-code-files')).toContainText('print("post")');
     await note.getByRole('button', { name: 'Approve the changes' }).click();
     await expect(note).toContainText('Approved: it runs at its next time');
+  });
+
+  test('a running command shows when it stops and its output so far, folded until opened, Stop on its card ends it, and a host refused a run that ends with 0 is named', async ({
+    page,
+    relay,
+  }) => {
+    const sandbox = relaySandbox();
+    test.skip(process.platform === 'win32', 'Fixed commands do not run on native Windows');
+    if (!sandbox.ok && process.env.E2E_REQUIRE_RELAY_SANDBOX === '1')
+      throw new Error(
+        `Harness Relay's own sandbox is required (E2E_REQUIRE_RELAY_SANDBOX=1), but it does not work here: ${sandbox.reason}`,
+      );
+    test.skip(!sandbox.ok, `Harness Relay's own sandbox does not run here: ${sandbox.reason}`);
+    const claude = cli('claude');
+    const id = await chatWith(page, relay, claude);
+    await send(page, 'Make me a script e2e:secret e2e:command');
+    await finishedReply(page, claude.name);
+    await giveSecret(page);
+    await settled(relay, id);
+
+    const card = commandCard(page);
+    await card.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(card).toContainText('Saved');
+    // Words added for this run keep it going after it printed its lines.
+    await card.getByLabel('Added for this run').fill('&& sleep 120');
+    await card.getByRole('button', { name: 'Try it' }).click();
+    const result = card.getByRole('status');
+    await expect(result).toContainText('Running', { timeout: 30_000 });
+    await expect(result).toContainText('If it is still running at');
+    await expect(card.getByRole('button', { name: 'Try it' })).toHaveCount(0);
+    // What it printed so far, folded: its summary counts the lines, the lines show once opened, secrets masked.
+    const log = card.locator('details.handoff-live-log');
+    await expect(log.locator('summary')).toContainText(/Output so far \(\d+ lines?, secrets masked\)/, { timeout: 30_000 });
+    await expect(log).not.toHaveAttribute('open', '');
+    await expect(log.locator('pre')).toBeHidden();
+    await log.locator('summary').click();
+    await expect(log.locator('pre')).toContainText('E2E_TOKEN=••••');
+    await expect(log.locator('pre')).toContainText('input: hello from the agent');
+    await expect(log.locator('pre')).not.toContainText(VALUE);
+    // The chat waits for it, and says where to stop it.
+    await composer(page).fill('meanwhile');
+    await composer(page).press('Enter');
+    await expect(page.locator('.error-line[role="alert"]').filter({ hasText: 'stop it on its card' })).toBeVisible();
+    // Stop ends it: the card says so, keeps what it printed, and offers Try it again.
+    await card.getByRole('button', { name: 'Stop', exact: true }).click();
+    await expect(result.locator('strong')).toHaveText('Stopped', { timeout: 30_000 });
+    await expect(result).not.toContainText('Could not run');
+    await expect(result).toContainText('input: hello from the agent');
+    await expect(card.getByRole('button', { name: 'Try it' })).toBeVisible();
+    await expect(card.locator('details.handoff-live-log')).toHaveCount(0);
+    await settled(relay, id);
+
+    // A host the sandbox refuses it, though it ends with 0 (as a client that gives up may): the card says
+    // which, as it runs and once it is done. The sandbox's proxy refuses it: nothing leaves this computer.
+    await card.getByLabel('Added for this run').fill('; curl -sS --max-time 20 https://refused.example.com/ ; true');
+    await card.getByRole('button', { name: 'Try it' }).click();
+    await expect(result.locator('strong')).toHaveText('Done', { timeout: 60_000 });
+    await expect(result).toContainText('exit code 0');
+    await expect(result.locator('.warn-line')).toContainText('The sandbox refused the hosts it tried to reach: refused.example.com');
   });
 });

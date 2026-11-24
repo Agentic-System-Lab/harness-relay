@@ -12,6 +12,7 @@ import {
   hostName,
   maskEdges,
   maskValues,
+  refusedHostsToTell,
   secretName,
   secretUrl,
   secretValueProblem,
@@ -24,6 +25,7 @@ import {
   elsewhereFolders,
   filledValues,
   formOf,
+  outputLines,
   proposalOf,
   runTone,
   wordsOf,
@@ -252,16 +254,46 @@ describe("the cards' logic", () => {
     expect(proposalOf({ ...form, name: 'Bad Name' })).toBeUndefined();
   });
 
-  it('offers what fits the card: decide, try, approve changes, share a result', () => {
-    expect(commandActions(part())).toEqual({ decide: true, tryIt: false, approve: false, share: false });
+  it('offers what fits the card: decide, try, stop a run, approve changes, share a result', () => {
+    expect(commandActions(part())).toEqual({ decide: true, tryIt: false, stop: false, approve: false, share: false });
     const saved = part({ status: 'saved', commandId: 'c1' });
-    expect(commandActions(saved)).toEqual({ decide: false, tryIt: true, approve: false, share: false });
-    expect(commandActions({ ...saved, run: run('running') })).toMatchObject({ tryIt: false, share: false });
-    expect(commandActions({ ...saved, run: run('changed') })).toMatchObject({ approve: true, share: false });
-    expect(commandActions({ ...saved, run: run('failed') })).toMatchObject({ tryIt: true, share: true });
-    expect(commandActions(part({ status: 'dismissed' }))).toEqual({ decide: false, tryIt: false, approve: false, share: false });
+    expect(commandActions(saved)).toEqual({ decide: false, tryIt: true, stop: false, approve: false, share: false });
+    // A run under way (Try it, the outbox, its schedule): Stop instead of Try it.
+    expect(commandActions({ ...saved, run: run('running') })).toMatchObject({ tryIt: false, stop: true, share: false });
+    expect(commandActions({ ...saved, run: run('changed') })).toMatchObject({ approve: true, stop: false, share: false });
+    expect(commandActions({ ...saved, run: run('failed') })).toMatchObject({ tryIt: true, stop: false, share: true });
+    expect(commandActions(part({ status: 'dismissed' }))).toEqual({
+      decide: false,
+      tryIt: false,
+      stop: false,
+      approve: false,
+      share: false,
+    });
     expect(runTone(run('news'))).toEqual({ tone: 'ok', code: true });
     expect(runTone(run('error'))).toEqual({ tone: 'bad', code: false });
+  });
+
+  it('warns of a run that ended with 0 although the sandbox refused it hosts, and names them beside any result but a failure', () => {
+    const refused = (status: FixedCommandRun['status']): FixedCommandRun => ({ ...run(status), refusedHosts: ['www.googleapis.com'] });
+    expect(runTone(refused('passed'))).toEqual({ tone: 'warn', code: true });
+    expect(runTone(refused('news'))).toEqual({ tone: 'warn', code: true });
+    expect(runTone(refused('failed'))).toEqual({ tone: 'bad', code: true });
+    // Stopped: the user's choice, not a failure.
+    expect(runTone({ ...run('error'), stopped: true })).toEqual({ tone: 'warn', code: false });
+    expect(refusedHostsToTell(refused('passed'))).toEqual(['www.googleapis.com']);
+    expect(refusedHostsToTell(refused('running'))).toEqual(['www.googleapis.com']);
+    expect(refusedHostsToTell(refused('error'))).toEqual(['www.googleapis.com']);
+    // A failure's reason names them already (`hostsRefused`).
+    expect(refusedHostsToTell(refused('failed'))).toEqual([]);
+    expect(refusedHostsToTell(run('passed'))).toEqual([]);
+  });
+
+  it("counts a running run's lines of output, not the line that says its start was cut", () => {
+    expect(outputLines(undefined)).toBe(0);
+    expect(outputLines('')).toBe(0);
+    expect(outputLines('one')).toBe(1);
+    expect(outputLines('one\ntwo')).toBe(2);
+    expect(outputLines('…\nlast\nlines')).toBe(2);
   });
 });
 
@@ -555,6 +587,40 @@ describe('what an agent hears of the runs and outbox items it asked for', () => 
     ]);
     expect(commandRunNotes(runs, 'alice', new Set()).keys).toHaveLength(12);
     expect(commandRunNotes(runs, 'alice', new Set()).notes).toHaveLength(10);
+  });
+
+  it('tells the agent and the user the hosts the sandbox refused a run that ended with 0 or was stopped, once for a failure', () => {
+    const passed = run({ refusedHosts: ['www.googleapis.com'] });
+    const conv = chat([reply('alice', [card('submit', passed)])]);
+    expect(commandRunNotes(conv, 'alice', new Set()).notes[0]).toBe(
+      'the user tried the fixed command "submit" from its card: done (exit code 0). The sandbox refused the hosts it tried to reach, which are not among this fixed command\'s hosts: www.googleapis.com.',
+    );
+    const stopped = run({
+      status: 'error',
+      exitCode: null,
+      reason: withLang('en', () => t().stoppedNote),
+      stopped: true,
+      refusedHosts: ['a.com', 'b.com'],
+    });
+    expect(withLang('en', () => t().handoffs.commandAnswer('submit', stopped))).toContain('stopped before it ended.');
+    expect(withLang('zh-TW', () => t().handoffs.commandAnswer('submit', stopped))).toContain('執行到一半被停止了。');
+    for (const lang of ['zh-TW', 'en'] as const) {
+      const answer = withLang(lang, () => t().handoffs.commandAnswer('submit', stopped));
+      expect(answer, lang).toContain('a.com, b.com');
+      expect(answer, lang).not.toMatch(/。。|\.\./);
+      expect(
+        withLang(lang, () => t().handoffs.commandAnswer('submit', passed)),
+        lang,
+      ).toContain('www.googleapis.com');
+    }
+    // A failure's reason names them (`hostsRefused`): not twice.
+    const failed = run({
+      status: 'failed',
+      exitCode: 1,
+      reason: withLang('en', () => t().handoffs.hostsRefused('a.com')),
+      refusedHosts: ['a.com'],
+    });
+    expect(withLang('en', () => t().handoffs.commandAnswer('submit', failed)).match(/a\.com/g)).toHaveLength(1);
   });
 
   it("ends Try it's answer with one stop, also when its reason ends with one", () => {

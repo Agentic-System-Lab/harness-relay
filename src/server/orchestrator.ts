@@ -47,7 +47,7 @@ import type {
   StepsPart,
 } from '../shared/types';
 import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS, INTERACTIVE_LIMITS, attachmentLabel } from '../shared/types';
-import { checkProposal, interactiveLine, maskValues, splitHandoffs, withoutHandoffBlocks } from '../shared/handoffs';
+import { checkProposal, interactiveLine, maskValues, refusedHostsToTell, splitHandoffs, withoutHandoffBlocks } from '../shared/handoffs';
 import { askingReplies, splitAsk } from '../shared/ask';
 import { splitSteps, stepsAnswerText, stepsOfMessage, withoutStepsTail } from '../shared/steps';
 import { nextRun } from '../shared/schedule';
@@ -109,6 +109,7 @@ import {
   runFixedCommand,
   takePin,
   type FixedCommandDeps,
+  type FixedRunProgress,
   type PinEntry,
 } from './fixedCommands';
 import type { CommandPin } from './handoffs';
@@ -537,7 +538,10 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
     // A command the user runs from a card runs for its own conversation: the copy's card says it stopped.
     for (const p of copy.parts) {
       // So does a fixed command's run from a card: it goes on for the conversation it was started in.
-      if (p.type === 'command' && p.run?.status === 'running') p.run = { ...p.run, status: 'error', reason: t().stoppedNote };
+      if (p.type === 'command' && p.run?.status === 'running') {
+        const { endsAt: _endsAt, ...run } = p.run;
+        p.run = { ...run, status: 'error', reason: t().stoppedNote, stopped: true };
+      }
       if (p.type !== 'interactive' || p.session?.state !== 'running') continue;
       const { asking: _asking, ...session } = p.session;
       p.session = { ...session, state: 'stopped' };
@@ -1002,8 +1006,11 @@ export class Orchestrator {
   private checking = new Map<string, AbortController>();
   /** That work, until it has finished its clean-up (`settled()` waits for it). */
   private checkWork = new Set<Promise<unknown>>();
-  /** Fixed commands' runs under way, by command id (one at a time each), and the work of those Try it started. */
-  private commandRuns = new Map<string, AbortController>();
+  /**
+   * Fixed commands' runs under way, by command id (one at a time each), with the conversation whose card
+   * follows each (Stop on it, or deleting it, stops it), and the work of those Try it started.
+   */
+  private commandRuns = new Map<string, { abort: AbortController; convId?: string }>();
   private commandWork = new Set<Promise<unknown>>();
   /** What a schedule's fixed command found while the team could not take its message: sent at the time's retry. */
   private heldCommandEvents = new Map<string, { event: string; eventSource: EventSource; command: string }>();
@@ -1193,8 +1200,9 @@ export class Orchestrator {
     try {
       // A branch being made from it is still copying its attached files.
       await Promise.allSettled([...(this.branching.get(convId) ?? [])]);
-      // A command the user runs from one of its cards stops with it.
+      // A command the user runs from one of its cards stops with it, and so does a fixed command's run its card follows.
       this.stopInteractive(convId);
+      for (const r of this.commandRuns.values()) if (r.convId === convId) r.abort.abort();
       // A team checks' command running by itself is stopped: its reservation then ends at once.
       this.checking.get(convId)?.abort();
       // A run being set up gives up when it sees the delete; a settings change or an apply finishes.
@@ -1743,6 +1751,17 @@ export class Orchestrator {
   }
 
   /**
+   * Stop, on a fixed command's card while it runs: its run, whatever started it (Try it, the outbox, its
+   * schedule), when its card is this conversation's. The run ends as stopped, and its folder is let go.
+   */
+  stopCommand(convId: string, commandId: string): void {
+    const { cmd } = this.ownCommand(convId, commandId);
+    const run = this.commandRuns.get(cmd.id);
+    if (!run || run.convId !== convId) throw new HttpError(409, t().handoffs.commandNotRunning);
+    run.abort.abort();
+  }
+
+  /**
    * The user looked at what changed in a fixed command's code (`commandDiff()`) and approves it: its code
    * is pinned again, only as they saw it (`digest`: the digest of the code whose diff they read). Nothing
    * runs: Try it, Send or its schedule does that. The cards of this conversation that waited on it say so.
@@ -1886,7 +1905,7 @@ export class Orchestrator {
     };
     if (this.commandRuns.has(cmd.id)) return { at: Date.now(), source, status: 'error', reason: t().handoffs.commandRunning };
     const abort = new AbortController();
-    this.commandRuns.set(cmd.id, abort);
+    this.commandRuns.set(cmd.id, { abort, ...(conv ? { convId: conv.id } : {}) });
     let release: (() => void) | undefined;
     try {
       // Not while a run may be writing in its folder: what it would run could change under it. And its
@@ -1919,7 +1938,19 @@ export class Orchestrator {
         if (conv) this.markCommandChanged(conv.id, cmd.id, changed.length ? changed : ['.']);
         return run;
       }
-      record({ at: Date.now(), source, status: 'running' });
+      const running: FixedCommandRun = { at: Date.now(), source, status: 'running' };
+      record(running);
+      // Its cards follow it as it runs (when it stops, what it printed so far, the hosts refused it); the
+      // command's own last run (Settings) only once it ended.
+      const onProgress = (p: FixedRunProgress) => {
+        if (!conv || abort.signal.aborted) return;
+        this.updateCommandCards(conv.id, cmd.id, {
+          ...running,
+          endsAt: p.endsAt,
+          ...(p.output ? { output: p.output } : {}),
+          ...(p.refusedHosts.length ? { refusedHosts: p.refusedHosts } : {}),
+        });
+      };
       const { run, written } = await runFixedCommand(
         cmd,
         source,
@@ -1930,6 +1961,7 @@ export class Orchestrator {
           protectedPaths: protectedReads(),
           privateRoots: privateRoots(this.settings.openAgentHome('opencode'), undefined, this.settings.openAgentRoots()),
           signal: abort.signal,
+          onProgress,
         },
         this.fixedCommandDeps,
       );
@@ -2967,6 +2999,8 @@ export class Orchestrator {
     const now = this.store.get(conv.id) ?? conv;
     switch (run.status) {
       case 'passed':
+        // It ended with 0, but the sandbox refused it hosts: what it was to do may not have been done.
+        if (refusedHostsToTell(run).length) this.systemNote(now, t().handoffs.scheduleRunNote(cmd.name, run));
         return { result: 'ran' };
       case 'news':
         this.systemNote(now, t().handoffs.scheduleRunNote(cmd.name, run));
@@ -2999,8 +3033,12 @@ export class Orchestrator {
         : run.status === 'failed'
           ? `failed (exit code ${run.exitCode ?? '?'})${run.reason ? `: ${run.reason.replace(/[.。]$/, '')}` : ''}`
           : `could not run${run.reason ? `: ${run.reason.replace(/[.。]$/, '')}` : ''}`;
+    const refused = refusedHostsToTell(run);
+    const hosts = refused.length
+      ? ` The sandbox refused the hosts it tried to reach, which are not among its hosts: ${refused.join(', ')}.`
+      : '';
     return {
-      event: `The fixed command "${cmd.name}" (${cmd.run}) ${what}.${run.output ? `\n\nIts output, secrets masked:\n${run.output}` : ''}`,
+      event: `The fixed command "${cmd.name}" (${cmd.run}) ${what}.${hosts}${run.output ? `\n\nIts output, secrets masked:\n${run.output}` : ''}`,
     };
   }
 
@@ -3859,7 +3897,7 @@ export class Orchestrator {
     this.drafts.stopAll();
     this.memory.stopAll();
     this.stopInteractive();
-    for (const abort of this.commandRuns.values()) abort.abort();
+    for (const r of this.commandRuns.values()) r.abort.abort();
   }
 
   emitConversation(conv: Conversation): void {
