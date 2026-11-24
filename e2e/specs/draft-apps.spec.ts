@@ -160,7 +160,7 @@ test('New automation rechecks the selected app at submission and keeps its draft
   const task = page.locator('.task-input');
   await task.fill('Review calendar changes');
   await page
-    .locator('.first-input input[type=file]')
+    .locator('.first-input input[type=file]:not([webkitdirectory])')
     .setInputFiles({ name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Review') });
   await page.locator('.draft-app-toggle').click();
   const choices = page.getByRole('group', { name: 'Common apps', exact: true });

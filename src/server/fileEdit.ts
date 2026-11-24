@@ -7,6 +7,7 @@ import {
   fsyncSync,
   lstatSync,
   openSync,
+  readdirSync,
   readSync,
   realpathSync,
   renameSync,
@@ -14,9 +15,10 @@ import {
   writeFileSync,
   type BigIntStats,
 } from 'node:fs';
+import { rm, unlink } from 'node:fs/promises';
 import { isAbsolute, join, relative } from 'node:path';
 import { fileNameProblem, hasLoneSurrogate } from '../shared/fileNames';
-import { FILE_CHANGED, FILE_EDIT_LIMITS, FILE_EXISTS, type FileRoot, type FileWritten } from '../shared/types';
+import { FILE_CHANGED, FILE_EDIT_LIMITS, FILE_EXISTS, type FileDeleted, type FileRoot, type FileWritten } from '../shared/types';
 import { fileKey, withheldFileKeys } from './db';
 import { HttpError } from './errors';
 import { askedPath, editableText, fileVersion, hiddenNatively, isGit } from './files';
@@ -37,7 +39,7 @@ import { DATA_DIR } from './settings';
 
 /*
  * Changing files from the Files panel: a text file edited and saved, a new file, a file uploaded into a
- * folder. Only in a conversation's working directories (never an agent's worktree), and only in one
+ * folder, a file or a folder deleted. Only in a conversation's working directories (never an agent's worktree), and only in one
  * where agents could work in edit mode (`rootReadOnly`); only what browsing shows (no `.git`, nothing
  * the server withholds), never through a link, never into what Harness Relay protects. A write replaces
  * the file at once (a temporary file beside it, renamed over it), keeping its permission bits; the
@@ -318,4 +320,74 @@ export function uploadFile(root: string, dir: unknown, name: unknown, data: unkn
   const target = targetIn(realRoot, folder, name);
   if (target.existing && !replace) throw new HttpError(409, t().filesEdit.exists(name), FILE_EXISTS, [target.rel]);
   return writeAtomically(realRoot, target, bytes);
+}
+
+/**
+ * The name `name` (whose `lstat` is `st`) is listed under in `folder`: itself when the folder lists it
+ * so, else the one it lists for that file or folder (on a file system that ignores letter case or
+ * Unicode form, and on Windows by its short name, `GIT~1`), found by its device and inode; undefined
+ * when none is.
+ */
+function listedName(folder: string, name: string, st: BigIntStats): string | undefined {
+  const names = readdirSync(folder);
+  if (names.includes(name)) return name;
+  const key = fileKey(st);
+  return names.find((n) => {
+    try {
+      return fileKey(lstatSync(join(folder, n), { bigint: true })) === key;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Deletes the file or folder `rel` names in `root`, never the root itself: the name itself, reached
+ * through no link (a link is removed as a link, never what it leads to), not `.git` nor anything in it
+ * (404, as browsing has it), not a file the server withholds (404), nothing Harness Relay protects nor a
+ * folder that holds such a place (403), each compared by the place as the disk spells it. The checks
+ * run at once; then `hold()` holds the folder it is in (`Orchestrator.holdForFiles()`: no run starts
+ * writing there) while it is removed without blocking the server (`fs.promises.rm`, which removes a
+ * link it finds as a link), and lets it go after. A folder that could be deleted only in part (a file
+ * another program holds open on Windows) is a 409 that says so.
+ */
+export function deletePath(root: string, rel: unknown, hold: (folder: string) => () => void = () => () => {}): Promise<FileDeleted> {
+  const { parts, name } = splitPath(rel);
+  if (isGit(name) || (process.platform === 'win32' && name.includes(':'))) throw notFound();
+  const realRoot = realRootOf(root);
+  const folder = openFolder(realRoot, parts);
+  const full = join(folder.path, name);
+  let st: BigIntStats;
+  try {
+    st = lstatSync(full, { bigint: true });
+  } catch {
+    throw notFound();
+  }
+  // The name the folder lists it under (a short name `GIT~1` names `.git` too). A link's own place is
+  // checked, never where it leads (`hiddenNatively()` would follow it).
+  const listed = listedName(folder.path, name, st);
+  if (!listed || isGit(listed) || withheldFileKeys().has(fileKey(st)) || (!st.isSymbolicLink() && hiddenNatively(realRoot, full))) {
+    throw notFound();
+  }
+  const kind = st.isDirectory() ? 'dir' : 'file';
+  // The place itself as the disk spells it (a link's own, not where it leads) inside a protected one,
+  // or one inside it.
+  const guarded = protectedTargets();
+  const self = st.isSymbolicLink() ? join(realPath(folder.path), listed) : realPath(full);
+  if (insideAny(self, guarded) || (kind === 'dir' && guarded.some((p) => insideAny(p, [self])))) {
+    throw new HttpError(403, t().filesEdit.protectedDelete);
+  }
+  // Spelled as runs lock their folders (`realpathSync`, as the root is here), so that a run's lock and this hold meet.
+  const release = hold(folder.path);
+  const removal = kind === 'dir' ? rm(full, { recursive: true, maxRetries: 2 }) : unlink(full);
+  return removal.then(
+    () => {
+      release();
+      return { path: [...parts, name].join('/'), kind };
+    },
+    (err: unknown) => {
+      release();
+      throw new HttpError(409, t().filesEdit.cannotDelete(name, (err as NodeJS.ErrnoException).code ?? (err as Error).message));
+    },
+  );
 }

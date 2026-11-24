@@ -14,7 +14,7 @@
 
 一個在本機執行的任務助理，讓真正的 **Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 和 Muse Code** CLI，以及五個用你選的模型來源執行的開源 coding agent（**OpenCode、Goose、Cline、OpenHands 與 Pi**）組成團隊：替每個 agent 安排角色、決定輪流發言的方式，它們就會處理你的程式碼或任何問題，並且互相回應。
 
-每個問題都由首席 agent 從你的範本挑選團隊（或依範本調整、重新設計），你確認後團隊才開始回答。Harness Relay 會用你自己的登入與工具執行這些 CLI，把每個 agent 還沒看過的訊息交給它，並把所有內容即時串流到同一個聊天畫面。
+每個問題都由首席 agent 從你的範本挑選團隊（或依範本調整、重新設計），團隊可以直接開始回答，也可以等你確認。Harness Relay 會用你自己的登入與工具執行這些 CLI，把每個 agent 還沒看過的訊息交給它，並把所有內容即時串流到同一個聊天畫面。
 
 ## 目錄
 
@@ -52,7 +52,7 @@
 ## 功能
 
 - **十二個 coding agent，同一個任務助理**：直接使用你已安裝的 CLI，保有它們各自的工具、session 與登入；開源 agent 則用你的 API key 或你自己的 OpenAI 相容伺服器執行；同一個團隊裡可以混搭。（[登入](docs/user-guide.zh-TW.md#2-分別登入各個-agent設定與登入)、[模型來源](docs/user-guide.zh-TW.md#模型連線)）
-- **每個問題都有自己的團隊**：首席 agent 從你的範本挑選或設計團隊（角色、模型、推理強度、發言順序），你確認後才開始；團隊回答完，它會審閱回覆，標出需要你注意的地方。（[自動組隊](docs/user-guide.zh-TW.md#自動組隊)、[範本](docs/user-guide.zh-TW.md#範本)、[首席 agent 審閱](docs/user-guide.zh-TW.md#首席-agent-審閱)）
+- **每個問題都有自己的團隊**：首席 agent 從你的範本挑選或設計團隊（角色、模型、推理強度、發言順序），團隊會直接開始回答，你也可以要求先等你確認；開啟審閱時，團隊回答完它會審閱回覆，標出需要你注意的地方。（[自動組隊](docs/user-guide.zh-TW.md#自動組隊)、[範本](docs/user-guide.zh-TW.md#範本)、[首席 agent 審閱](docs/user-guide.zh-TW.md#首席-agent-審閱)）
 - **agent 之間互相溝通**：圓桌、平行或接力三種模式，也能用 `@` 指定成員。（[對話規則](docs/user-guide.zh-TW.md#對話規則)）
 - **用 git 安全地改檔**：每個工作目錄（一個對話最多八個）都會成為 git repository，每則回覆都列出它改了哪些檔案並附上 diff，平行模式中每個 agent 在自己的 worktree 工作，另一個對話正在修改同一個資料夾時開始的對話也在自己的 worktree 裡工作。（[檢視與套用修改](docs/user-guide.zh-TW.md#檢視與套用修改)、[兩個對話同一個資料夾](docs/user-guide.zh-TW.md#兩個對話同一個資料夾)）
 - **由你掌控**：每個對話有自己的權限（唯讀、可編輯、替我核准、完全存取），超出範圍的動作在對話中請你核准（替我核准時，首席 agent 先放行它認為安全的，其餘才問你）；agent 不確定時先問你而不亂猜，或給你一張可以逐項勾選的步驟清單；要密鑰時用卡片，值不進聊天也不交給 agent，只交給 Harness Relay 在自己的沙箱裡執行的腳本；需要登入的指令由你從卡片上執行；要你親自登入網站時，對話的瀏覽器會交給你；團隊回覆時你也能插話。（[核准](docs/user-guide.zh-TW.md#核准)、[密鑰與固定指令](docs/user-guide.zh-TW.md#密鑰與固定指令)、[對話](docs/user-guide.zh-TW.md#4-對話)）
@@ -63,7 +63,7 @@
 - **自動任務**：在你執行它、到了設定的時間（例如每個平日 9:00 審查昨天的 commit）、某件事發生時（新郵件、即將開始的行程、pull request 或失敗的 CI、檔案；由 Harness Relay 自己檢查），或這台電腦上的程式呼叫它的 webhook 時，把訊息傳給團隊；自動任務可以跨天追蹤一個目標，直到 agent 回報已達成，失敗的執行也會重試。（[自動任務](docs/user-guide.zh-TW.md#自動任務)）
 - **應用程式預覽**：從回覆或「檔案」按一下就能試用應用程式，團隊做出應用程式時也會自動打開。Relay 直接開啟靜態 HTML、依 npm 指令建置前端或執行後端，或在 Docker 中執行任何語言的 `Dockerfile` 或 compose 檔，顯示它的網頁，終端機程式則顯示它的終端機。遇到錯誤時，可以把錯誤文字加入聊天草稿。[預覽應用程式](docs/user-guide.zh-TW.md#預覽應用程式)
 - **發布到雲端**：預覽沒問題後，一鍵發布到你自己的 Render（網站與後端）和 Neon（PostgreSQL）免費帳號，經由你 GitHub 帳號裡的私人儲存庫。[發布應用程式](docs/user-guide.zh-TW.md#發布應用程式)
-- **檔案、語音與分享**：附加檔案與截圖、瀏覽工作目錄並在其中編輯或上傳檔案（用手機也行）、用只在你電腦上執行的語音輸入說話，並把對話分享成 Markdown 或連結。（[瀏覽檔案](docs/user-guide.zh-TW.md#瀏覽檔案)、[語音輸入](docs/user-guide.zh-TW.md#語音輸入)、[分享對話](docs/user-guide.zh-TW.md#分享對話)）
+- **檔案、語音與分享**：附加檔案、資料夾與截圖、瀏覽工作目錄並在其中編輯、上傳或刪除檔案（用手機也行）、用只在你電腦上執行的語音輸入說話，並把對話分享成 Markdown 或連結。（[瀏覽檔案](docs/user-guide.zh-TW.md#瀏覽檔案)、[語音輸入](docs/user-guide.zh-TW.md#語音輸入)、[分享對話](docs/user-guide.zh-TW.md#分享對話)）
 - **井然有序**：群組、釘選在最上面的對話、搜尋、側邊欄上每個對話的狀態、通知與提示音（手機上是推播通知），以及收著每一則通知的鈴鐺（每個瀏覽器都一樣）。（[群組](docs/user-guide.zh-TW.md#群組)、[釘選](docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](docs/user-guide.zh-TW.md#搜尋)、[通知與提示音](docs/user-guide.zh-TW.md#通知與提示音)、[通知收件匣](docs/user-guide.zh-TW.md#通知收件匣)）
 - **App 與工具**可連結常用 App、選擇能使用它們的助理，並在待送出匣審核要發出的訊息、Google 文件與 Obsidian 筆記的變更。[連結常用 App](docs/user-guide.zh-TW.md#常用-app)
 - **agent 自己的功能**：每個帳號開關各 CLI 自己的 subagent 與 Claude Code 的 workflow；subagent 的步驟收在啟動它的那一步底下；訊息直接送進正在發言的成員進行中的回合；你自己模型的上下文長度；成員自己的上限。（[Subagent 與 workflow](docs/user-guide.zh-TW.md#subagent-與-workflow)）

@@ -118,7 +118,8 @@ export function Composer({
   };
 
   // While the team replies (or its design waits), a message waits for the next turn: sending is always fine.
-  const canSend = (text.trim().length > 0 || files.length > 0) && !preparing;
+  // A dropped folder still being read is sent once it is: Send waits for it.
+  const canSend = (text.trim().length > 0 || files.length > 0) && !preparing && !files.some((f) => f.reading);
 
   /** Run one send (or Continue) at a time. */
   const once = async (fn: () => Promise<void>) => {
@@ -227,7 +228,7 @@ export function Composer({
       <div className={`composer ${dragging ? 'dragging' : ''}`}>
         <AttachmentTray files={files} removeFile={removeFile} />
         <div className="composer-row">
-          <AttachmentPicker addFiles={addFiles} />
+          <AttachmentPicker addFiles={addFiles} onNotice={setNotice} />
           <textarea
             ref={ref}
             value={text}

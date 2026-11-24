@@ -45,6 +45,8 @@ import type {
   FilePreview,
   FileSaveRequest,
   FileUploadRequest,
+  FileDeleteRequest,
+  FileDeleted,
   FileWritten,
   GitInstallView,
   GitRequirement,
@@ -323,13 +325,20 @@ async function writeSchedule<T>(id: string, send: () => Promise<T>): Promise<T> 
   }
 }
 
-/** A file attached to a message, as sent to the server. */
-export interface AttachmentUpload {
-  name: string;
-  mimeType: string;
-  /** Base64 contents. */
-  data: string;
-}
+/** A file attached to a message, as sent to the server, or a folder (`files`, its `mimeType` `FOLDER_MIME_TYPE`). */
+export type AttachmentUpload =
+  | {
+      name: string;
+      mimeType: string;
+      /** Base64 contents. */
+      data: string;
+    }
+  | {
+      name: string;
+      mimeType: string;
+      /** Each file's path in the folder (with `/`) and its base64 contents. */
+      files: { path: string; data: string }[];
+    };
 
 const fileQuery = (root: string, path: string) => new URLSearchParams({ root, path }).toString();
 
@@ -836,6 +845,8 @@ export const api = {
   saveFile: (id: string, file: FileSaveRequest) => request<FileWritten>('PUT', `/api/conversations/${id}/files/text`, file),
   /** Uploads one file into a folder (base64); `replace` once the user agreed to replace one there. */
   uploadFile: (id: string, file: FileUploadRequest) => request<FileWritten>('POST', `/api/conversations/${id}/files/upload`, file),
+  /** Deletes a file or a folder (with all it holds) in a working directory. */
+  deleteFile: (id: string, file: FileDeleteRequest) => request<FileDeleted>('DELETE', `/api/conversations/${id}/files`, file),
 
   getSettings: () => request<SettingsView>('GET', '/api/settings'),
   // Model backends (the open agents): keys come back masked

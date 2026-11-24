@@ -231,6 +231,62 @@ describe('editing a file', () => {
   });
 });
 
+describe('deleting files and folders', () => {
+  const remove = (conv: Conversation, body: Record<string, unknown>, headers: Record<string, string> = {}) =>
+    send('DELETE', base(conv), body, headers);
+
+  it('deletes a file and a folder in the working directory, never the root', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    writeFileSync(join(project, 'notes', 'a.md'), '# A\n');
+    // The folder it is in is held while it is removed, and let go after.
+    const hold = vi.spyOn(orchestrator, 'holdForFiles');
+    const file = await remove(conv, { path: 'queue.csv' });
+    expect(hold).toHaveBeenCalledWith(conv.id, realpathSync(project));
+    expect(orchestrator.writingIn(conv.id, realpathSync(project))).toBe(false);
+    hold.mockRestore();
+    expect(file.status).toBe(200);
+    expect(await file.json()).toEqual({ path: 'queue.csv', kind: 'file' });
+    expect(await (await remove(conv, { root: 'cwd', path: 'notes' })).json()).toEqual({ path: 'notes', kind: 'dir' });
+    expect(existsSync(join(project, 'notes'))).toBe(false);
+    expect((await remove(conv, { path: '' })).status).toBe(404);
+    expect((await remove(conv, {})).status).toBe(400);
+    expect((await remove(conv, { path: 'missing.txt' })).status).toBe(404);
+    expect(existsSync(project)).toBe(true);
+  });
+
+  it("refuses an agent's worktree, a folder that holds Harness Relay's data, and a folder a run writes in", async () => {
+    const conv = await createConversation();
+    const live = store.get(conv.id)!;
+    const agentId = live.agents[0]!.id;
+    const wt = join(root, `wt-del-${n}`);
+    mkdirSync(wt);
+    writeFileSync(join(wt, 'result.txt'), 'theirs\n');
+    live.worktrees[agentId] = [{ root: project, path: wt, branch: 'relay/x', base: 'b', needsReset: false }];
+    expect((await remove(conv, { root: agentId, path: 'result.txt' })).status).toBe(403);
+    expect(existsSync(join(wt, 'result.txt'))).toBe(true);
+    const top = await createConversation({ permission: 'read-only' }, root);
+    expect((await remove(top, { path: `project-${n}` })).status).toBe(403);
+
+    expect((await send('POST', `/api/conversations/${conv.id}/messages`, { text: 'go' })).status).toBe(202);
+    await vi.waitFor(() => expect(orchestrator.writingIn(conv.id, realpathSync(project))).toBe(true));
+    const busy = await remove(conv, { path: 'queue.csv' });
+    expect(busy.status).toBe(409);
+    expect(await errorOf(busy)).toMatchObject({ code: FOLDER_BUSY });
+    await send('POST', `/api/conversations/${conv.id}/stop`, {});
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+    expect(existsSync(join(project, 'queue.csv'))).toBe(true);
+    expect((await remove(conv, { path: 'queue.csv' })).status).toBe(200);
+  });
+
+  it('takes a delete only as the UI sends it', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    expect((await remove(conv, { path: 'queue.csv' }, { host: 'evil.example' })).status).toBe(403);
+    expect((await remove(conv, { path: 'queue.csv' }, { origin: 'https://evil.example' })).status).toBe(403);
+    expect((await remove(conv, { path: 'queue.csv' }, { 'content-type': 'text/plain' })).status).toBe(415);
+    expect(existsSync(join(project, 'queue.csv'))).toBe(true);
+  });
+});
+
 describe('uploading files', () => {
   it('writes a file into a folder, and replaces one only once the user agreed', async () => {
     const conv = await createConversation({ permission: 'read-only' });

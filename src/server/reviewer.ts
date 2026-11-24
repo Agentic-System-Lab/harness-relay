@@ -12,6 +12,7 @@ import {
   type ReviewHighlight,
   type ReviewKind,
   type ReviewStep,
+  attachmentLabel,
 } from '../shared/types';
 import { quoteChecker, reviewStart } from '../shared/review';
 import { t } from './i18n';
@@ -117,7 +118,7 @@ export function reviewMaterial(messages: ChatMessage[]): ReviewMaterial {
       continue;
     }
     if (m.author.kind === 'user') {
-      const files = m.parts.flatMap((p) => (p.type === 'attachment' ? [p.name] : []));
+      const files = m.parts.flatMap((p) => (p.type === 'attachment' ? [attachmentLabel(p)] : []));
       const text = [textOf(m), files.length ? `(Attached files: ${files.join(', ')})` : ''].filter(Boolean).join('\n');
       if (text) items.push({ text: `<message from="user">\n${shorten(text, REVIEW_MESSAGE_CHARS)}\n</message>` });
       continue;
