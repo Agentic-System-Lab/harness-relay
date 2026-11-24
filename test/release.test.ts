@@ -5,6 +5,8 @@ import { delimiter, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  candidateCommitWarning,
+  candidatesOf,
   changesMarkdown,
   changesOf,
   checkRelease,
@@ -25,6 +27,7 @@ import {
   semverOf,
   subjectMarkdown,
   actionsData,
+  tagCommitsFromLsRemote,
   tagsFromLsRemote,
   todayIn,
   validDay,
@@ -35,6 +38,7 @@ import {
   type PullOf,
   type ReleaseVersion,
 } from '../scripts/release';
+import { slow } from './timeouts';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-release-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -148,7 +152,7 @@ describe('today', () => {
 
 describe('checking a release', () => {
   const today = '2026-11-10';
-  type Extra = { ref?: string; today?: string; ownTag?: boolean };
+  type Extra = { ref?: string; today?: string; ownTag?: boolean; unreleased?: string[] };
   const check = (version: string, tags: string[] = [], extra: Extra = {}) => checkRelease({ version, today, tags, ...extra });
   const errors = (version: string, tags: string[] = [], extra: Extra = {}) => {
     const r = check(version, tags, extra);
@@ -165,11 +169,86 @@ describe('checking a release', () => {
       prerelease: true,
       semver: '2026.1110.0-rc',
       previous: undefined,
+      candidate: undefined,
     });
   });
 
-  it("accepts today's release, not as a pre-release", () => {
-    expect(check('2026-11-10')).toMatchObject({ ok: true, tag: '2026-11-10', prerelease: false, semver: '2026.1110.0' });
+  it("accepts today's release once a release candidate of it is out, not as a pre-release", () => {
+    expect(check('2026-11-10', ['2026-11-10-rc'])).toMatchObject({
+      ok: true,
+      tag: '2026-11-10',
+      prerelease: false,
+      semver: '2026.1110.0',
+      candidate: '2026-11-10-rc',
+    });
+  });
+
+  it('refuses a release without a release candidate of it out, and says which to release first', () => {
+    expect(errors('2026-11-10')).toBe(
+      '2026-11-10 has no release candidate yet: release 2026-11-10-rc first, then 2026-11-10. A release is made only once its newest release candidate is out: the end-to-end tests run for a release candidate only, before it is published.',
+    );
+    // A patch needs one of its own: the day's release's candidates are not its.
+    expect(errors('2026-11-10.1', ['2026-11-10-rc', '2026-11-10'])).toMatch(
+      /^2026-11-10\.1 has no release candidate yet: release 2026-11-10\.1-rc first, then 2026-11-10\.1\./,
+    );
+    expect(check('2026-11-10.1', ['2026-11-10-rc', '2026-11-10', '2026-11-10.1-rc'])).toMatchObject({
+      ok: true,
+      candidate: '2026-11-10.1-rc',
+    });
+    // Nor does another day's.
+    expect(errors('2026-11-10', ['2026-11-09-rc', '2026-11-09'])).toMatch(
+      /^2026-11-10 has no release candidate yet: release 2026-11-10-rc first/,
+    );
+    // Asked only of the day's next release: a version that breaks the rules gets their own errors alone.
+    expect(errors('2026-11-10.2', ['2026-11-10-rc', '2026-11-10'])).not.toMatch(/release candidate yet/);
+    expect(errors('2026-11-09', [])).not.toMatch(/release candidate yet/);
+    expect(errors('2026-11-10', ['2026-11-10-rc', '2026-11-10'])).toMatch(/^2026-11-10 has already been released\./);
+  });
+
+  it('takes its newest release candidate only, once GitHub has a release of it', () => {
+    const tags = ['2026-11-10-rc', '2026-11-10-rc.1', '2026-11-10-rc.2'];
+    expect(check('2026-11-10', tags)).toMatchObject({ ok: true, candidate: '2026-11-10-rc.2' });
+    // A run of rc.2 that failed after it tagged the commit (its end-to-end tests, say): an older one that
+    // is out does not stand in for it, as what main is now is rc.2's.
+    expect(errors('2026-11-10', tags, { unreleased: ['2026-11-10-rc.2'] })).toBe(
+      "2026-11-10's newest release candidate, 2026-11-10-rc.2, has its tag on GitHub without a release (a run that failed or was stopped, its end-to-end tests perhaps). Release 2026-11-10-rc.2 again or 2026-11-10-rc.3, then 2026-11-10. A release is made only once its newest release candidate is out: the end-to-end tests run for a release candidate only, before it is published.",
+    );
+    expect(errors('2026-11-10', ['2026-11-10-rc'], { unreleased: ['2026-11-10-rc'] })).toMatch(
+      /^2026-11-10's newest release candidate, 2026-11-10-rc, has its tag on GitHub without a release .* Release 2026-11-10-rc again or 2026-11-10-rc\.1, then 2026-11-10\./,
+    );
+    // An older one without a release (a run that failed before the newest passed) changes nothing.
+    expect(check('2026-11-10', tags, { unreleased: ['2026-11-10-rc.1'] })).toMatchObject({ ok: true, candidate: '2026-11-10-rc.2' });
+    // Nor does a tag that is not one of its candidates.
+    expect(check('2026-11-10', ['2026-11-10-rc'], { unreleased: ['2026-11-09-rc'] })).toMatchObject({
+      ok: true,
+      candidate: '2026-11-10-rc',
+    });
+    // With the version's own tag the workflow made (--own-tag), the same.
+    expect(check('2026-11-10', ['2026-11-10-rc', '2026-11-10'], { ownTag: true })).toMatchObject({ ok: true, candidate: '2026-11-10-rc' });
+    expect(errors('2026-11-10', ['2026-11-10'], { ownTag: true })).toMatch(
+      /^2026-11-10 has no release candidate yet: release 2026-11-10-rc first/,
+    );
+  });
+
+  it("lists a release's candidates among the tags, newest first", () => {
+    const tags = ['2026-11-10-rc.1', '2026-11-10', '2026-11-10-rc', '2026-11-10.1-rc', '2026-11-09-rc', 'nightly', '2026-11-10-rc.2'];
+    expect(candidatesOf(tags, ok('2026-11-10')).map((v) => v.version)).toEqual(['2026-11-10-rc.2', '2026-11-10-rc.1', '2026-11-10-rc']);
+    expect(candidatesOf(tags, ok('2026-11-10.1')).map((v) => v.version)).toEqual(['2026-11-10.1-rc']);
+    expect(candidatesOf(tags, ok('2026-11-10.2'))).toEqual([]);
+  });
+
+  it("warns when a release is made on another commit than its release candidate's tag", () => {
+    const at = 'a'.repeat(40);
+    const sha = 'b'.repeat(40);
+    expect(candidateCommitWarning({ tag: '2026-11-10', candidate: '2026-11-10-rc.1', at, sha, next: '2026-11-10-rc.2' })).toBe(
+      "2026-11-10 is made on bbbbbbb, and its release candidate 2026-11-10-rc.1 on aaaaaaa: the end-to-end tests ran on the candidate's commit, not on what came into main since. To have them run on this one, release 2026-11-10-rc.2 first.",
+    );
+    expect(
+      candidateCommitWarning({ tag: '2026-11-10', candidate: '2026-11-10-rc.1', at: sha, sha, next: '2026-11-10-rc.2' }),
+    ).toBeUndefined();
+    expect(
+      candidateCommitWarning({ tag: '2026-11-10', candidate: '2026-11-10-rc.1', at: undefined, sha, next: '2026-11-10-rc.2' }),
+    ).toBeUndefined();
   });
 
   it('refuses another day than today, and says which versions today takes', () => {
@@ -208,9 +287,10 @@ describe('checking a release', () => {
     const tags = ['2026-11-10-rc', '2026-11-10-rc.1'];
     expect(check('2026-11-10', tags).ok).toBe(true);
     expect(errors('2026-11-10.1', tags)).toMatch(/release 2026-11-10 first/);
-    expect(check('2026-11-10.1', [...tags, '2026-11-10']).ok).toBe(true);
-    // A release needs no release candidate first.
-    expect(check('2026-11-10.2', [...tags, '2026-11-10', '2026-11-10.1']).ok).toBe(true);
+    expect(check('2026-11-10.1', [...tags, '2026-11-10', '2026-11-10.1-rc']).ok).toBe(true);
+    // Each release needs a release candidate of its own first.
+    expect(errors('2026-11-10.1', [...tags, '2026-11-10'])).toMatch(/no release candidate yet: release 2026-11-10\.1-rc first/);
+    expect(check('2026-11-10.2', [...tags, '2026-11-10', '2026-11-10.1', '2026-11-10.2-rc']).ok).toBe(true);
   });
 
   it("takes a release candidate of the day's next release only: once a release is out, one of its next patch", () => {
@@ -282,6 +362,7 @@ describe('checking a release', () => {
     expect(check('2026-11-10', ['2026-11-09', '2026-11-10-rc', '2026-11-10'], { ownTag: true })).toMatchObject({
       ok: true,
       previous: '2026-11-09',
+      candidate: '2026-11-10-rc',
     });
     expect(errors('2026-11-10-rc.2', ['2026-11-10-rc', '2026-11-10-rc.2'], { ownTag: true })).toMatch(
       /skips a number: .* the next is 2026-11-10-rc\.1/,
@@ -456,6 +537,23 @@ describe('messages to GitHub Actions', () => {
 });
 
 describe('tags on the remote', () => {
+  it("are read with each one's commit: an annotated tag's peeled line, not the tag object", () => {
+    const out = [
+      `${'1'.repeat(40)}\trefs/tags/2026-11-10-rc`,
+      `${'2'.repeat(40)}\trefs/tags/2026-11-10`,
+      `${'3'.repeat(40)}\trefs/tags/2026-11-10^{}`,
+      `${'4'.repeat(40)}\trefs/tags/2026-11-11^{}`,
+      `${'5'.repeat(40)}\trefs/tags/2026-11-11`,
+      '',
+    ].join('\n');
+    expect([...tagCommitsFromLsRemote(out)]).toEqual([
+      ['2026-11-10-rc', '1'.repeat(40)],
+      ['2026-11-10', '3'.repeat(40)],
+      ['2026-11-11', '4'.repeat(40)],
+    ]);
+    expect(tagsFromLsRemote(out)).toEqual(['2026-11-10-rc', '2026-11-10', '2026-11-11']);
+  });
+
   it('are read from git ls-remote, once each', () => {
     const out = 'abc\trefs/tags/2026-11-10-rc\ndef\trefs/tags/2026-11-10-rc^{}\n123\trefs/tags/v0.1.0\n';
     expect(tagsFromLsRemote(out)).toEqual(['2026-11-10-rc', 'v0.1.0']);
@@ -894,7 +992,7 @@ describe('the release script', () => {
     const r = spawnSync(process.execPath, ['--import', tsx, script, ...args], {
       cwd: repo,
       encoding: 'utf8',
-      env: { ...process.env, GITHUB_ACTIONS: '', GITHUB_OUTPUT: '', GITHUB_REF: '', RELEASE_TIME_ZONE: '', ...env },
+      env: { ...process.env, GITHUB_ACTIONS: '', GITHUB_OUTPUT: '', GITHUB_REF: '', GITHUB_SHA: '', RELEASE_TIME_ZONE: '', ...env },
     });
     return { code: r.status, out: r.stdout, err: r.stderr };
   };
@@ -988,6 +1086,139 @@ esac
     },
   );
 
+  // gh as the script calls it, for a release's candidates: a release of each tag GH_RELEASED names, Not
+  // Found for any other, or no answer (GH_DOWN). A shell script started by its #! line, which Windows
+  // does not do.
+  const candidateGh = (() => {
+    const bin = join(dir, 'gh-candidates');
+    const calls = join(dir, 'gh-candidate-calls');
+    if (process.platform !== 'win32') {
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(
+        join(bin, 'gh'),
+        `#!/bin/sh
+printf '%s\\n' "$2" >> "$GH_CALLS"
+if [ -n "$GH_DOWN" ]; then echo 'gh: Server Error (HTTP 502)' >&2; exit 1; fi
+case " $GH_RELEASED " in
+  *" \${2##*/} "*) echo '{}' ;;
+  *) echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;;
+esac
+`,
+      );
+      chmodSync(join(bin, 'gh'), 0o755);
+    }
+    const env = (released: string, extra: Record<string, string> = {}) => {
+      writeFileSync(calls, '');
+      return {
+        PATH: `${bin}${delimiter}${process.env.PATH}`,
+        GH_CALLS: calls,
+        GH_RELEASED: released,
+        GITHUB_REPOSITORY: 'o/r',
+        GH_DOWN: '',
+        ...extra,
+      };
+    };
+    const asked = () =>
+      readFileSync(calls, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((p) => p.replace('repos/o/r/releases/tags/', ''));
+    return { env, asked };
+  })();
+  const onDay = (version: string, ...flags: string[]) => ['check', version, '--today', '2026-11-14', ...flags];
+  /** 2026-11-14-rc and 2026-11-14-rc.1 tagged here and on origin, for `fn`. */
+  const withCandidates = (fn: () => void) => {
+    git(repo, 'tag', '2026-11-14-rc');
+    git(repo, 'tag', '2026-11-14-rc.1');
+    git(repo, 'push', '-q', 'origin', '2026-11-14-rc', '2026-11-14-rc.1');
+    try {
+      fn();
+    } finally {
+      git(repo, 'push', '-q', 'origin', ':refs/tags/2026-11-14-rc', ':refs/tags/2026-11-14-rc.1');
+      git(repo, 'tag', '-d', '2026-11-14-rc', '2026-11-14-rc.1');
+    }
+  };
+
+  it.skipIf(process.platform === 'win32')(
+    "with --remote, takes a release's newest candidate only once GitHub has a release of it",
+    () => {
+      const { env: gh, asked } = candidateGh;
+      // No candidate's tag at all: refused without asking GitHub.
+      const none = run(onDay('2026-11-14', '--remote'), gh(''));
+      expect(none.code).toBe(1);
+      expect(none.err).toContain('✗ 2026-11-14 has no release candidate yet: release 2026-11-14-rc first, then 2026-11-14.');
+      expect(asked()).toEqual([]);
+      withCandidates(() => {
+        // The newest is not out: refused, an older one that is out notwithstanding, and only the newest asked about.
+        const unreleased = run(onDay('2026-11-14', '--remote'), gh('2026-11-14-rc'));
+        expect(unreleased.code).toBe(1);
+        expect(unreleased.err).toContain(
+          "✗ 2026-11-14's newest release candidate, 2026-11-14-rc.1, has its tag on GitHub without a release (a run that failed or was stopped, its end-to-end tests perhaps). Release 2026-11-14-rc.1 again or 2026-11-14-rc.2, then 2026-11-14.",
+        );
+        expect(asked()).toEqual(['2026-11-14-rc.1']);
+        // The newest is out.
+        const out = run(onDay('2026-11-14', '--remote'), gh('2026-11-14-rc.1'));
+        expect(out.code).toBe(0);
+        expect(out.out).toContain('It comes after its release candidate 2026-11-14-rc.1, which is out.');
+        expect(asked()).toEqual(['2026-11-14-rc.1']);
+        // Without an answer, it is taken neither as out nor as not out.
+        const down = run(onDay('2026-11-14', '--remote'), gh('', { GH_DOWN: '1' }));
+        expect(down.code).toBe(1);
+        expect(down.err).toContain(
+          '✗ Could not ask GitHub whether 2026-11-14-rc.1 has a release: gh api repos/o/r/releases/tags/2026-11-14-rc.1: gh: Server Error (HTTP 502)',
+        );
+        // Without --remote, the tags here count, and GitHub is not asked; nor for a release candidate, nor
+        // for another day's version, which GitHub failing must not hide.
+        const local = run(onDay('2026-11-14'), gh('', { GH_DOWN: '1' }));
+        expect(local.code).toBe(0);
+        expect(local.out).toContain(
+          'It comes after its release candidate 2026-11-14-rc.1 (its tag here: --remote asks GitHub whether it is out).',
+        );
+        expect(run(onDay('2026-11-14-rc.2', '--remote'), gh('', { GH_DOWN: '1' })).code).toBe(0);
+        const late = run(['check', '2026-11-14', '--today', '2026-11-15', '--remote', '--own-tag'], gh('', { GH_DOWN: '1' }));
+        expect(late.code).toBe(1);
+        expect(late.err).toContain('2026-11-14 is not today');
+        expect(asked()).toEqual([]);
+      });
+    },
+    slow(20_000),
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    "in GitHub Actions, warns when a release is made on another commit than its newest candidate's tag",
+    () => {
+      const { env: gh, asked } = candidateGh;
+      withCandidates(() => {
+        const output = join(dir, 'candidate-output');
+        const head = git(repo, 'rev-parse', 'HEAD').trim();
+        const other = 'f'.repeat(40);
+        const actions = (sha: string) =>
+          gh('2026-11-14-rc.1', { GITHUB_ACTIONS: 'true', GITHUB_OUTPUT: output, GITHUB_REF: 'refs/heads/main', GITHUB_SHA: sha });
+        writeFileSync(output, '');
+        const moved = run(onDay('2026-11-14', '--remote'), actions(other));
+        expect(moved.code).toBe(0);
+        expect(moved.out).toContain(
+          `::warning title=Release candidate::2026-11-14 is made on fffffff, and its release candidate 2026-11-14-rc.1 on ${head.slice(0, 7)}: the end-to-end tests ran on the candidate's commit, not on what came into main since. To have them run on this one, release 2026-11-14-rc.2 first.`,
+        );
+        expect(run(onDay('2026-11-14', '--remote'), actions(head)).out).not.toContain('::warning');
+        // With the version's own tag the workflow made, the release candidate to release first is still the day's next.
+        git(repo, 'tag', '2026-11-14');
+        git(repo, 'push', '-q', 'origin', '2026-11-14');
+        try {
+          const own = run(onDay('2026-11-14', '--remote', '--own-tag'), actions(other));
+          expect(own.code).toBe(0);
+          expect(own.out).toContain("Its tag is on GitHub without a release: the Release workflow made it at a run's start.");
+          expect(own.out).toContain('To have them run on this one, release 2026-11-14-rc.2 first.');
+          expect(asked()).toEqual(['2026-11-14', '2026-11-14-rc.1']);
+        } finally {
+          git(repo, 'push', '-q', 'origin', ':refs/tags/2026-11-14');
+          git(repo, 'tag', '-d', '2026-11-14');
+        }
+      });
+    },
+    slow(20_000),
+  );
+
   it('accepts a release candidate of a patch once the release is out', () => {
     git(repo, 'tag', '2026-11-11');
     const r = run(['check', '2026-11-11.1-rc', '--today', '2026-11-11']);
@@ -1004,13 +1235,20 @@ esac
     expect(r.code).toBe(0);
     expect(r.out).toContain('release candidate  2026-11-10-rc.1');
     expect(r.out).toContain('release            2026-11-10\n');
-    // Once the day's release is out, its next patch, and a release candidate of that patch.
+    // Its release candidate's tag is here (2026-11-10-rc, from the tests before).
+    expect(r.out).toContain('  2026-11-10 needs its newest release candidate, 2026-11-10-rc, out first (published, not only tagged).\n');
+    // Once the day's release is out, its next patch, and a release candidate of that patch, which it needs first.
     git(repo, 'tag', '2026-11-10');
     const after = run(['next', '--today', '2026-11-10']);
     expect(after.out).toContain('release candidate  2026-11-10.1-rc\n');
     expect(after.out).toContain('release            2026-11-10.1\n');
+    expect(after.out).toContain('  2026-11-10.1 needs a release candidate of it out first: 2026-11-10.1-rc.\n');
     git(repo, 'tag', '2026-11-10.1-rc');
-    expect(run(['next', '--today', '2026-11-10']).out).toContain('release candidate  2026-11-10.1-rc.1\n');
+    const candidate = run(['next', '--today', '2026-11-10']).out;
+    expect(candidate).toContain('release candidate  2026-11-10.1-rc.1\n');
+    expect(candidate).toContain(
+      '  2026-11-10.1 needs its newest release candidate, 2026-11-10.1-rc, out first (published, not only tagged).\n',
+    );
     git(repo, 'tag', '-d', '2026-11-10', '2026-11-10.1-rc');
   });
 
@@ -1029,6 +1267,7 @@ esac
     const release = run(['check', '2026-11-12', '--today', '2026-11-12'], { ...actions, GITHUB_REF: 'refs/heads/main' });
     expect(release.code).toBe(0);
     expect(release.out).toContain('Its notes list the changes since 2026-11-11, the release before it.');
+    expect(release.out).toContain('It comes after its release candidate 2026-11-12-rc');
     expect(readFileSync(output, 'utf8')).toContain('\nprevious=2026-11-11\n');
     git(repo, 'tag', '-d', '2026-11-11', '2026-11-12-rc');
     const r = run(['check', '2026-11-12-rc', '--today', '2026-11-12'], { ...actions, GITHUB_REF: 'refs/heads/feature' });
@@ -1176,7 +1415,7 @@ describe('the release workflow', () => {
     expect(packaged).toBeLessThan(build.indexOf('uses: actions/upload-artifact'));
     expect(build).toContain('xvfb-run -a npx tsx desktop/scripts/check-package.ts');
     expect(build).toMatch(/needs: \[version, check\]/);
-    expect(job('release')).toMatch(/needs: \[version, check, build\]/);
+    expect(job('release')).toMatch(/needs: \[version, check, build, e2e\]/);
     // One installer of each kind goes up, named after the version.
     expect(build).toContain("-c.artifactName='Harness-Relay-${env.RELAY_VERSION}-${os}-${arch}.${ext}'");
     expect(build).toContain('RELAY_VERSION: ${{ needs.version.outputs.tag }}');
@@ -1354,6 +1593,45 @@ describe('the release workflow', () => {
     // It reads the pull requests the notes' commits merged, and may change none.
     expect(job('release')).toMatch(/permissions:\n\s+contents: write\n(?:\s+#.*\n)?\s+pull-requests: read\n/);
     expect(workflow).not.toContain('pull-requests: write');
+  });
+
+  it('runs the end-to-end tests for a release candidate only, beside the builds, and publishes one only once they pass', () => {
+    const e2e = job('e2e');
+    expect(e2e).toContain('    uses: ./.github/workflows/e2e.yml');
+    expect(e2e).toMatch(/^ {4}needs: \[version, check\]$/m);
+    expect(e2e).toMatch(/^ {4}if: needs\.version\.outputs\.prerelease == 'true'$/m);
+    // The tests run npm's packages: no secret goes to them, nor any permission beyond the workflow's.
+    expect(e2e).not.toMatch(/secrets|permissions/);
+    const release = job('release');
+    const condition = /^ {4}if: >-\n((?: {6}.*\n)+)/m.exec(`${release}\n`)?.[1];
+    expect(condition).toBeDefined();
+    // The condition as GitHub evaluates it, for every outcome that matters.
+    const expression = condition!.replace(/\s+/g, ' ').trim();
+    expect(expression).toMatch(/^[!a-z0-9_.()=&|' ]+$/);
+    const publishes = new Function('needs', 'cancelled', `return ${expression};`) as (
+      needs: Record<string, { result: string; outputs?: Record<string, string> }>,
+      cancelled: () => boolean,
+    ) => boolean;
+    const outcome = (prerelease: string, e2eResult: string, o: { build?: string; cancelled?: boolean } = {}) =>
+      publishes(
+        {
+          version: { result: 'success', outputs: { prerelease } },
+          check: { result: 'success' },
+          build: { result: o.build ?? 'success' },
+          e2e: { result: e2eResult },
+        },
+        () => o.cancelled ?? false,
+      );
+    expect(outcome('true', 'success')).toBe(true);
+    expect(outcome('true', 'failure')).toBe(false);
+    expect(outcome('true', 'cancelled')).toBe(false);
+    expect(outcome('true', 'skipped')).toBe(false);
+    expect(outcome('false', 'skipped')).toBe(true);
+    expect(outcome('false', 'failure')).toBe(false);
+    expect(outcome('', 'skipped')).toBe(false);
+    expect(outcome('false', 'skipped', { build: 'failure' })).toBe(false);
+    expect(outcome('true', 'success', { build: 'skipped' })).toBe(false);
+    expect(outcome('true', 'success', { cancelled: true })).toBe(false);
   });
 
   it('makes one release at a time, never cancelling one under way', () => {

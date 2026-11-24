@@ -9,10 +9,12 @@ name: Release
 # site/assets/downloads.js), with the UPDATES_TOKEN secret; the app downloads them with the
 # UPDATES_READ_TOKEN secret, when that is set (for a private one), which must not be the write token
 # and is checked to read them before the release is published. A release candidate is published as a
-# pre-release. Its notes list every commit that came into main since the version before
-# (scripts/release.ts notes), pushed to main or merged from a pull request. When the website has a
-# download mirror (MIRROR in site/assets/downloads.js), a release's installers go there too before it
-# is published, with the MIRROR_ACCESS_KEY_ID and MIRROR_SECRET_ACCESS_KEY secrets.
+# pre-release, and only once the end-to-end tests (e2e.yml, called beside the builds) passed on its
+# commit; they run for no release, which is made only once its newest release candidate is out (the
+# version's check, scripts/release.ts). Its notes list every commit that came into main since the
+# version before (scripts/release.ts notes), pushed to main or merged from a pull request. When the
+# website has a download mirror (MIRROR in site/assets/downloads.js), a release's installers go there
+# too before it is published, with the MIRROR_ACCESS_KEY_ID and MIRROR_SECRET_ACCESS_KEY secrets.
 on:
   workflow_dispatch:
     inputs:
@@ -379,9 +381,24 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # The end-to-end tests (e2e.yml, as for a pull request: every system, in halves), for a release
+  # candidate only, beside the builds: it is published only once they pass. A release runs none, as it
+  # is made only once its newest release candidate is out (the version job's check), which passed them.
+  # No secret is passed on: the tests run npm's packages.
+  e2e:
+    name: End-to-end tests
+    needs: [version, check]
+    if: needs.version.outputs.prerelease == 'true'
+    uses: ./.github/workflows/e2e.yml
+
   release:
     name: Publish the release
-    needs: [version, check, build]
+    needs: [version, check, build, e2e]
+    # A job a needed one skipped is skipped too, unless its condition says otherwise: the end-to-end
+    # tests are skipped for a release, and must pass for a release candidate.
+    if: >-
+      !cancelled() && needs.version.result == 'success' && needs.check.result == 'success' && needs.build.result == 'success' &&
+      (needs.e2e.result == 'success' || (needs.e2e.result == 'skipped' && needs.version.outputs.prerelease == 'false'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

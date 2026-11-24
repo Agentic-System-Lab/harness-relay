@@ -10,9 +10,14 @@
  * Each job lists what it does not depend on (IGNORES), never what it needs: it runs unless every file
  * the change touches is on its list, so a file or folder no list names runs everything. Everything
  * runs for every other event than a pull request: each push to main (what main is, checked whole
- * after each merge, also where these rules miss a file) and a run by hand (workflow_dispatch). And
- * for a pull request whose change cannot be told: a checkout that is not its merge commit, a change
- * of no files, an error, and a change to this file (ALWAYS).
+ * after each merge, also where these rules miss a file) and a run by hand (workflow_dispatch, and the
+ * Release workflow's call of e2e.yml). And for a pull request whose change cannot be told: a checkout
+ * that is not its merge commit, a change of no files, an error, and a change to this file (ALWAYS).
+ *
+ * But for the end-to-end tests, which run for a release candidate (the Release workflow, before it
+ * publishes one; every release comes after one): not for a push to main, which e2e.yml does not run
+ * on, nor for a pull request a maintainer opened (MAINTAINERS), whatever it touches (e2eFor()).
+ * Anyone else's pull request runs them as its files say.
  *
  * The Linux checks of the CI workflow (typecheck, npm test, the build, the desktop app's typecheck,
  * build and bundled server) are not gated: npm test also reads the docs, the landing page, the issue
@@ -28,9 +33,11 @@
  *
  * Usage:
  *   node scripts/ci-scope.ts            in GitHub Actions: writes windows=, desktop= and e2e= (true or
- *                                       false) to $GITHUB_OUTPUT, and what runs and why to the summary
+ *                                       false) to $GITHUB_OUTPUT, and what runs and why to the summary;
+ *                                       PR_AUTHOR is the pull request's author (its login)
  *   node scripts/ci-scope.ts [<base>]   elsewhere: what CI would run for this branch's commits since
- *                                       it left <base> (origin/main by default), as a pull request;
+ *                                       it left <base> (origin/main by default), as a pull request
+ *                                       (by PR_AUTHOR, when it is set);
  *                                       with Node 22.18 or later, else npx tsx scripts/ci-scope.ts
  *
  * Only erasable TypeScript here, and only Node's own modules: the workflows run it with plain `node`,
@@ -162,6 +169,12 @@ export const IGNORES: Record<Scope, readonly string[]> = {
 /** A change to these runs everything: the rules themselves. */
 export const ALWAYS: readonly string[] = ['scripts/ci-scope.ts'];
 
+/**
+ * The maintainers whose own pull requests run no end-to-end tests: they run for the release candidate
+ * of the release that has their change (GitHub logins, compared without case, as GitHub's are).
+ */
+export const MAINTAINERS: readonly string[] = ['cyyeh'];
+
 export interface Need {
   run: boolean;
   /** Why: the files that need it, or why everything runs. */
@@ -219,6 +232,20 @@ export function needsOf(files: readonly string[]): Needs {
   ) as Needs;
 }
 
+/**
+ * The end-to-end tests by the event and the pull request's author, on top of what the files need:
+ * none for a push to main (e2e.yml does not run on one) or a maintainer's pull request, whose change
+ * the release candidate's run tests; anyone else's pull request, a run by hand and the Release
+ * workflow's call as the files say.
+ */
+export function e2eFor(needs: Needs, event: string, author: string | undefined): Needs {
+  const login = author?.trim();
+  if (event === 'push') return { ...needs, e2e: { run: false, reason: 'a push to main: they run for a release candidate' } };
+  if (event === 'pull_request' && login && MAINTAINERS.some((m) => m.toLowerCase() === login.toLowerCase()))
+    return { ...needs, e2e: { run: false, reason: `a pull request by ${login}: they run for the release candidate` } };
+  return needs;
+}
+
 export type Git = (args: string[]) => string;
 
 /**
@@ -258,12 +285,13 @@ const run: Git = (args) => execFileSync('git', args, { encoding: 'utf8', stdio: 
 
 function main(args: string[]): number {
   const inActions = process.env.GITHUB_ACTIONS === 'true';
+  const event = inActions ? (process.env.GITHUB_EVENT_NAME ?? '') : '';
   let files: string[] = [];
   let needs: Needs;
   try {
     let changed: string[] | string;
     if (inActions) {
-      changed = changedFiles(process.env.GITHUB_EVENT_NAME ?? '', run);
+      changed = changedFiles(event, run);
     } else {
       const base = args[0] ?? 'origin/main';
       changed = run(['diff', '--name-only', '--no-renames', '-z', `${base}...HEAD`])
@@ -281,6 +309,8 @@ function main(args: string[]): number {
     if (inActions) console.log(`::warning::Could not tell what changed, so everything runs: ${message}`);
     needs = everything(`what changed could not be told (${message})`);
   }
+  // Locally, as a pull request by PR_AUTHOR (when it is set).
+  needs = e2eFor(needs, inActions ? event : 'pull_request', process.env.PR_AUTHOR);
 
   console.log(`${files.length} changed file${files.length === 1 ? '' : 's'}`);
   for (const s of SCOPES) console.log(`${s}: ${needs[s].run ? 'runs' : 'skipped'} (${needs[s].reason.replace(/`/g, '')})`);

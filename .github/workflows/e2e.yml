@@ -3,12 +3,25 @@ name: End-to-end tests
 # The UI in a real browser against the real server (npm run test:e2e), with a fake for each of the twelve
 # agent CLIs (e2e/fake-cli/), on Linux, macOS and Windows: no agent is paid for and nothing signs in.
 # Below full access the open agents' fakes run in Harness Relay's own sandbox for real (Linux, macOS).
-# For a pull request only when it touches a file they depend on (scripts/ci-scope.ts); a push to main
-# and a run by hand always run them.
+# They run for every release candidate: the Release workflow calls this workflow (workflow_call) and
+# publishes one only when they pass, and a release is made only once its newest release candidate is
+# out (scripts/release.ts). And for a pull request, when it touches a file they depend on, unless a
+# maintainer opened it (MAINTAINERS in scripts/ci-scope.ts: their changes are tested by the release
+# candidate's run); never for a push to main. A run by hand always runs them.
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_call:
+    inputs:
+      browsers:
+        description: 'Browsers, comma-separated (chromium, firefox, webkit)'
+        type: string
+        default: chromium
+        required: false
+      every_cli:
+        description: "Every CLI's own tests on macOS and Windows too, not only the CLIs each system runs differently from Linux"
+        type: boolean
+        default: false
+        required: false
   workflow_dispatch:
     inputs:
       browsers:
@@ -25,14 +38,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: e2e-${{ github.ref }}
-  # A new push to a pull request replaces its running check; runs on main always finish.
+  # A new push to a pull request replaces its running check. Any other run is a group of its own: the
+  # Release workflow's call (whose github.ref is main's) never waits for a run by hand, nor replaces one.
+  group: e2e-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Whether the change needs the tests, and why (in the run's summary): for a pull request, they run
-  # unless every file it touches is one they are known not to depend on (IGNORES in the script), as in
-  # ci.yml; a push to main or a run by hand runs them.
+  # unless a maintainer opened it or every file it touches is one they are known not to depend on
+  # (IGNORES in the script), as in ci.yml; a run by hand and the Release workflow's call run them.
   changes:
     name: What the change needs
     runs-on: ubuntu-latest
@@ -50,13 +64,17 @@ jobs:
 
       - name: Find what the change needs
         id: scope
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: node scripts/ci-scope.ts
 
   e2e:
     name: End-to-end (${{ matrix.os }}, Node ${{ matrix.node }}, part ${{ matrix.part }} of 2)
     needs: changes
-    # Anything but a plain no runs them, an output the script did not write too.
-    if: needs.changes.outputs.e2e != 'false'
+    # The script decides for a pull request only: anything but its plain no runs them, an output it did
+    # not write too. Any other run (by hand, the Release workflow's call, whatever started that) runs
+    # them, so that a release candidate is never published untested.
+    if: github.event_name != 'pull_request' || needs.changes.outputs.e2e != 'false'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -157,7 +175,9 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-report-${{ matrix.os }}-node${{ matrix.node }}-part${{ matrix.part }}
+          # The attempt too: a job run again (Re-run failed jobs) uploads beside the report of the one
+          # that failed, which stays to read, rather than be refused its name.
+          name: e2e-report-${{ matrix.os }}-node${{ matrix.node }}-part${{ matrix.part }}-attempt${{ github.run_attempt }}
           path: |
             playwright-report/
             test-results/
