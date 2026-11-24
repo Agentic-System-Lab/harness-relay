@@ -12,8 +12,13 @@ interface Props {
   agents: AgentConfig[];
   /** The team is replying: what is sent waits for the next turn, and Stop is offered. */
   running: boolean;
-  /** A fixed command's run of this chat holds its folder: Stop is offered (nothing is sent meanwhile). */
+  /** A fixed command's run of this chat holds its folder: Stop is offered. */
   commandRunning?: boolean;
+  /**
+   * Something holds the chat's folder while no run goes (a fixed or interactive command, Files deleting):
+   * nothing is sent (Send, Enter and Continue), which the placeholder says; what is typed stays for later.
+   */
+  held?: boolean;
   canContinue: boolean;
   /** The team is being designed or waits for confirmation: what is sent waits for it (no Continue, no interrupting). */
   locked?: boolean;
@@ -43,6 +48,7 @@ export function Composer({
   agents,
   running,
   commandRunning = false,
+  held = false,
   canContinue,
   locked = false,
   reviewing = false,
@@ -122,7 +128,7 @@ export function Composer({
 
   // While the team replies (or its design waits), a message waits for the next turn: sending is always fine.
   // A dropped folder still being read is sent once it is: Send waits for it.
-  const canSend = (text.trim().length > 0 || files.length > 0) && !preparing && !files.some((f) => f.reading);
+  const canSend = (text.trim().length > 0 || files.length > 0) && !preparing && !files.some((f) => f.reading) && !held;
 
   /** Run one send (or Continue) at a time. */
   const once = async (fn: () => Promise<void>) => {
@@ -255,7 +261,8 @@ export function Composer({
               </button>
             ) : (
               canContinue &&
-              !locked && (
+              !locked &&
+              !held && (
                 <button
                   className="ghost"
                   disabled={preparing}

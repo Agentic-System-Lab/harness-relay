@@ -535,21 +535,28 @@ describe('fixed command cards', () => {
     orchestrator.fixedCommandDeps = { ...deps, runProcess: h.runProcess };
     const hub = (orchestrator as unknown as { hub: { subscribe: (id: string, f: (e: { type: string }) => void) => () => void } }).hub;
     const offered: boolean[] = [];
+    const held: boolean[] = [];
     const off = hub.subscribe(conv.id, (e) => {
-      if (e.type === 'status') offered.push(Boolean((e as { commandRunning?: boolean }).commandRunning));
+      if (e.type !== 'status') return;
+      offered.push(Boolean((e as { commandRunning?: boolean }).commandRunning));
+      held.push(Boolean((e as { folderHeld?: boolean }).folderHeld));
     });
     try {
       expect(orchestrator.commandRunning(conv.id)).toBe(false);
       await orchestrator.tryCommand(conv.id, id);
       await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('running'));
-      // The chat's status says so (its composer offers Stop), and its Stop stops it.
+      // The chat's status says so (its composer offers Stop and sends nothing meanwhile), and its Stop stops it.
       expect(orchestrator.commandRunning(conv.id)).toBe(true);
+      expect(orchestrator.folderHeld(conv.id)).toBe(true);
       expect(offered).toContain(true);
+      expect(held).toContain(true);
       orchestrator.stop(conv.id);
       await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run).toMatchObject({ status: 'error', stopped: true }));
       expect(h.aborted).toBe(true);
       expect(orchestrator.commandRunning(conv.id)).toBe(false);
+      expect(orchestrator.folderHeld(conv.id)).toBe(false);
       expect(offered.at(-1)).toBe(false);
+      expect(held.at(-1)).toBe(false);
 
       // Removed in Settings while it runs (the route calls forgetCommand()): its run stops.
       h.aborted = false;

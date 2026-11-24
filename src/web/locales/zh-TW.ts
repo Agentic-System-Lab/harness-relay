@@ -458,6 +458,8 @@ export const zhTW = {
     // A message sent during the review stops it and goes at once (the next review reads these replies too).
     placeholderReviewing: '首席 agent 正在審閱回覆；現在送出訊息會停止審閱並立刻送出（下一次審閱會把這些回覆一起讀）…',
     placeholderBusy: '插話給團隊…（下一位發言前送達）',
+    placeholderCommand: '固定指令正在這個對話的資料夾裡執行：結束或按「停止」之後才能送出',
+    placeholderHeld: '有指令或檔案操作正在使用這個對話的資料夾：結束之後才能送出',
     // Steering on: what is sent goes into the running turn when it can.
     placeholderSteer: '插話給團隊…（可以的話直接送進進行中的回合）',
     placeholderAnswer: (names: string) => `回答 ${names} 的問題…`,

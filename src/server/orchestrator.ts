@@ -1171,8 +1171,8 @@ export class Orchestrator {
   private checkAvailable(convId: string, busyMessage: string): void {
     if (this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     if (this.closing) throw new HttpError(503, t().shuttingDown);
-    // No team replies then, nor is there a Stop: say what holds it.
-    if (this.folderHolds.has(convId) && !this.runs.has(convId)) throw new HttpError(409, this.heldMessage(convId));
+    // No team replies then: say what holds it (the composer sends nothing meanwhile, `folderHeld()`).
+    if (this.folderHeld(convId)) throw new HttpError(409, this.heldMessage(convId));
     if (this.isBusy(convId)) throw new HttpError(409, busyMessage);
   }
 
@@ -3904,6 +3904,15 @@ export class Orchestrator {
   commandRunning(convId: string): boolean {
     for (const r of this.commandRuns.values()) if (r.convId === convId) return true;
     return false;
+  }
+
+  /**
+   * Whether something holds this conversation's folder while no run goes (a fixed or interactive command,
+   * the Files panel deleting): a message, Continue or a card's answer is refused (`heldMessage()`), so the
+   * composer sends nothing until it ends.
+   */
+  folderHeld(convId: string): boolean {
+    return this.folderHolds.has(convId) && !this.runs.has(convId);
   }
 
   /** Shutting down: stop every run, and refuse new runs, applies and settings changes. */
@@ -7197,6 +7206,7 @@ export class Orchestrator {
       running: this.isRunning(id),
       activeAgentIds: this.activeAgentIds(id),
       commandRunning: this.commandRunning(id),
+      folderHeld: this.folderHeld(id),
     });
   }
 }

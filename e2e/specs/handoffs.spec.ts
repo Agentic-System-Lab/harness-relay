@@ -275,12 +275,20 @@ test.describe('secrets and fixed commands', () => {
     await expect(log.locator('pre')).toContainText('E2E_TOKEN=••••');
     await expect(log.locator('pre')).toContainText('input: hello from the agent');
     await expect(log.locator('pre')).not.toContainText(VALUE);
-    // The chat waits for it: it offers its own Stop, and a message sent meanwhile says how to stop it.
+    // The chat waits for it: it offers its own Stop, and sends nothing meanwhile (Send off, Enter keeps
+    // the draft), its placeholder saying why; no error. The card takes no answer meanwhile either.
     const chatStop = page.locator('.composer-actions button.stop');
     await expect(chatStop).toBeVisible();
+    await expect(composer(page)).toHaveAttribute(
+      'placeholder',
+      "A fixed command is running in this chat's folder: you can send once it ends, or Stop it",
+    );
     await composer(page).fill('meanwhile');
+    await expect(page.locator('.composer-actions button.send')).toBeDisabled();
     await composer(page).press('Enter');
-    await expect(page.locator('.error-line[role="alert"]').filter({ hasText: 'or stop it (Stop, or on its card)' })).toBeVisible();
+    await expect(composer(page)).toHaveValue('meanwhile');
+    await expect(page.locator('.error-line[role="alert"]')).toHaveCount(0);
+    await expect(card.getByRole('button', { name: 'Tell the team it is saved' })).toHaveCount(0);
     // Stop ends it: the card says so, keeps what it printed, and offers Try it again.
     await card.getByRole('button', { name: 'Stop', exact: true }).click();
     await expect(result.locator('strong')).toHaveText('Stopped', { timeout: 30_000 });
@@ -289,6 +297,10 @@ test.describe('secrets and fixed commands', () => {
     await expect(card.getByRole('button', { name: 'Try it' })).toBeVisible();
     await expect(card.locator('details.handoff-live-log')).toHaveCount(0);
     await expect(chatStop).toHaveCount(0);
+    // The draft typed meanwhile is still there, and can be sent now.
+    await expect(composer(page)).toHaveValue('meanwhile');
+    await expect(page.locator('.composer-actions button.send')).toBeEnabled();
+    await composer(page).fill('');
     await settled(relay, id);
 
     // Tried again and stopped with the chat's Stop as soon as it shows, maybe before its sandbox started the

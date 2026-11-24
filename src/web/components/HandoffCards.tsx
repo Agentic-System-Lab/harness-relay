@@ -561,8 +561,8 @@ export function CommandCard({
                 {c.share}
               </button>
             )}
-            {/* One answer: the result once it ran (the agent hears every try at its next turn anyway), else that it is saved. */}
-            {!actions.share && (
+            {/* One answer: the result once it ran (the agent hears every try at its next turn anyway), else that it is saved; none while it runs, when the chat takes no answer. */}
+            {!actions.share && !actions.stop && (
               <button
                 type="button"
                 className="ghost small-button"

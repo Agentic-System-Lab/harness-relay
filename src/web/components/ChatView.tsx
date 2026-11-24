@@ -89,6 +89,8 @@ interface State {
   active: string[];
   /** A fixed command's run of this chat holds its folder: Stop is offered, and stops it. */
   command: boolean;
+  /** Something holds the chat's folder while no run goes (a fixed or interactive command, Files deleting): nothing can be sent. */
+  held: boolean;
 }
 
 function upsert(messages: ChatMessage[], m: ChatMessage): ChatMessage[] {
@@ -101,8 +103,15 @@ function upsert(messages: ChatMessage[], m: ChatMessage): ChatMessage[] {
 
 function reducer(s: State, e: ServerEvent): State {
   if (e.type === 'snapshot')
-    return { conv: e.conversation, running: e.running, active: e.activeAgentIds, command: Boolean(e.commandRunning) };
-  if (e.type === 'status') return { ...s, running: e.running, active: e.activeAgentIds, command: Boolean(e.commandRunning) };
+    return {
+      conv: e.conversation,
+      running: e.running,
+      active: e.activeAgentIds,
+      command: Boolean(e.commandRunning),
+      held: Boolean(e.folderHeld),
+    };
+  if (e.type === 'status')
+    return { ...s, running: e.running, active: e.activeAgentIds, command: Boolean(e.commandRunning), held: Boolean(e.folderHeld) };
   if (!s.conv) return s;
   switch (e.type) {
     case 'message':
@@ -149,7 +158,7 @@ interface Props {
 
 export function ChatView({ id, providers, catalog, conversations, onChanged }: Props) {
   const { t, lang } = useI18n();
-  const [state, dispatch] = useReducer(reducer, { conv: null, running: false, active: [], command: false });
+  const [state, dispatch] = useReducer(reducer, { conv: null, running: false, active: [], command: false, held: false });
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(false);
   /** The conversation is gone (deleted): stop reconnecting. */
@@ -725,7 +734,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     setAppPreview({ request: ready.request, label: '@' + ready.agentName, agentName: ready.agentName });
   }, [ready]);
 
-  const { conv, running, active, command } = state;
+  const { conv, running, active, command, held } = state;
   if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
 
   // Approval requests still waiting for an answer (only while the agent's turn is running), but those
@@ -1135,31 +1144,37 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           agents={conv.agents}
           running={running}
           commandRunning={command}
+          held={held}
           canContinue={hasUserMessage}
           locked={awaitingConfirm || designing}
           reviewing={reviewing}
           steering={Boolean(conv.settings.steer)}
           skipQuestion={questions.length > 0}
           placeholder={
-            designing
-              ? t.chat.placeholderDesigning
-              : awaitingConfirm
-                ? t.chat.placeholderConfirm
-                : questions.length > 0
-                  ? t.chat.placeholderAnswer(askers)
-                  : reviewing
-                    ? t.chat.placeholderReviewing
-                    : running
-                      ? conv.settings.steer
-                        ? t.chat.placeholderSteer
-                        : t.chat.placeholderBusy
-                      : waitingForTeam
-                        ? t.chat.placeholderAuto
-                        : autoTeam
-                          ? t.chat.placeholderNext
-                          : conv.settings.mode === 'relay' && conv.agents[0]
-                            ? t.chat.placeholderRelay(conv.agents[0].name)
-                            : t.chat.placeholder
+            // Nothing can be sent while its folder is held: say why, and how it ends.
+            held
+              ? command
+                ? t.chat.placeholderCommand
+                : t.chat.placeholderHeld
+              : designing
+                ? t.chat.placeholderDesigning
+                : awaitingConfirm
+                  ? t.chat.placeholderConfirm
+                  : questions.length > 0
+                    ? t.chat.placeholderAnswer(askers)
+                    : reviewing
+                      ? t.chat.placeholderReviewing
+                      : running
+                        ? conv.settings.steer
+                          ? t.chat.placeholderSteer
+                          : t.chat.placeholderBusy
+                        : waitingForTeam
+                          ? t.chat.placeholderAuto
+                          : autoTeam
+                            ? t.chat.placeholderNext
+                            : conv.settings.mode === 'relay' && conv.agents[0]
+                              ? t.chat.placeholderRelay(conv.agents[0].name)
+                              : t.chat.placeholder
           }
           onSend={send}
           onStop={() => api.stop(conv.id).catch((e: Error) => setError(e.message))}
