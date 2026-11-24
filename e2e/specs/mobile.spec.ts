@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { devices, type Locator, type Page } from '@playwright/test';
 import { SCHEDULE_KINDS } from '../../src/shared/types';
@@ -6,6 +6,7 @@ import { en } from '../../src/web/locales/en';
 import { zhTW } from '../../src/web/locales/zh-TW';
 import { expect, test } from '../fixtures';
 import { composer, finishedReply, homePage, openTeamChat } from '../support/app';
+import { logged } from '../support/clis';
 
 // A phone's screen, the way the chat is used over Tailscale (docs/remote-access.md).
 const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices['Pixel 7'];
@@ -663,6 +664,61 @@ test.describe('on a phone', () => {
     expect(readFileSync(join(relay.workDir, 'queue.csv'), 'utf8')).toContain('2026-11-24,Added on the go,no\n');
     await panel.getByRole('button', { name: 'Back to the list' }).tap();
     await expect(panel.getByTitle('queue.csv', { exact: true })).toBeVisible();
+  });
+
+  test("a folder is attached from the paperclip's menu, whose items are a finger's size, and reaches the agent; New chat's offers it too", async ({
+    page,
+    relay,
+  }, testInfo) => {
+    const notes = testInfo.outputPath('notes');
+    mkdirSync(join(notes, 'trip'), { recursive: true });
+    writeFileSync(join(notes, 'packing.md'), '- passport\n');
+    writeFileSync(join(notes, 'trip', 'days.md'), '1. Taipei\n');
+    // Chrome for Android picks folders from version 132 on: New chat's paperclip offers files or a folder,
+    // its menu in view.
+    await page.getByRole('link', { name: en.home.start }).tap();
+    await page.getByRole('button', { name: en.composer.attachFilesOrFolder }).tap();
+    await expect(page.getByRole('menu', { name: en.composer.attachFilesOrFolder })).toBeInViewport({ ratio: 1 });
+    // So does the chat's.
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    const clip = page.getByRole('button', { name: en.composer.attachFilesOrFolder });
+    await clip.tap();
+    const menu = page.getByRole('menu', { name: en.composer.attachFilesOrFolder });
+    await expect(menu).toBeInViewport({ ratio: 1 });
+    const items = menu.getByRole('menuitem');
+    await expect(items).toHaveText([en.composer.attachFiles, en.composer.attachFolder]);
+    for (const item of await items.all()) expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    const chooser = page.waitForEvent('filechooser');
+    await items.filter({ hasText: en.composer.attachFolder }).tap();
+    await (await chooser).setFiles(notes);
+    const chip = page.locator('.attach-tray .attach-folder');
+    await expect(chip).toContainText('notes');
+    await expect(chip).toContainText('2 files');
+    await composer(page).fill('What is in the folder?');
+    await page.getByRole('button', { name: 'Send' }).tap();
+    await finishedReply(page, 'Claude');
+    await logged(relay, (e) => e.cli === 'claude' && e.prompt?.includes('notes/ (a folder of 2 files'));
+  });
+
+  test.describe('in Safari on iOS 18.3, whose folder picker takes files only', () => {
+    test.use({
+      userAgent:
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1',
+    });
+
+    test('the paperclip picks files at once, with no folder in it', async ({ page, relay }, testInfo) => {
+      const file = testInfo.outputPath('packing.md');
+      writeFileSync(file, '- passport\n');
+      await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+      await expect(page.locator('input[type=file][webkitdirectory]')).toHaveCount(0);
+      const chooser = page.waitForEvent('filechooser');
+      await page.getByRole('button', { name: en.composer.attach, exact: true }).tap();
+      await expect(page.getByRole('menu')).toHaveCount(0);
+      const picker = await chooser;
+      expect(picker.isMultiple()).toBe(true);
+      await picker.setFiles(file);
+      await expect(page.locator('.attach-tray')).toContainText('packing.md');
+    });
   });
 
   test('scrolled up, the arrow to the end sits in the middle above the message box, and a tap takes the chat there', async ({
