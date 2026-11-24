@@ -138,6 +138,9 @@ describe('needsOf', () => {
     expect(runs('.github/workflows/e2e.yml')).toEqual(['e2e']);
     expect(runs('.github/workflows/release.yml')).toEqual([]);
     expect(runs('.github/workflows/cli-versions.yml')).toEqual([]);
+    expect(runs('.github/workflows/contributors.yml')).toEqual([]);
+    // The READMEs' contributors: their tests run on Windows too.
+    expect(runs('scripts/contributors.ts', '.github/contributors.json')).toEqual(['windows']);
   });
 
   it('runs everything for a change to the rules, or of no files', () => {

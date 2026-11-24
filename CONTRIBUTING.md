@@ -153,6 +153,8 @@ The pull request template asks for these. In the description, say:
 
 A maintainer reviews every pull request. Expect questions and requests for changes; they are about fitting the change into the project, not about you.
 
+Once your commits are in, the README's [Contributors](README.md#contributors) list adds you by itself (the Contributors workflow, `scripts/contributors.ts`). Someone who helped in another way (testing, ideas, reviews) is added by name in [`.github/contributors.json`](.github/contributors.json).
+
 ## Working with coding agents
 
 You are welcome to write your change with Claude Code, Codex, Grok or any other agent, including from inside Harness Relay itself. [AGENTS.md](AGENTS.md) gives them the commands, the layout and the rules, and [CLAUDE.md](CLAUDE.md) imports it for Claude Code. You are still responsible for the result: read the diff, run the checks, and make sure every claim in the description is true.
