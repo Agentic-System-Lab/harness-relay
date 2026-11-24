@@ -52,6 +52,12 @@ describe('infoLines', () => {
     ]);
   });
 
+  it('names a CLI too old to run with its version and the one it needs (its version alone said nothing was wrong)', () => {
+    const old = { ...status('codex', false, '0.27.0'), tooOld: '0.100.0' };
+    expect(infoLines({ providers: [old], userAgent: '', lang: 'en' }, en)[0]).toBe('Codex: 0.27.0 (too old: needs 0.100.0 or later)');
+    expect(infoLines({ providers: [old], userAgent: '', lang: 'zh-TW' }, zhTW)[0]).toBe('Codex：0.27.0（太舊，需要 0.100.0 以上）');
+  });
+
   it("never names the user's files or accounts", () => {
     const text = infoLines({ about, providers, userAgent: '', lang: 'en' }, en).join('\n');
     expect(text).not.toContain('/Users/someone');

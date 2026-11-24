@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 55 個 spec 檔、650 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 55 個 spec 檔、651 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -73,7 +73,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
 | [首席 agent 在團隊之外的協助](#首席-agent-在團隊之外的協助) | [`lead-drafts.spec.ts`](specs/lead-drafts.spec.ts) | 7 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本)、[團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[自動任務](../docs/user-guide.zh-TW.md#自動任務)、[群組](../docs/user-guide.zh-TW.md#群組)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 12 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
-| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 26 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[實驗室](../docs/user-guide.zh-TW.md#實驗室)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
+| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 27 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[實驗室](../docs/user-guide.zh-TW.md#實驗室)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
 | [安裝 Git](#安裝-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 3 | [使用者說明 → 對話設定](../docs/user-guide.zh-TW.md#對話規則) |
 | [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
@@ -649,6 +649,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在 GitHub 和瀏覽器列安裝缺少的工具 | — | 缺少時顯示安裝按鈕，重新整理保留進度，失敗可重試。完成後顯示 GitHub 登入或瀏覽器路徑。 |
 | 全新安裝時會先檢查助理，再展開初次設定選項 | — | 繁中介面的總覽先顯示檢查中，取得狀態後列出需要安裝的助理，點 Codex 可前往它的設定卡。 |
 | 找到每個 CLI，顯示版本，且已登入 | 各一，同一個測試 | 每張卡片顯示 CLI 的版本，以及**已登入**（Claude Code 附帳號），開源 agent 在假端點上則是**可使用**（Ready）；側邊欄十二個狀態點都正常（「12/12 ready」，開源 agent 的標題是「Model access set up」）；要求時顯示它們的名稱，重新載入後仍保留。 |
+| 版本太舊的 CLI 在設定與側邊欄說明，提供新版，它的回合說明需要哪個版本 | Codex | `E2E_FAKE_TOO_OLD=codex`：它的假程式說自己是 0.0.1，其他指令都會失敗，就像 Codex 0.27 在沒有終端機時那樣。它的狀態點顯示「Too old: needs an update」，總覽顯示 **Needs an update**；卡片與帳號的標籤都是 **Too old**，帶著 v0.0.1、需要的版本、使用者自己的那份維持原樣的說明，以及 **Install Codex**（不點它）；**Sign in** 不能按。它的回覆錯誤說它太舊、Harness Relay 需要哪個版本，而且 Codex 除了 `--version` 之外從沒被啟動。 |
 | 未安裝的 CLI 在設定與側邊欄顯示未安裝 | Cursor、Antigravity | 設成未安裝（`missingClis`）：它們的狀態點與卡片顯示**未安裝**（Not installed）。助理總覽顯示 Claude Code 已可用，展開**連接另一個助理**就能選 Cursor 前往設定。 |
 | 沒有模型來源的開源 agent 還不能用，它的回合說明要先設定一個 | OpenCode | `openBackend: false`：助理總覽裡的 OpenCode 連到**模型連線**。按 Enter 後焦點到達標題，Tab 會走進該區的設定。狀態點寫著「Model access not set up」，卡片顯示**尚未就緒**（Not ready）與「No model backend set up yet (Settings → Model connections)」，回答的錯誤說 OpenCode 沒有模型。 |
 | 可以指定 CLI 的執行檔路徑，錯誤的路徑顯示找不到 | Grok | 不存在的路徑顯示**未安裝**（Not installed）；清空後又找到它。 |
@@ -910,6 +911,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 下一回合接續自己的 session | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 設定中的版本與登入，以及未登入 | ✓ | ✓ | ✓ | ✓ | ✓（它的 Gemini API key；沒有時不提供登入，也不啟動 agy） | ✓ | ✓ |
 | 在設定與側邊欄顯示未安裝 | — | — | ✓（錯誤的執行檔路徑） | ✓ | ✓ | — | — |
+| 版本太舊不能執行：設定、側邊欄與它的回合，除了版本什麼都沒啟動 | — | ✓ | — | — | — | — | — |
 | 從設定頁的卡片安裝，再移除 | — | — | 提供官方腳本（不執行） | — | — | ✓（用假的 npm） | — |
 | 成員的模型與推理強度 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 在七個組成的團隊中：依序回答（照首席 agent 設計的方式，四人與三人一組）、編輯模式的變更、工具庫、各 CLI 存放 session 的資料夾 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -998,6 +1000,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **其他 CLI 的「直接送進進行中的回合」。**只有 Claude Code 與 Codex 的假 CLI 會把訊息收進進行中的回合；Grok 的 `x.ai/interject`、Antigravity 再送的 `session/prompt`、Goose 的 `_goose/unstable/session/steer` 與 Pi 的 `steer` 只在離線測試裡（`test/steer.test.ts`，共用 ACP 回合的 hook 在 `test/acp-turn.test.ts`），協調器在各模式的規則（平行模式要嘛全部、要嘛都不送）則用它的假 runner 測（`test/orchestrator-steer.test.ts`）。還沒有任何真正的 CLI 在測試裡收過這樣的訊息，實機測試也還沒有。
 - **互動指令的大部分。**端對端測試從卡片啟動指令、隱藏輸入、回答它的密碼小幫手、取消它，並送出它的輸出。以下改由離線測試涵蓋（`test/interactive.test.ts`、`test/orchestrator-handoffs.test.ts`、`test/handoffs-api.test.ts`）：區塊的規則、工作目錄（從不替使用者選好；列出它的設定檔、hooks 和安裝的程式，多了別的或其中有改變時拒絕啟動）、自動化執行提議的卡片與別的對話的卡片、時間上限、資料夾的密鑰遮蔽、拒絕小幫手的問題，以及伺服器停止時留下的執行。真正的登入（`gcloud`、`npm login`）、`sudo -A`，以及透過小幫手的 ssh 與 git，都沒有端對端試過。
 - **真正的首席 agent 判斷什麼是安全的（「替我核准」）。**假的首席 agent 依指令核准或標記；審查讀到什麼、何時不送審、時間限制、同時執行幾個，以及自動任務的執行，都在離線測試中涵蓋（`test/approvalReview.test.ts`、`test/orchestrator-approve.test.ts`、`orchestrator-schedule`）。真正的模型會怎麼決定，沒有測試。
+- **版本太舊而不能執行的 CLI，大部分情況。** 端對端測試讓 Codex 的假程式變舊，檢查設定、側邊欄與它的回合。改在離線測試涵蓋（`test/cli-version.test.ts`、`test/providers.test.ts`、`test/usage.test.ts`、`test/cli-install-web.test.ts`）：版本的比較、最低版本與驗證過的版本及使用指南的對照、每個程式只讀一次版本、其他每個 CLI 的執行都一樣被拒、它的用量、模型、登入與登出都不去問，以及 Harness Relay 自己安裝的那份的**更新**。在太舊的 CLI 上按**安裝**或**更新**會真的下載它，所以沒有 spec 這麼做；真正的 Codex 0.27.0，以及從卡片安裝新版的 Codex，是手動試過的。
 - **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`、`test/cursor.test.ts`、`test/antigravity.test.ts`、`test/copilot.test.ts`、`test/muse.test.ts` 與開源 agent 的測試，後面這些重播從真正的 CLI 錄下的訊息）以及在 app 中試用真正的 CLI 發現；那些錄音是 adapter 當初所依據的版本，所以 CLI 的新版本要用 `scripts/cli-check.ts` 對真正的 CLI 手動檢查（[開發者指南「檢查 CLI 的新版本」](../docs/developer-guide.zh-TW.md#檢查-cli-的新版本)）。真的 CLI 是否只把 gateway 的權杖（HTTP MCP server 的 header）留在記憶體中，要用 `scripts/mcp-headers-check.ts` 手動檢查，不在這裡：假 CLI 只顯示 Harness Relay 把它放在 header 裡、不在任何參數中。
 - **CLI 自己的沙箱。**Claude Code、Codex、Grok、Copilot 與 Muse Code 的假 CLI 是從 Harness Relay 給它們的設定，推算它們 CLI 的沙箱會允許什麼（Copilot 的從這次執行的設定推算，並且像 Copilot 那樣，用這些設定給的政策回答 `/sandbox policy`）；只有包住開源 agent 的 Harness Relay 自己的沙箱是真的。真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`live/sandbox.spec.ts`）試用。
 - **AgentsView 本身。**它是 [`sessions.spec.ts`](specs/sessions.spec.ts) 中的替身伺服器，只回應 Harness Relay 的請求，從不讀 session 檔。真正的 AgentsView 是否在 Harness Relay 的執行留下 session 的地方讀到各 CLI 自己的 session、用的是不是 Harness Relay 連結的 id（包括 Copilot 的 `session-state` 與 Muse Code 的資料資料夾，在各 CLI 平常的家目錄，以及透過使用者說明中專用 AgentsView 的 `config.toml`），並把它們放在討論串底下，是用 AgentsView 0.46.1 手動試過的（Copilot 與 Muse Code 也用 copilot 1.0.109 與 muse 1.4.18 透過它們的 adapter 在 Linux 與 Windows 上寫的 session 試過）。

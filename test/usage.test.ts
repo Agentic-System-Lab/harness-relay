@@ -477,6 +477,8 @@ const log = (o) => fs.appendFileSync(env.STAND_LOG, JSON.stringify({ name, ...o 
 log({ args, cwd: process.cwd(), mcp: env.GROK_CLAUDE_MCPS_ENABLED, home: env.COPILOT_HOME, cache: env.COPILOT_CACHE_HOME });
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 const hang = () => setTimeout(() => {}, 60000);
+// Its version (\`tooOld()\`): new enough, unless STAND_VERSION says otherwise.
+if (args[0] === '--version') { process.stdout.write((env.STAND_VERSION || name + ' 9999.0.0') + '\\n'); process.exit(0); }
 if (env.STAND_HANG) { hang(); return; }
 if (name === 'muse') {
   if (env.STAND_SIGNED_OUT) { process.stderr.write('not logged in: run \\x60muse login\\x60 first\\n'); process.exit(1); }
@@ -569,7 +571,8 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
       .split('\n')
       .filter(Boolean)
       .map((l) => JSON.parse(l) as Logged);
-  const started = () => logged().filter((e) => e.args);
+  // What it was asked, its version apart.
+  const started = () => logged().filter((e) => e.args && e.args[0] !== '--version');
   const methods = () => logged().flatMap((e) => (e.method ? [e.method] : []));
   const fresh = () => writeFileSync(log, '');
 
@@ -614,6 +617,23 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
     });
     expect(started()[0]!.args).toEqual(['app-server']);
     expect(methods()).toEqual(['initialize', 'initialized', 'account/read', 'account/rateLimits/read']);
+  });
+
+  it('asks a Codex older than Harness Relay supports nothing but its version (0.27 has no app-server)', async () => {
+    const { forgetVersions } = await import('../src/server/cliVersion');
+    // The same program as the other tests' Codex: its version, kept from them, is read again.
+    forgetVersions();
+    fresh();
+    try {
+      expect(await askUsage('codex', bin('codex'), env({ STAND_VERSION: 'codex-cli 0.27.0' }))).toEqual({
+        limits: [],
+        problem: 'cliTooOld',
+      });
+      expect(started()).toEqual([]);
+      expect(logged().map((e) => e.args)).toEqual([['--version']]);
+    } finally {
+      forgetVersions();
+    }
   });
 
   it('asks a signed-out Codex, or one on a key (in its environment too), no more than who it is', async () => {

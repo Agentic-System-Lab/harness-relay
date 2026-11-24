@@ -127,6 +127,12 @@ describe('the credits and why there are no limits', () => {
     expect(usageProblemText(usage({ problem: 'timedOut' }), en)).toBe('The CLI did not answer in time.');
     expect(usageProblemText(usage({ provider: 'codex', problem: 'cliMissing' }), zhTW)).toBe('找不到 Codex 的 CLI。');
     expect(usageProblemText(usage({ provider: 'codex', problem: 'cliMissing' }), en)).toBe("Codex's CLI was not found.");
+    expect(usageProblemText(usage({ provider: 'codex', problem: 'cliTooOld' }), en)).toBe(
+      'Codex is too old, so its usage was not asked: update it first.',
+    );
+    expect(usageProblemText(usage({ provider: 'codex', problem: 'cliTooOld' }), zhTW)).toBe(
+      'Codex 版本太舊，所以沒有向它查詢用量：請先更新。',
+    );
     expect(usageProblemText(usage({}), en)).toBe('');
   });
 });

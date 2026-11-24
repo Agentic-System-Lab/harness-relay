@@ -135,6 +135,8 @@ npm run build
 
 如果你的修改把某個 agent CLI 推到較新的版本（`src/shared/cliVersions.ts`），請先用 `npx tsx scripts/cli-check.ts <cli> --bin <新版本>` 檢查那個版本並跑它的實機測試，說明它們報告了什麼，並在同一個 commit 裡存下新版本的形狀（`--accept`）、更新使用指南那一行（兩種語言），以及你用它重新試過之後，其他說明某個行為是在哪個版本看到的文件：見[檢查 CLI 的新版本](docs/developer-guide.zh-TW.md#檢查-cli-的新版本)。CLI versions workflow 會在 Linux 上檢查每個新版本，只有檢查失敗或有東西消失時才開一個 issue（標籤 `cli-check`）。
 
+如果你的修改要用 Harness Relay 會啟動的最舊版本還沒有的子指令（或決定它怎麼執行的旗標）啟動某個 CLI（同一個檔案的 `MIN_VERSIONS`），請在同一個 commit 把那個最低版本提高到第一個有它的版本，並更新使用指南兩種語言的那一行：Harness Relay 啟動 CLI 時不給它終端機，舊版會把它不認得的子指令當成 prompt（見[檢查 CLI 的新版本](docs/developer-guide.zh-TW.md#檢查-cli-的新版本)）。
+
 ## Commit 訊息
 
 commit 訊息請用英文撰寫。
@@ -152,6 +154,8 @@ pull request 範本會請你填寫這些。請在說明中寫出：
 - 介面上的修改請附截圖或短片；有改到文字時兩種語言都要，有改到版面時也附上手機尺寸的畫面。
 
 每個 pull request 都會經過維護者審查。可能會有提問或修改要求，目的是讓這個修改融入專案，不是針對你。
+
+你的 commit 合併進來之後，README 的[貢獻者](README.zh-TW.md#貢獻者)名單會自動加上你（Contributors workflow，`scripts/contributors.ts`）。以其他方式幫忙的人（測試、想法、審查）則依帳號加在 [`.github/contributors.json`](.github/contributors.json)。
 
 ## 搭配 coding agent
 

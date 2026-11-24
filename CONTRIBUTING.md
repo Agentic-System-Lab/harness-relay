@@ -135,6 +135,8 @@ If your change affects what agents see or do, also try it in the app with at lea
 
 If your change moves an agent CLI to a newer version (`src/shared/cliVersions.ts`), check that version first with `npx tsx scripts/cli-check.ts <cli> --bin <the new one>` and run its live tests, say what they reported, and in the same commit save the new version's shapes (`--accept`) and update the user guide's line, in both languages, with the other docs that say which version a behaviour was seen with once you tried it again with it: see [Checking a CLI's new version](docs/developer-guide.md#checking-a-clis-new-version). The CLI versions workflow checks each new version on Linux and opens an issue (label `cli-check`) only when that check found a failed check or something removed.
 
+If your change starts a CLI with a subcommand (or a flag that decides how it runs) that the oldest version Harness Relay starts does not have (`MIN_VERSIONS` in the same file), raise that minimum to the first version that has it, in the same commit, with the user guide's line in both languages: Harness Relay starts its CLIs without a terminal, and an older one takes a subcommand it does not know for a prompt (see [Checking a CLI's new version](docs/developer-guide.md#checking-a-clis-new-version)).
+
 ## Commit messages
 
 Write commit messages in English.
@@ -152,6 +154,8 @@ The pull request template asks for these. In the description, say:
 - for UI changes, screenshots or a short recording, in both languages if the text changed, and on a phone-sized window if the layout changed.
 
 A maintainer reviews every pull request. Expect questions and requests for changes; they are about fitting the change into the project, not about you.
+
+Once your commits are in, the README's [Contributors](README.md#contributors) list adds you by itself (the Contributors workflow, `scripts/contributors.ts`). Someone who helped in another way (testing, ideas, reviews) is added by name in [`.github/contributors.json`](.github/contributors.json).
 
 ## Working with coding agents
 

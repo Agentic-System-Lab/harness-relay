@@ -1,4 +1,6 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HOSTED_APPS } from '../src/shared/apps';
 import type { HostedApp, NativePart, NativeItemsOff } from '../src/shared/types';
@@ -134,6 +136,34 @@ describe('hosted connector checks', () => {
     for (const [options] of run.mock.calls)
       expect(options).toMatchObject({ bin: 'claude', args: ['mcp', 'get', 'claude.ai Slack'], env: { fixtureAccount: 'second' } });
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'asks a Claude Code or Codex too old to start nothing but its version, and does not know',
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'relay-hosted-old-'));
+      const old = (name: string, version: string) => {
+        const bin = join(dir, name);
+        writeFileSync(bin, `#!/bin/sh\necho "$*" >> "${bin}.starts"\n[ "$1" = "--version" ] && echo "${version}"\nexit 0\n`, {
+          mode: 0o755,
+        });
+        return bin;
+      };
+      const bins = { claude: old('claude', '2.0.0 (Claude Code)'), codex: old('codex', 'codex-cli 0.27.0') };
+      const run = vi.spyOn(processes, 'runProcess');
+      const call = vi.spyOn(processes, 'converse');
+      const checks = new HostedAppChecks({
+        ...settings,
+        bin: (p: string) => bins[p as keyof typeof bins],
+        env: () => ({ PATH: process.env.PATH }),
+      });
+      expect(await checks.check('slack', 'claude', 'old')).toBe('unknown');
+      expect(await checks.check('slack', 'codex', 'old', true)).toBe('unknown');
+      // Not `claude mcp get`, nor `codex app-server`.
+      expect(run).not.toHaveBeenCalled();
+      expect(call).not.toHaveBeenCalled();
+      for (const bin of Object.values(bins)) expect(readFileSync(`${bin}.starts`, 'utf8').trim().split('\n')).toEqual(['--version']);
+    },
+  );
 
   it('keeps catalog accessibility, blocked tools and an actual OAuth verification distinct', () => {
     expect(codexHostedSnapshot([{ id: HOSTED_APPS.slack.codexConnector, isAccessible: true, isEnabled: true }]).slack).toBe('unknown');

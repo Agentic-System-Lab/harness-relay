@@ -45,6 +45,23 @@ export function CliInstall({
     }
   };
 
+  // Too old and ours: removed, then installed again, current, in the same folder. Each answer is shown as
+  // it comes, and the status asked again whatever happened: an install refused after the removal (its
+  // program gone since, say) leaves the card true to what is there, with Install.
+  const update = async () => {
+    setBusy(true);
+    setNote({ text: '' });
+    try {
+      onView(await api.removeCli(provider));
+      onView(await api.installCli(provider));
+    } catch (e) {
+      setNote({ text: (e as Error).message, error: true });
+    } finally {
+      setBusy(false);
+      await onChanged();
+    }
+  };
+
   if (shown.kind === 'none' || !view) return note.text ? <p className="muted small">{note.text}</p> : null;
   const job = view.job;
 
@@ -55,6 +72,11 @@ export function CliInstall({
           {i.installedHere(view.dir)}
           {!shown.inUse && i.notInUse}
         </span>
+        {shown.update && (
+          <button className="primary small-button" disabled={busy} onClick={() => void update()}>
+            {i.update(label)}
+          </button>
+        )}
         <button
           className="ghost small-button"
           disabled={busy}
@@ -62,6 +84,7 @@ export function CliInstall({
         >
           {i.remove}
         </button>
+        {shown.update && <p className="muted small">{i.updateHint}</p>}
         {note.text && <p className={note.error ? 'error-line' : 'muted small'}>{note.text}</p>}
       </div>
     );

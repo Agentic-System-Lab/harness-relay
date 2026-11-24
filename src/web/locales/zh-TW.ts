@@ -156,6 +156,7 @@ export const zhTW = {
     health: {
       checking: '檢查中…',
       notInstalled: '未安裝',
+      tooOld: '版本太舊，需要更新',
       apiKey: '使用 API key',
       notLoggedIn: '未登入',
       loggedIn: (account?: string) => `已登入${account ? `：${account}` : ''}`,
@@ -251,6 +252,7 @@ export const zhTW = {
     notLoggedIn: (p: string) => `${p} 尚未登入。`,
     noBackend: (p: string) => `${p} 還不能使用：請先到「設定 → 模型連線」加入 API 金鑰或端點。`,
     cliMissing: (p: string) => `找不到 ${p} CLI。`,
+    cliTooOld: (p: string, min: string) => `${p} 版本太舊，Harness Relay 需要 ${min} 以上：請先更新它。`,
     goSettings: '前往設定 →',
     addMember: '新增成員',
     rules: '對話規則',
@@ -393,6 +395,7 @@ export const zhTW = {
       timedOut: 'CLI 沒有及時回答。',
       noAnswer: 'CLI 沒有回報用量。',
       cliMissing: (cli: string) => `找不到 ${cli} 的 CLI。`,
+      cliTooOld: (cli: string) => `${cli} 版本太舊，所以沒有向它查詢用量：請先更新。`,
     },
     notReported: {
       cursor: 'Cursor 的 CLI 只在它自己的終端畫面（/usage）顯示用量，沒有其他程式能查詢的方式：請到 Cursor 網站的 Dashboard 查看。',
@@ -2083,6 +2086,7 @@ export const zhTW = {
       language: '介面語言',
       installed: '已安裝',
       notInstalled: '未安裝',
+      tooOld: (version: string, min: string) => `${version}（太舊，需要 ${min} 以上）`,
       unknown: '（伺服器沒有回應，讀不到版本與系統）',
     },
     /** In the mail itself. */
@@ -2974,6 +2978,7 @@ export const zhTW = {
       readyAccount: (name: string) => `已可用 · ${name}`,
       signIn: '需要登入',
       install: '需要安裝',
+      update: '需要更新',
       backend: '設定模型連線',
       requirements: '查看安裝需求',
       executable: '檢查執行檔',
@@ -3014,6 +3019,11 @@ export const zhTW = {
     leadNoBackend: (p: string) => `${p} 需要模型才能執行：請到「設定 → 模型連線」設定，或改選其他助理。`,
     leadNotInstalled: (p: string) => `這台電腦上找不到 ${p}：請先安裝（或在它的卡片指定執行檔路徑），或改選其他助理。`,
     goCard: (p: string) => `前往 ${p} →`,
+    leadTooOld: (p: string, min: string) => `${p} 版本太舊（需要 ${min} 以上）：請先更新它，或改選其他助理。`,
+    tooOld: (p: string, version: string, min: string) =>
+      `${p} ${version} 比 Harness Relay 支援的版本舊（需要 ${min} 以上），所以不會用它執行任何東西。`,
+    tooOldUpdate:
+      '請在你安裝它的地方更新它，或在這裡另外安裝一份新版：裝好後 Harness Relay 就改用新的那份，你自己安裝的那份不會變動，登入和設定也都照舊。',
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
     /** The links at the top of the page: short, so they stay on one line. */
@@ -3074,6 +3084,7 @@ export const zhTW = {
     pill: {
       checking: '檢查中…',
       notInstalled: '未安裝',
+      tooOld: '版本太舊',
       apiKey: '使用 API key',
       loggedIn: '已登入',
       notLoggedIn: '未登入',
@@ -3222,6 +3233,8 @@ export const zhTW = {
       noOutput: '（沒有輸出）',
       installedHere: (dir: string) => `由 Harness Relay 安裝在 ${dir}`,
       notInUse: '（「執行檔」目前設成別的路徑，這份沒有在使用）',
+      update: (p: string) => `更新 ${p}`,
+      updateHint: '這份是 Harness Relay 安裝的：「更新」會刪掉這份，再在同一個資料夾裝上新版。登入和設定都照舊。',
       remove: '移除',
       confirmRemove: (p: string, dir: string) => `移除 Harness Relay 安裝的 ${p}？會刪除 ${dir}。${p} 的登入、設定和對話紀錄都不會刪除。`,
       removed: (p: string) => `已移除 ${p}`,

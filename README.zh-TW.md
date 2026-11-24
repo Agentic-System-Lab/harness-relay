@@ -29,6 +29,7 @@
 - [文件](#文件)
 - [討論區](#討論區)
 - [參與開發](#參與開發)
+- [貢獻者](#貢獻者)
 - [授權](#授權)
 
 ## 使用情境
@@ -164,6 +165,19 @@ agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只�
 ## 參與開發
 
 歡迎回報問題、提出想法或送出 pull request。[CONTRIBUTING.zh-TW.md](CONTRIBUTING.zh-TW.md) 說明怎麼回報問題、建立開發環境與準備修改；所有給使用者看的文字與文件都要同時有 English 與繁體中文。也可以直接在 app 裡[回報問題](docs/user-guide.zh-TW.md#回報問題)。參與的每個人都要遵守[行為準則](CODE_OF_CONDUCT.zh-TW.md)。發現安全性問題？請依 [SECURITY.zh-TW.md](SECURITY.zh-TW.md#回報漏洞) 的說明私下回報。
+
+## 貢獻者
+
+謝謝每一位幫忙打造 Harness Relay 的人。這份名單由 workflow 依儲存庫的 commit 自動更新；以其他方式幫忙的人（測試、想法、審查）則加在 [`.github/contributors.json`](.github/contributors.json)。
+
+<!-- contributors:start -->
+<table>
+  <tr>
+    <td align="center" valign="top" width="120"><a href="https://github.com/cyyeh"><img src="https://avatars.githubusercontent.com/u/11023068?v=4&amp;s=128" width="64" height="64" alt=""><br><sub><b>Chih-Yu Yeh</b></sub></a></td>
+    <td align="center" valign="top" width="120"><a href="https://github.com/davidho27941"><img src="https://avatars.githubusercontent.com/u/49113240?v=4&amp;s=128" width="64" height="64" alt=""><br><sub><b>Ta Wei (David) Ho</b></sub></a></td>
+  </tr>
+</table>
+<!-- contributors:end -->
 
 ## 授權
 

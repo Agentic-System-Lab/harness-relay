@@ -8,6 +8,7 @@ import { HOSTED_APPS } from '../../shared/apps';
 import type { HostedApp, HostedAppStatus, HostedProvider } from '../../shared/types';
 import { claudeMcpName } from '../agents/claude';
 import { codexMcpToolId, codexNativeConfig, codexOverrideArgs } from '../agents/codex';
+import { tooOld } from '../cliVersion';
 import { converse, runProcess } from '../process';
 import { profilePermission, profileStatus, profileTool } from './codexHostedProfile';
 import { AGENT_HOME_ENV, type SettingsStore } from '../settings';
@@ -50,6 +51,8 @@ export function claudeHostedStatus(app: HostedApp, code: number | null, stdout: 
 
 async function checkClaude(app: HostedApp, bin: string, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<HostedAppStatus> {
   try {
+    // Older than Harness Relay supports: not asked (`tooOld()`).
+    if (await tooOld('claude', bin, env)) return 'unknown';
     const result = await runProcess({
       bin,
       args: ['mcp', 'get', HOSTED_APPS[app].claudeName],
@@ -95,6 +98,8 @@ async function checkCodex(
   let thread: string;
   let folder: string | undefined;
   try {
+    // Older than Harness Relay supports: not asked (Codex 0.27 has no `app-server`, and opens its terminal UI instead).
+    if (await tooOld('codex', bin, env)) return result;
     if (verify) folder = await mkdtemp(join(tmpdir(), 'relay-hosted-profile-'));
     // The profile check runs in an empty working folder, with hooks/plugins disabled. No model turn is started.
     const isolation = folder
