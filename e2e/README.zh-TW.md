@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 55 個 spec 檔、657 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 55 個 spec 檔、659 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -89,7 +89,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [通知與提示音](#通知與提示音) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 6 | [使用者說明 → 通知與提示音](../docs/user-guide.zh-TW.md#通知與提示音)、[通知收件匣](../docs/user-guide.zh-TW.md#通知收件匣)、[架構 → 通知](../docs/architecture.zh-TW.md#通知) |
 | [環境變數設定的上限](#環境變數設定的上限) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [開發者說明 → 環境變數](../docs/developer-guide.zh-TW.md#環境變數) |
 | [語言](#語言) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 7 | [架構 → 語言](../docs/architecture.zh-TW.md#語言) |
-| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 19 | [用手機連線](../docs/remote-access.zh-TW.md) |
+| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 21 | [用手機連線](../docs/remote-access.zh-TW.md) |
 
 測試以英文介面執行，所以下面括號裡附上測試實際操作的英文標籤。
 
@@ -877,6 +877,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 很長的訊息不會讓頁面左右捲動 | Claude Code | 300 個字元的單字與 Markdown 回答都不會造成左右捲動。 |
 | 回答後的長指令保持一行，點開可看完整指令，頁面不會左右捲動 | Claude Code | 點一下允許之後（`e2e:approve=long`），那一行並排顯示指令的第一行與 **Allowed**；點開後完整指令在框內換行；收起或展開時頁面都不會左右捲動。 |
 | 以觸控在「檔案」中為 CSV 檔加一列，畫面不會左右捲動 | Claude Code | 從**更多 → 檔案**（More → Files）打開，列表提供**新增檔案**（New file）與**上傳檔案**（Upload files）；打開 `queue.csv`，點**編輯**（Edit），在文字框中加一列，頁面與「檔案」對話框都不會左右捲動（最多一個像素），**儲存**（Save）寫入檔案，**返回列表**（Back to the list）回到列表。 |
+| 從迴紋針的選單附加資料夾，選單項目是手指的大小，資料夾送到 agent | Claude Code | 用 Pixel 7 的 Chrome（Android 上的 Chrome 從 132 版起能選資料夾），點迴紋針會打開它的選單，整個在畫面內，**檔案…**（Files…）與**資料夾…**（Folder…）都至少 44px 高；**資料夾…** 打開資料夾選擇器，選的資料夾（`notes`，一個檔案和子資料夾裡的一個）顯示成寫著 **2 個檔案** 的標籤，送出後 agent 的提示說它是 2 個檔案的資料夾。 |
+| 在 iOS 18.3 的 Safari 上，資料夾選擇器只能選檔案，迴紋針直接選檔案，沒有資料夾 | Claude Code | 以 iPhone 的 Safari 18.3 為 user agent，頁面上沒有資料夾選擇器；點**附加檔案**（Attach files）不出現選單，直接打開能選多個檔案的選擇器，選的檔案會附加上去。 |
 | 往上捲之後，回到最後的箭頭在訊息框上方中間，點一下就把對話帶到那裡 | Claude Code | 長回覆（`e2e:long`）往上捲 800px 後出現箭頭，與訊息框置中對齊（誤差一個像素內）、在它上方，顯示的圓形是 36px，手指可點的範圍是 48px（圓形四邊外 5px 仍是箭頭）。點一下對話回到最後、箭頭消失，手機的鍵盤維持原狀：沒有焦點的訊息框仍然沒有，有焦點的則保有焦點。 |
 | 很窄的手機上，範本編輯視窗和團隊設定不會左右捲動，新增成員卡列出所有 CLI | — | 在 320px（比 290px 的成員卡加上邊距還窄）和 280px（英文的 **hand-offs / message** 會自己換到下一行）下，內建接力範本的編輯視窗和接力對話的**團隊設定**左右捲動都不超過一個像素；只有一欄時，新增成員卡全部列出所有 CLI，不必自己捲動。**團隊設定**裡的四種權限維持在同一列，在列內左右捲動。 |
 | 很窄的手機上，語音輸入的語言維持一列、可以左右捲動，兩種語言都是 | — | 在 320px 和 280px、英文與中文介面下，**設定 → 語音輸入**的四種語言都在同一行，每個名稱完整不換行；列本身可以左右捲動，頁面不會。 |
@@ -1028,7 +1030,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **推播通知與系統本身的通知。**[通知與提示音](#通知與提示音)用替身記錄它們；推播需要真正的推播服務（Google、Apple 的…），所以伺服器這一端（訂閱、加密、簽章、送出與保留什麼）由單元測試涵蓋（`test/push.test.ts`、`test/alerts.test.ts`、`test/push-api.test.ts`），頁面這一端由 `test/alerts-web.test.ts` 涵蓋，service worker 的處理程序則以替身的 `self` 由 `test/sw.test.ts` 涵蓋；瀏覽器向推播服務訂閱、真正的推播送到手機，則沒有任何測試走過。
 - **OpenCode 與 Goose 的 token 和費用。** Harness Relay 從這兩個 CLI 自己的 SQLite 資料庫（`opencode.db`、`sessions.db`）讀取，它們的假 CLI 不保存這些資料庫，所以在這裡它們的回覆不顯示用量；轉接器的測試（`test/opencode.test.ts`、`test/goose.test.ts`）會對照真正 CLI 寫法寫成的資料庫跑完整的回合。
 - **真正的首席 agent 會指出什麼。** 假首席 agent 的審閱總是標出第一則回覆開頭的幾個字；真正的模型給的 highlight 與下一步值不值得讀，這裡沒有測。它的 prompt，以及怎麼檢查它的回答（回覆裡沒有的引用會被拿掉、不認得的類型、上限），在單元測試中（`test/reviewer.test.ts`、`test/orchestrator-review.test.ts`）。
-- **真正手機上的滑動。**[在手機上](#在手機上)大部分的滑動觸控事件是從頁面本身送出的，所以瀏覽器不會跟著捲動；有一個測試送出 Chromium 自己的觸控，瀏覽器會判斷點到哪裡並跟著捲動，但沒有測試有手機自己的手勢或觸控處理：從螢幕最邊緣開始的滑動（手機可能留給「返回」用），以及 Android 的 Chrome 從手指移動多遠開始送出移動事件（約 8dp；手指底下可捲動的區塊在它第一次移動時量），都沒有測試。
+- **真正手機上的滑動。**[在手機上](#在手機上)大部分的滑動觸控事件是從頁面本身送出的，所以瀏覽器不會跟著捲動；有一個測試送出 Chromium 自己的觸控，瀏覽器會判斷點到哪裡並跟著捲動，但沒有測試有手機自己的手勢或觸控處理：從螢幕最邊緣開始的滑動（手機可能留給「返回」用），以及 Android 的 Chrome 從手指移動多遠開始送出移動事件（約 8dp；手指底下可捲動的區塊在它第一次移動時量），都沒有測試。手機自己的資料夾選擇器也沒有：測試讓瀏覽器帶著手機的 user agent，但選擇器仍是 Chromium 或 WebKit 自己的，所以哪些手機瀏覽器會有**資料夾…**，只在 `test/attachments-web.test.ts` 依它們的 user agent 檢查。
 - **真正安裝沙箱需要的元件。**[沙箱需要的元件](#沙箱需要的元件)由測試代替伺服器回答：不會執行任何套件管理工具、sudo、pkexec 或 AppArmor。`test/sandbox-setup.test.ts` 涵蓋 Harness Relay 執行的東西（固定的腳本、它的環境變數、取得系統管理員權限的方式），並用 apt-get 與 apparmor_parser 的替身真的執行那個腳本；套件與桌面 app 的 Node.js 則在 Linux 與 macOS 上，透過打包好的桌面 app 與 `npm start` 的對話框真的裝過（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西)）。
 - **從設定頁真正的安裝。**[安裝 CLI](#安裝-cli) 用的是假的 npm，不會連到 npm 套件庫、官方腳本或 uv，也不會連到 nodejs.org：PATH 上沒有 npm 時把 Node.js 官方版本放進 CLI 資料夾、再安裝 Claude Code、Codex 或 Copilot，由 `test/cli-install.test.ts` 涵蓋，它們的程式用那份 Node 啟動，由 `test/winLaunch.test.ts` 與 `test/process.test.ts` 涵蓋，並在 macOS、Linux 與 Windows 上手動試過。`test/cli-install.test.ts` 用假的電腦涵蓋 Harness Relay 交給它們的東西（參數、環境變數、資料夾，Windows 上的也有），每個 CLI 真正的安裝則在 Linux 上手動試過（Windows 的安裝程式還沒在 Windows 電腦上試過）。
 - **桌面 app 自己的選單。**[語言](#語言)檢查 app 視窗裡的頁面（user agent 裡有 Electron）會把它的語言告訴伺服器；app 本身（Electron）不在這裡執行。伺服器轉送什麼、app 記住什麼，由 `test/app.test.ts`、`test/desktop-supervisor.test.ts` 與 `test/desktop-app.test.ts` 測試，選單換語言則在 app 裡手動確認過。
