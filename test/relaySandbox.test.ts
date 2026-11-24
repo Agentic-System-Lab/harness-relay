@@ -403,6 +403,19 @@ describe.skipIf(process.platform === 'win32')('connect-only ports', () => {
     await s.dispose();
   });
 
+  it('keeps the server up when its channel is reset, as when its host is stopped before it read its rules (Linux)', async () => {
+    const s = await sandboxCommand('/bin/sh', ['-c', 'true'], { PATH: '/usr/bin:/bin' }, spec(), {
+      ctx: { ...ctx, platform: 'linux', tools: { sh: '/bin/sh' } },
+      available: async () => ({ ok: true }),
+    });
+    const { server } = channelPair();
+    s.run.attach(server, {} as never);
+    // readline passes its input's error on: unheard, it is an uncaught exception, which ends the server.
+    server.emit('error', Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
+    await tick();
+    await s.dispose();
+  });
+
   it("runs no startup file of the agent's home before the agent, with the shell runs and the probe are given (#117)", async () => {
     // OpenHands' run home has a .bashrc that gives its terminal's commands the user's own HOME back. A
     // top-level bash (no SHLVL, as in the desktop app's server) whose stdin is a socket, as every agent's

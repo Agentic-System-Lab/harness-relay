@@ -81,6 +81,21 @@ async function stopAfterFirstLine(bin: string) {
 }
 
 describe('runProcess', () => {
+  it("keeps the server up when the child's pipes fail (ECONNRESET on Linux), also read by lines", async () => {
+    const reset = () => Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+    const res = await runProcess({
+      bin: process.execPath,
+      args: ['-e', "process.stdout.write('one\\n')"],
+      env: process.env,
+      onLine: () => undefined,
+      onSpawn: (child) => {
+        child.stdout!.emit('error', reset());
+        child.stderr!.emit('error', reset());
+      },
+    });
+    expect(res.code).toBe(0);
+  });
+
   it('hands each chunk of stdout to onStdout as it comes, raw, also a long one with no line break', async () => {
     const chunks: Buffer[] = [];
     const res = await runProcess({

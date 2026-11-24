@@ -452,6 +452,10 @@ function supervise(
         }, o.timeoutMs)
       : undefined;
 
+    // A pipe's error (ECONNRESET on Linux, where pipes are socket pairs) ends the stream, and the child's
+    // close says how it ended; unheard, it would end the server.
+    child.stdout!.on('error', () => undefined);
+    child.stderr!.on('error', () => undefined);
     // Raw bytes: decoding and re-joining lines would corrupt non-UTF-8 bytes and `\r`.
     child.stdout!.on('data', (chunk: Buffer) => {
       stdout.add(chunk);
@@ -466,13 +470,16 @@ function supervise(
     child.stderr!.on('data', (chunk: Buffer) => stderr.add(chunk));
     if (o.onLine) {
       const onLine = o.onLine;
-      createInterface({ input: child.stdout!, crlfDelay: Infinity }).on('line', (line) => {
-        try {
-          onLine(line);
-        } catch (err) {
-          console.error('[process] line handler failed:', err);
-        }
-      });
+      // readline passes its input's errors on as its own: heard here, as stdout's are above.
+      createInterface({ input: child.stdout!, crlfDelay: Infinity })
+        .on('line', (line) => {
+          try {
+            onLine(line);
+          } catch (err) {
+            console.error('[process] line handler failed:', err);
+          }
+        })
+        .on('error', () => undefined);
     }
 
     if (o.stdin !== undefined && !o.keepStdinOpen) {
