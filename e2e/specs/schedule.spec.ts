@@ -17,7 +17,7 @@ test.describe('schedules', () => {
     await expect(drawer).toBeVisible();
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
     await drawer
-      .locator('input[type=file]')
+      .locator('input[type=file]:not([webkitdirectory])')
       .setInputFiles({ name: 'build.txt', mimeType: 'text/plain', buffer: Buffer.from('build instructions') });
     await drawer.getByRole('button', { name: en.voice.start }).click();
     await expect(drawer.getByRole('button', { name: en.voice.stop })).toBeVisible();
@@ -49,7 +49,9 @@ test.describe('schedules', () => {
     expect(await download.text()).toBe('build instructions');
     // A slow attachment read from a dismissed draft cannot reinstate an automation deleted afterwards.
     await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
-    await drawer.locator('input[type=file]').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('late') });
+    await drawer
+      .locator('input[type=file]:not([webkitdirectory])')
+      .setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('late') });
     await page.evaluate(() => {
       const read = FileReader.prototype.readAsDataURL;
       FileReader.prototype.readAsDataURL = function (file) {
@@ -96,7 +98,9 @@ test.describe('schedules', () => {
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(drawer).toBeHidden();
     await open.click();
-    await drawer.locator('input[type=file]').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('late') });
+    await drawer
+      .locator('input[type=file]:not([webkitdirectory])')
+      .setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('late') });
 
     // Record the order in which the UI actually sends its mutations. Hold the upload before it reaches the server.
     const calls = await page.evaluateHandle(() => {
@@ -283,7 +287,7 @@ test.describe('schedules', () => {
     await expect(when).toBeFocused();
     await expect(title).toBeHidden();
     await page
-      .locator('.first-input input[type=file]')
+      .locator('.first-input input[type=file]:not([webkitdirectory])')
       .setInputFiles({ name: 'scope.txt', mimeType: 'text/plain', buffer: Buffer.from('main') });
     await expect(create).toBeDisabled();
     await task.fill('Summarize');

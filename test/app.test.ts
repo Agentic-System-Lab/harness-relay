@@ -201,6 +201,71 @@ describe('creating a chat with its first question', () => {
   });
 });
 
+describe('an attached folder', () => {
+  it('is sent as one attachment, downloads as a ZIP file of it, and is refused when malformed', async () => {
+    const b64 = (text: string) => Buffer.from(text).toString('base64');
+    const res = await app.request(
+      '/api/conversations',
+      json('POST', {
+        firstMessage: 'Look at these',
+        attachments: [
+          { name: 'notes.txt', data: b64('n') },
+          {
+            name: 'site',
+            mimeType: 'inode/directory',
+            files: [
+              { path: 'index.html', data: b64('<h1>hi</h1>') },
+              { path: 'css/style.css', data: b64('body{}') },
+            ],
+          },
+        ],
+        agents: [{ name: 'Alice', provider: 'claude' }],
+        settings: { cwd: project, permission: 'read-only' },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const conv = (await res.json()) as Conversation;
+    try {
+      const parts = store.get(conv.id)!.messages.find((m) => m.author.kind === 'user')!.parts;
+      const dir = parts.find((p) => p.type === 'attachment' && p.name === 'site');
+      expect(dir).toMatchObject({ mimeType: 'inode/directory', files: 2, size: 17 });
+      const zip = await get(`/api/conversations/${conv.id}/attachments/${(dir as { id: string }).id}`);
+      expect(zip.status).toBe(200);
+      expect(zip.headers.get('content-type')).toBe('application/zip');
+      expect(zip.headers.get('content-disposition')).toContain('site.zip');
+      expect(zip.headers.get('content-security-policy')).toContain('sandbox');
+      const entries = readZip(Buffer.from(await zip.arrayBuffer()));
+      expect(entries.map((e) => e.name).sort()).toEqual(['site/', 'site/css/', 'site/css/style.css', 'site/index.html']);
+      expect(entries.find((e) => e.name === 'site/index.html')!.data.toString()).toBe('<h1>hi</h1>');
+      // Gone from the disk, it is not found.
+      rmSync(join(attachmentsDir(conv.id), (dir as { id: string }).id), { recursive: true, force: true });
+      expect((await get(`/api/conversations/${conv.id}/attachments/${(dir as { id: string }).id}`)).status).toBe(404);
+    } finally {
+      orchestrator.stop(conv.id);
+    }
+    const send = (files: unknown) =>
+      app.request(
+        '/api/conversations',
+        json('POST', {
+          firstMessage: 'Look',
+          attachments: [{ name: 'x', mimeType: 'inode/directory', files }],
+          settings: { autoTeam: true, permission: 'read-only', cwd: project },
+        }),
+      );
+    for (const bad of [
+      [],
+      'x',
+      [{ path: 'a' }],
+      [
+        { path: 'A', data: '' },
+        { path: 'a', data: '' },
+      ],
+    ]) {
+      expect((await send(bad)).status, JSON.stringify(bad)).toBe(400);
+    }
+  });
+});
+
 describe('retrying a task after losing the HTTP response', () => {
   it('retries a refused send and replays the original result once it starts', async () => {
     const conv = await createConversation();

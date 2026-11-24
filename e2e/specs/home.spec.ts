@@ -54,7 +54,7 @@ test.describe('the home page', () => {
     const submit = page.getByRole('button', { name: 'Send question' });
     await expect(submit).toBeDisabled();
     await page
-      .locator('input[type="file"]')
+      .locator('input[type="file"]:not([webkitdirectory])')
       .setInputFiles({ name: 'agenda.txt', mimeType: 'text/plain', buffer: Buffer.from('Release agenda') });
     await question.fill(' \n\t ');
     await expect(submit).toBeDisabled();

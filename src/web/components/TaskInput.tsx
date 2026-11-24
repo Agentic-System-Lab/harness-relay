@@ -31,7 +31,7 @@ export function TaskInput({ id, text, onText, files, onFiles, saved, disabled, c
   const [choosingApps, setChoosingApps] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const [notice, setNotice] = useState('');
-  const { addFiles, removeFile, onPaste, dragging, dropZone } = useMessageFiles(files, onFiles, setNotice, saved?.files.length);
+  const { addFiles, removeFile, onPaste, dragging, dropZone } = useMessageFiles(files, onFiles, setNotice, saved?.files);
   const insertVoice = (piece: string) => {
     const field = ref.current;
     if (!field || disabled) return;

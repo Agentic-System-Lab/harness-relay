@@ -46,7 +46,7 @@ import type {
   HandoffBlock,
   StepsPart,
 } from '../shared/types';
-import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS, INTERACTIVE_LIMITS } from '../shared/types';
+import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS, INTERACTIVE_LIMITS, attachmentLabel } from '../shared/types';
 import { checkProposal, interactiveLine, maskValues, splitHandoffs, withoutHandoffBlocks } from '../shared/handoffs';
 import { askingReplies, splitAsk } from '../shared/ask';
 import { splitSteps, stepsAnswerText, stepsOfMessage, withoutStepsTail } from '../shared/steps';
@@ -789,7 +789,7 @@ export function branchPause(conv: Conversation, index: number): RunPause | undef
 
 /** What a user message asks: its text, and the names of the files attached to it. */
 function questionOf(m: ChatMessage): string {
-  const files = attachmentsOf(m).map((p) => p.name);
+  const files = attachmentsOf(m).map(attachmentLabel);
   return textOf(m) + (files.length ? `\n\n(Attached files: ${files.join(', ')})` : '');
 }
 
@@ -4574,8 +4574,8 @@ export class Orchestrator {
     const asked = conv.messages.slice(since).filter((m) => m.author.kind === 'user');
     const fileNames =
       run.designFor !== undefined
-        ? (conv.schedule?.attachments ?? []).map((p) => p.name)
-        : asked.flatMap((m) => attachmentsOf(m).map((p) => p.name));
+        ? (conv.schedule?.attachments ?? []).map(attachmentLabel)
+        : asked.flatMap((m) => attachmentsOf(m).map(attachmentLabel));
     // A design for the schedule is for its message, which nobody posted.
     const question =
       (run.designFor ?? asked.map(textOf).filter(Boolean).join('\n\n')) +

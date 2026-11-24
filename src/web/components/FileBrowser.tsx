@@ -17,7 +17,7 @@ import { highlightHtml } from '../highlight';
 import { formatBytes, relativeTime } from '../util';
 import { CopyButton } from './CopyButton';
 import { FileEditor, useFolderWrites } from './FileEditing';
-import { ChevronIcon, CopyIcon, DownloadIcon, FolderIcon, PencilIcon } from './icons';
+import { ChevronIcon, CopyIcon, DownloadIcon, FolderIcon, PencilIcon, TrashIcon } from './icons';
 import { Markdown } from './Markdown';
 import { useDialog } from './useDialog';
 
@@ -164,7 +164,15 @@ export function FileBrowser({
       setEditOnOpen(path);
       setFile(path);
     },
+    onDeleted: (path) => {
+      if (file !== undefined && (file === path || file.startsWith(`${path}/`))) {
+        // Its unsaved changes went with it: the user agreed to delete it.
+        unsaved.current = false;
+        setFile(undefined);
+      }
+    },
   });
+  const writable = !loading && Boolean(listing.writable);
 
   return (
     <div className="modal-scrim" onClick={() => leaving(onClose)}>
@@ -317,6 +325,17 @@ export function FileBrowser({
                             title={t.files.downloadFolder(e.name)}
                           >
                             <DownloadIcon size={14} />
+                          </button>
+                        )}
+                        {writable && (
+                          <button
+                            className="icon-button file-row-zip file-row-delete"
+                            disabled={writes.busy}
+                            onClick={() => writes.remove(e)}
+                            aria-label={t.filesEdit.deleteHint(e.name)}
+                            title={t.filesEdit.deleteHint(e.name)}
+                          >
+                            <TrashIcon size={14} />
                           </button>
                         )}
                       </li>

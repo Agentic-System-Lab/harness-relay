@@ -193,10 +193,11 @@ function droppedFiles(e: DragEvent): { picked: PickedFile[]; files: (File | null
 }
 
 /**
- * New file and upload for the folder on screen: their buttons (`buttons`, for the row of the folder's
- * actions), the new file's name and what they say (`panel`, below it), and the handlers that take files
- * dropped on the list (`dropProps`, `dropping` while files are over it). In a root the panel may not
- * write in (`readOnly`), there are no buttons and the panel says why.
+ * New file, upload and delete for the folder on screen: their buttons (`buttons`, for the row of the
+ * folder's actions), the new file's name and what they say (`panel`, below it), the handlers that take
+ * files dropped on the list (`dropProps`, `dropping` while files are over it), and `remove`, which
+ * deletes one of the folder's files or folders once the user agreed. In a root the panel may not write
+ * in (`readOnly`), there are no buttons and the panel says why.
  */
 export function useFolderWrites({
   convId,
@@ -208,6 +209,7 @@ export function useFolderWrites({
   readOnly,
   onWritten,
   onCreated,
+  onDeleted,
 }: {
   convId: string;
   root: string;
@@ -220,7 +222,16 @@ export function useFolderWrites({
   onWritten: () => void;
   /** A new file was made, to open for editing. */
   onCreated: (path: string) => void;
-}): { buttons: ReactNode; panel: ReactNode; dropProps: Record<string, (e: DragEvent) => void>; dropping: boolean } {
+  /** A file or folder was deleted (its path): the file on screen goes when it was it or in it. */
+  onDeleted: (path: string) => void;
+}): {
+  buttons: ReactNode;
+  panel: ReactNode;
+  dropProps: Record<string, (e: DragEvent) => void>;
+  dropping: boolean;
+  remove: (entry: FileEntry) => void;
+  busy: boolean;
+} {
   const t = useT();
   const picker = useRef<HTMLInputElement>(null);
   const [creating, setCreating] = useState(false);
@@ -305,6 +316,33 @@ export function useFolderWrites({
       setBusy(false);
       setStatus(done ? t.filesEdit.uploaded(done) : '');
       if (done) onWritten();
+    }
+  };
+
+  /** Deletes one of the folder's entries once the user agreed: a folder with all it holds, a link as a link. */
+  const remove = async (entry: FileEntry) => {
+    if (busy || !writable) return;
+    const ask = entry.link
+      ? t.filesEdit.deleteLinkConfirm(entry.name)
+      : entry.kind === 'dir'
+        ? t.filesEdit.deleteFolderConfirm(entry.name)
+        : t.filesEdit.deleteFileConfirm(entry.name);
+    if (!confirm(ask)) return;
+    const path = joinPath(dir, entry.name);
+    setBusy(true);
+    setErrors([]);
+    setStatus(t.filesEdit.deleting(entry.name));
+    try {
+      await api.deleteFile(convId, { root, path });
+      setStatus(t.filesEdit.deleted(entry.name));
+      onDeleted(path);
+    } catch (err) {
+      setStatus('');
+      setErrors([(err as Error).message]);
+    } finally {
+      setBusy(false);
+      // Also after a refusal: a folder may be gone in part.
+      onWritten();
     }
   };
 
@@ -426,5 +464,5 @@ export function useFolderWrites({
       )}
     </>
   );
-  return { buttons, panel, dropProps, dropping };
+  return { buttons, panel, dropProps, dropping, remove: (entry) => void remove(entry), busy };
 }

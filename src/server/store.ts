@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { HttpError } from './errors';
-import type { AttachmentData, AttachmentPart } from './attachments';
+import type { AttachmentData, AttachmentPart, FolderFileData } from './attachments';
 import type {
   AgentConfig,
   AgentSessionState,
@@ -54,6 +54,7 @@ import type {
 import {
   ALERT_KINDS,
   ATTACHMENT_LIMITS,
+  FOLDER_MIME_TYPE,
   MEMORY_BASES,
   MEMORY_STATES,
   PERMISSION_ORDER,
@@ -1362,40 +1363,64 @@ export class Store {
 
   // Schedules ----------------------------------------------------------------------
 
+  /** An automation's files and folders (a folder's `size` all its files', `files` how many). */
   private scheduleFileList(id: string): AttachmentPart[] {
-    return this.db
+    const rows = this.db
       .prepare(
-        "SELECT 'attachment' AS type, id, name, mime_type AS mimeType, length(data) AS size FROM schedule_attachments WHERE conversation_id = ? ORDER BY rowid",
+        `SELECT a.id, a.name, a.mime_type AS mimeType,
+           CASE WHEN a.mime_type = ? THEN (SELECT COALESCE(SUM(length(f.data)), 0) FROM schedule_attachments f WHERE f.folder = a.id) ELSE length(a.data) END AS size,
+           CASE WHEN a.mime_type = ? THEN (SELECT COUNT(*) FROM schedule_attachments f WHERE f.folder = a.id) END AS files
+         FROM schedule_attachments a WHERE a.conversation_id = ? AND a.folder IS NULL ORDER BY a.rowid`,
       )
-      .all(id) as unknown as AttachmentPart[];
+      .all(FOLDER_MIME_TYPE, FOLDER_MIME_TYPE, id) as { id: string; name: string; mimeType: string; size: number; files: number | null }[];
+    return rows.map(({ files, ...r }) => ({ type: 'attachment', ...r, ...(files === null ? {} : { files }) }));
   }
 
-  /** Load the originals one at a time only when a new scheduled message is sent. */
-  scheduleFileData(id: string): Iterable<AttachmentData> {
-    return this.db
-      .prepare('SELECT name, mime_type AS mimeType, data AS bytes FROM schedule_attachments WHERE conversation_id = ? ORDER BY rowid')
-      .iterate(id) as unknown as Iterable<AttachmentData>;
+  /** Load the originals one at a time only when a new scheduled message is sent (a folder's files with it). */
+  *scheduleFileData(id: string): Iterable<AttachmentData> {
+    const rows = this.db
+      .prepare(
+        'SELECT id, name, mime_type AS mimeType, data AS bytes FROM schedule_attachments WHERE conversation_id = ? AND folder IS NULL ORDER BY rowid',
+      )
+      .iterate(id) as unknown as Iterable<AttachmentData & { id: string }>;
+    const filesOf = this.db.prepare('SELECT name AS path, data AS bytes FROM schedule_attachments WHERE folder = ? ORDER BY rowid');
+    for (const { id: fileId, ...row } of rows) {
+      yield row.mimeType === FOLDER_MIME_TYPE ? { ...row, files: filesOf.all(fileId) as unknown as FolderFileData[] } : row;
+    }
   }
 
   /** Save an edited definition and its file changes together. Routine scheduler writes leave the originals alone. */
   setSchedule(conv: Conversation, schedule: ConversationSchedule, add: AttachmentData[], remove: string[]): void {
     transaction(this.db, () => {
       this.saveSchedule({ ...conv, schedule });
-      const del = this.db.prepare('DELETE FROM schedule_attachments WHERE conversation_id = ? AND id = ?');
-      for (const id of remove) del.run(conv.id, id);
+      // A folder goes with its files.
+      const del = this.db.prepare('DELETE FROM schedule_attachments WHERE conversation_id = ? AND (id = ? OR folder = ?)');
+      for (const id of remove) del.run(conv.id, id, id);
       // The same named file has a stable ID in this schedule, so retrying a save never adds it twice.
       const insert = this.db.prepare(
-        'INSERT INTO schedule_attachments(id, conversation_id, name, mime_type, data) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING',
+        'INSERT INTO schedule_attachments(id, conversation_id, name, mime_type, data, folder) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING',
       );
       for (const file of add) {
-        const id = createHash('sha256')
+        const hash = createHash('sha256')
           .update(JSON.stringify([conv.id, file.name, file.mimeType]))
-          .update(file.bytes)
-          .digest('hex');
-        insert.run(id, conv.id, file.name, file.mimeType, file.bytes);
+          .update(file.bytes);
+        // A folder's ID covers its files' paths and contents, each with its lengths first so no two folders share one.
+        for (const f of file.files ?? []) hash.update(`${Buffer.byteLength(f.path)}:${f.path}:${f.bytes.length}:`).update(f.bytes);
+        const id = hash.digest('hex');
+        insert.run(id, conv.id, file.name, file.mimeType, file.bytes, null);
+        for (const f of file.files ?? []) {
+          const fileId = createHash('sha256')
+            .update(JSON.stringify([id, f.path]))
+            .digest('hex');
+          insert.run(fileId, conv.id, f.path, 'application/octet-stream', f.bytes, id);
+        }
       }
       const files = this.scheduleFileList(conv.id);
       if (files.length > ATTACHMENT_LIMITS.maxFiles) throw new HttpError(400, t().tooManyAttachments(ATTACHMENT_LIMITS.maxFiles));
+      // Every run sends all of them, in one message.
+      if (files.reduce((n, f) => n + f.size, 0) > ATTACHMENT_LIMITS.maxTotalBytes) {
+        throw new HttpError(400, t().attachmentsTooLarge(ATTACHMENT_LIMITS.maxTotalBytes));
+      }
       if (files.length) schedule.attachments = files;
       else delete schedule.attachments;
     });

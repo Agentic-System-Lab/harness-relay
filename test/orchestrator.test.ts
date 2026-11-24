@@ -948,6 +948,32 @@ describe('attached files', () => {
     expect(calls.every((c) => c.images?.length === 0 && c.attachmentsDir === undefined)).toBe(true);
   });
 
+  it('saves an attached folder as it was and gives every agent its path, never as images', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    const b64 = (t: string) => Buffer.from(t).toString('base64');
+    await orchestrator.send(conv.id, 'review this project', [
+      {
+        name: 'app',
+        mimeType: 'inode/directory',
+        files: [
+          { path: 'package.json', data: b64('{}') },
+          { path: 'src/logo.png', data: png.toString('base64') },
+        ],
+      },
+    ]);
+    await finish(conv.id);
+    const [folder] = files(store.get(conv.id)!.messages[0]!);
+    expect(folder).toMatchObject({ name: 'app', mimeType: 'inode/directory', files: 2, size: 2 + png.length });
+    expect(readFileSync(join(attachmentPath(conv.id, folder!), 'package.json'), 'utf8')).toBe('{}');
+    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+    for (const call of calls) {
+      expect(call.images).toEqual([]);
+      expect(call.attachmentsDir).toBe(attachmentsDir(conv.id));
+      expect(call.prompt).toContain('The user attached these files and folders');
+      expect(call.prompt).toContain(`- app/ (a folder of 2 files, ${2 + png.length} B in all): ${attachmentPath(conv.id, folder!)}`);
+    }
+  });
+
   it('keeps the files of an edited message and deletes those of dropped messages', async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     await orchestrator.send(conv.id, 'first', uploads());

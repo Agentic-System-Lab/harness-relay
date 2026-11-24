@@ -4229,6 +4229,56 @@ video.chat-media {
   border-radius: 50%;
 }
 
+/* The paperclip and its menu (files, or a folder), which opens above it. */
+.attach-picker {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.attach-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 160px;
+  padding: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.attach-menu [role='menuitem'] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.attach-menu [role='menuitem']:hover,
+.attach-menu [role='menuitem']:focus-visible {
+  background: var(--surface);
+  outline: none;
+}
+
+.attach-menu [role='menuitem']:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--text) 40%, transparent);
+}
+
 .composer-notice {
   margin: 0 0 8px;
 }
@@ -8804,6 +8854,11 @@ summary + .checks-editor-body {
   .file-row-zip:focus-visible {
     opacity: 1;
   }
+}
+
+.file-row-delete:hover:not(:disabled),
+.file-row-delete:focus-visible {
+  color: var(--danger);
 }
 
 .file-item.selected {

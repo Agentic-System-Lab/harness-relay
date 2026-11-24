@@ -1,6 +1,7 @@
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   PROVIDER_LABEL,
+  isFolderAttachment,
   isInlineImage,
   planSavable,
   type AgentConfig,
@@ -58,7 +59,18 @@ import { HandoverCard } from './HandoverCard';
 import { ChecksCard } from './ChecksCard';
 import { CopyButton } from './CopyButton';
 import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
-import { BranchIcon, ClockIcon, CommandIcon, CopyIcon, MemoryIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
+import {
+  BranchIcon,
+  ClockIcon,
+  CommandIcon,
+  CopyIcon,
+  FolderIcon,
+  MemoryIcon,
+  PaperclipIcon,
+  PencilIcon,
+  RetryIcon,
+  ShareIcon,
+} from './icons';
 import { AnimatedLogo, Logo, LogoSpinner } from './Logo';
 import { Markdown } from './Markdown';
 import { DocumentPreview, DocumentResult } from './DocumentPreview';
@@ -1293,7 +1305,7 @@ function LeadReviewBox({ on, onChange }: { on: boolean; onChange: (on: boolean) 
 }
 
 /** One of the user's messages, editable in place. */
-/** Files attached to a user message: image thumbnails, and chips for other files. */
+/** Files attached to a user message: image thumbnails, and chips for other files and for folders. */
 function Attachments({ msg, convId }: { msg: ChatMessage; convId: string }) {
   const t = useT();
   const files = msg.parts.flatMap((p) => (p.type === 'attachment' ? [p] : []));
@@ -1311,13 +1323,28 @@ function Attachments({ msg, convId }: { msg: ChatMessage; convId: string }) {
           ))}
         </div>
       )}
-      {others.map((f) => (
-        <a key={f.id} className="file-chip" href={api.attachmentUrl(convId, f.id)} download={f.name} title={t.message.download(f.name)}>
-          <PaperclipIcon size={14} />
-          <span className="ellipsis">{f.name}</span>
-          <span className="muted">{formatBytes(f.size)}</span>
-        </a>
-      ))}
+      {others.map((f) =>
+        isFolderAttachment(f) ? (
+          // A folder downloads as a ZIP file of it.
+          <a
+            key={f.id}
+            className="file-chip"
+            href={api.attachmentUrl(convId, f.id)}
+            download={`${f.name}.zip`}
+            title={t.message.downloadFolder(f.name)}
+          >
+            <FolderIcon size={14} />
+            <span className="ellipsis">{f.name}</span>
+            <span className="muted">{t.composer.folderSize(f.files ?? 0, formatBytes(f.size))}</span>
+          </a>
+        ) : (
+          <a key={f.id} className="file-chip" href={api.attachmentUrl(convId, f.id)} download={f.name} title={t.message.download(f.name)}>
+            <PaperclipIcon size={14} />
+            <span className="ellipsis">{f.name}</span>
+            <span className="muted">{formatBytes(f.size)}</span>
+          </a>
+        ),
+      )}
     </div>
   );
 }

@@ -61,7 +61,7 @@ test.describe('what reaches each CLI besides the prompt', () => {
       test(`${cli.provider}: an attached image`, async ({ page, relay }) => {
         const id = await chatWith(page, relay, cli);
         await page
-          .locator('.composer input[type="file"], .composer-row input[type="file"]')
+          .locator('.composer input[type="file"]:not([webkitdirectory]), .composer-row input[type="file"]:not([webkitdirectory])')
           .first()
           .setInputFiles({ name: 'dot.png', mimeType: 'image/png', buffer: PNG });
         await expect(page.getByRole('button', { name: 'Remove dot.png' })).toBeVisible();

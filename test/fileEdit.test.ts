@@ -1,6 +1,6 @@
 /*
  * Changing files from the Files panel (src/server/fileEdit.ts): saving a text file over the version it
- * was loaded at, a new file, an upload; what each refuses (links, `.git`, what the server withholds or
+ * was loaded at, a new file, an upload, deleting a file or a folder; what each refuses (links, `.git`, what the server withholds or
  * protects, a changed file, names no system takes, too much); and the preview's version
  * (src/server/files.ts). Real temporary folders.
  */
@@ -29,7 +29,7 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-file-edit-')));
 const holder = join(root, 'holder');
 process.env.RELAY_DATA_DIR = join(holder, 'data');
 
-const { keepTextFormat, rootReadOnly, saveText, uploadFile } = await import('../src/server/fileEdit');
+const { deletePath, keepTextFormat, rootReadOnly, saveText, uploadFile } = await import('../src/server/fileEdit');
 const { fileVersion, previewFile } = await import('../src/server/files');
 const { withholdFile } = await import('../src/server/db');
 const { HttpError } = await import('../src/server/errors');
@@ -245,6 +245,82 @@ describe('uploading a file', () => {
     expect(refusal(() => uploadFile(project, '../..', 'x.txt', base64('x'), true)).status).toBe(404);
     expect(refusal(() => uploadFile(project, '', 'notes', base64('x'), true)).status).toBe(409);
     expect(readdirSync(outside)).toEqual([]);
+  });
+});
+
+describe('deleting a file or a folder', () => {
+  it('deletes a file, and a folder with everything in it', () => {
+    mkdirSync(join(project, 'notes', 'deep', 'er'), { recursive: true });
+    writeFileSync(join(project, 'notes', 'deep', 'er', 'a.md'), 'a');
+    writeFileSync(join(project, 'notes', '.hidden'), 'h');
+    expect(deletePath(project, 'queue.csv')).toEqual({ path: 'queue.csv', kind: 'file' });
+    expect(existsSync(join(project, 'queue.csv'))).toBe(false);
+    expect(deletePath(project, 'notes/deep')).toEqual({ path: 'notes/deep', kind: 'dir' });
+    expect(readdirSync(join(project, 'notes'))).toEqual(['.hidden']);
+    expect(deletePath(project, '/notes/')).toEqual({ path: 'notes', kind: 'dir' });
+    expect(readdirSync(project)).toEqual([]);
+    // Gone already.
+    expect(refusal(() => deletePath(project, 'notes')).status).toBe(404);
+  });
+
+  it.skipIf(process.platform === 'win32')('removes a link as a link, never what it leads to, also in a folder it deletes', () => {
+    const outside = join(root, `outside-del-${n}`);
+    mkdirSync(join(outside, 'kept'), { recursive: true });
+    writeFileSync(join(outside, 'kept', 'file.txt'), 'kept');
+    symlinkSync(join(outside, 'kept'), join(project, 'to-folder'), 'dir');
+    symlinkSync(join(outside, 'kept', 'file.txt'), join(project, 'to-file'));
+    symlinkSync(join(outside, 'kept'), join(project, 'notes', 'inside'), 'dir');
+    expect(deletePath(project, 'to-folder')).toEqual({ path: 'to-folder', kind: 'file' });
+    expect(deletePath(project, 'to-file')).toEqual({ path: 'to-file', kind: 'file' });
+    expect(deletePath(project, 'notes')).toEqual({ path: 'notes', kind: 'dir' });
+    expect(readFileSync(join(outside, 'kept', 'file.txt'), 'utf8')).toBe('kept');
+    expect(readdirSync(project)).toEqual(['queue.csv']);
+    // Nothing is deleted through a folder that is a link.
+    symlinkSync(join(outside, 'kept'), join(project, 'via'), 'dir');
+    expect(refusal(() => deletePath(project, 'via/file.txt')).status).toBe(403);
+    expect(existsSync(join(outside, 'kept', 'file.txt'))).toBe(true);
+  });
+
+  it('never deletes the root, .git or what is in it, outside the folder, or a file the server withholds', () => {
+    mkdirSync(join(project, '.git'));
+    writeFileSync(join(project, '.git', 'config'), '[core]\n');
+    mkdirSync(join(project, 'sub', '.git'), { recursive: true });
+    const outside = join(root, `outside-root-${n}`);
+    mkdirSync(outside);
+    for (const path of [
+      '',
+      '/',
+      '.',
+      '..',
+      '.git',
+      '.GIT',
+      '.git/config',
+      'sub/.git',
+      '../' + `outside-root-${n}`,
+      'notes/../..',
+      'C:/x',
+    ]) {
+      expect(refusal(() => deletePath(project, path)).status, path).toBe(404);
+    }
+    expect(refusal(() => deletePath(project, 42)).status).toBe(400);
+    expect(existsSync(join(project, '.git', 'config'))).toBe(true);
+    expect(existsSync(outside)).toBe(true);
+    const locked = join(project, 'secrets.key');
+    writeFileSync(locked, 'key');
+    withholdFile(locked);
+    expect(refusal(() => deletePath(project, 'secrets.key')).status).toBe(404);
+    expect(readFileSync(locked, 'utf8')).toBe('key');
+    // A folder holding a repository of its own goes with it, as in a file manager.
+    expect(deletePath(project, 'sub')).toEqual({ path: 'sub', kind: 'dir' });
+  });
+
+  it('never deletes what Harness Relay protects, nor a folder that holds it', () => {
+    mkdirSync(join(holder, 'data', 'tmp'), { recursive: true });
+    writeFileSync(join(holder, 'data', 'tmp', 'x'), 'x');
+    expect(refusal(() => deletePath(holder, 'data/tmp/x')).status).toBe(403);
+    expect(refusal(() => deletePath(holder, 'data')).status).toBe(403);
+    expect(refusal(() => deletePath(root, 'holder')).status).toBe(403);
+    expect(existsSync(join(holder, 'data', 'tmp', 'x'))).toBe(true);
   });
 });
 

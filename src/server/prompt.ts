@@ -27,6 +27,7 @@ import {
   type Permission,
   type Provider,
   cwdsOf,
+  isFolderAttachment,
 } from '../shared/types';
 import { ASK_TOKEN } from '../shared/ask';
 import { stepsBlock, stepsOfMessage } from '../shared/steps';
@@ -729,15 +730,22 @@ export function senderName(conv: Conversation, m: ChatMessage): string {
   return conv.agents.find((a) => a.id === agentId)?.name ?? m.agentName ?? 'agent';
 }
 
-/** The files attached to a user message, with the paths an agent can read them from. */
+/** The files and folders attached to a user message, with the paths an agent can read them from. */
 function attachmentList(conv: Conversation, m: ChatMessage): string {
   const files = m.parts.flatMap((p) => (p.type === 'attachment' ? [p] : []));
   if (!files.length) return '';
   const lines = files.map((f) => {
+    if (isFolderAttachment(f)) {
+      const count = `${f.files ?? 0} file${f.files === 1 ? '' : 's'}`;
+      return `- ${f.name}/ (a folder of ${count}, ${formatSize(f.size)} in all): ${attachmentPath(conv.id, f)}`;
+    }
     const shown = isInlineImage(f.mimeType) ? ', also shown to you as an image' : '';
     return `- ${f.name} (${f.mimeType}, ${formatSize(f.size)}${shown}): ${attachmentPath(conv.id, f)}`;
   });
-  return `<attachments>\nThe user attached these files; read them from these paths with your file tools:\n${lines.join('\n')}\n</attachments>`;
+  const what = files.some(isFolderAttachment)
+    ? 'these files and folders; read them from these paths with your file tools (list a folder to see its files)'
+    : 'these files; read them from these paths with your file tools';
+  return `<attachments>\nThe user attached ${what}:\n${lines.join('\n')}\n</attachments>`;
 }
 
 function formatSize(bytes: number): string {

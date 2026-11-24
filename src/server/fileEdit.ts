@@ -10,13 +10,14 @@ import {
   readSync,
   realpathSync,
   renameSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
   type BigIntStats,
 } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { fileNameProblem, hasLoneSurrogate } from '../shared/fileNames';
-import { FILE_CHANGED, FILE_EDIT_LIMITS, FILE_EXISTS, type FileRoot, type FileWritten } from '../shared/types';
+import { FILE_CHANGED, FILE_EDIT_LIMITS, FILE_EXISTS, type FileDeleted, type FileRoot, type FileWritten } from '../shared/types';
 import { fileKey, withheldFileKeys } from './db';
 import { HttpError } from './errors';
 import { askedPath, editableText, fileVersion, hiddenNatively, isGit } from './files';
@@ -37,7 +38,7 @@ import { DATA_DIR } from './settings';
 
 /*
  * Changing files from the Files panel: a text file edited and saved, a new file, a file uploaded into a
- * folder. Only in a conversation's working directories (never an agent's worktree), and only in one
+ * folder, a file or a folder deleted. Only in a conversation's working directories (never an agent's worktree), and only in one
  * where agents could work in edit mode (`rootReadOnly`); only what browsing shows (no `.git`, nothing
  * the server withholds), never through a link, never into what Harness Relay protects. A write replaces
  * the file at once (a temporary file beside it, renamed over it), keeping its permission bits; the
@@ -318,4 +319,52 @@ export function uploadFile(root: string, dir: unknown, name: unknown, data: unkn
   const target = targetIn(realRoot, folder, name);
   if (target.existing && !replace) throw new HttpError(409, t().filesEdit.exists(name), FILE_EXISTS, [target.rel]);
   return writeAtomically(realRoot, target, bytes);
+}
+
+/**
+ * Deletes the file or folder `rel` names in `root`, never the root itself: the name itself, reached
+ * through no link (a link is removed as a link, never what it leads to), not `.git` nor anything in it
+ * (404, as browsing has it), not a file the server withholds (404), nothing Harness Relay protects nor a
+ * folder that holds such a place (403). A folder goes with all it holds, the links in it removed as
+ * links. Refused (409) when the folder it is in moved or became a link meanwhile; a folder that could
+ * be deleted only in part (a file another program holds open on Windows) is a 409 that says so.
+ */
+export function deletePath(root: string, rel: unknown): FileDeleted {
+  const { parts, name } = splitPath(rel);
+  if (isGit(name) || (process.platform === 'win32' && name.includes(':'))) throw notFound();
+  const realRoot = realRootOf(root);
+  const folder = openFolder(realRoot, parts);
+  const full = join(folder.path, name);
+  let st: BigIntStats;
+  try {
+    st = lstatSync(full, { bigint: true });
+  } catch {
+    throw notFound();
+  }
+  if (withheldFileKeys().has(fileKey(st)) || hiddenNatively(realRoot, full)) throw notFound();
+  const kind = st.isDirectory() ? 'dir' : 'file';
+  // The place itself (a link's own, not where it leads) inside a protected one, or one inside it.
+  const guarded = protectedTargets();
+  const self = st.isSymbolicLink() ? full : realPath(full);
+  if (insideAny(self, guarded) || (kind === 'dir' && guarded.some((p) => insideAny(p, [self])))) {
+    throw new HttpError(403, t().filesEdit.protectedDelete);
+  }
+  // Nothing moved meanwhile: the folder is the one checked, reached through no link, and the name the
+  // same file or folder.
+  const again = openFolder(realRoot, folder.parts);
+  let now: BigIntStats | undefined;
+  try {
+    now = lstatSync(full, { bigint: true });
+  } catch {
+    /* gone meanwhile */
+  }
+  if (again.key !== folder.key || !now || fileKey(now) !== fileKey(st)) throw new HttpError(409, t().filesEdit.moved);
+  try {
+    // `rmSync` never follows a link, in a folder or as the name itself.
+    if (kind === 'dir') rmSync(full, { recursive: true, maxRetries: 2 });
+    else unlinkSync(full);
+  } catch (err) {
+    throw new HttpError(409, t().filesEdit.cannotDelete(name, (err as NodeJS.ErrnoException).code ?? (err as Error).message));
+  }
+  return { path: [...parts, name].join('/'), kind };
 }

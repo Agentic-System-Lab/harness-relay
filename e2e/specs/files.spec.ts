@@ -5,7 +5,7 @@ import type { Download, Locator, Page } from '@playwright/test';
 import { FILE_LIMITS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, finishedReply, openTeamChat, send, settled, startChat, confirmTeam } from '../support/app';
-import { CLIS, eachCli, eachHalf, endsTurnNote, member, needsBelowFull, teamOf, teams } from '../support/clis';
+import { CLIS, eachCli, eachHalf, endsTurnNote, logged, member, needsBelowFull, teamOf, teams } from '../support/clis';
 
 /**
  * A ZIP file's entries, by name (a folder's ends with `/`), with each one's bytes: read from its central
@@ -382,6 +382,103 @@ test.describe('files and changes', () => {
     expect(src.download.suggestedFilename()).toBe('src.zip');
     expect([...src.entries.keys()].sort()).toEqual(['src/', 'src/hello.ts', 'src/lib/', 'src/lib/math.ts']);
     expect(src.entries.get('src/lib/math.ts')!.toString('utf8')).toBe(readFileSync(join(relay.workDir, 'src', 'lib', 'math.ts'), 'utf8'));
+  });
+
+  test('a file and a folder are deleted in Files once confirmed, and the file on screen goes with them', async ({ page, relay }) => {
+    mkdirSync(join(relay.workDir, 'drafts', 'old'), { recursive: true });
+    writeFileSync(join(relay.workDir, 'drafts', 'old', 'a.md'), '# A\n');
+    writeFileSync(join(relay.workDir, 'drafts', 'b.md'), '# B\n');
+    writeFileSync(join(relay.workDir, 'scratch.txt'), 'scratch\n');
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    const browser = page.getByRole('dialog', { name: 'Files' });
+    const list = browser.locator('.file-list');
+    const row = (name: string) => list.locator('.file-name', { hasText: new RegExp(`^${name.replace('.', '\\.')}$`) });
+
+    // Declined, nothing goes.
+    let asked = '';
+    page.once('dialog', (d) => {
+      asked = d.message();
+      void d.dismiss();
+    });
+    await browser.getByRole('button', { name: 'Delete scratch.txt' }).click();
+    await expect.poll(() => asked).toBe('Delete "scratch.txt"? This cannot be undone.');
+    await expect(row('scratch.txt')).toBeVisible();
+    expect(existsSync(join(relay.workDir, 'scratch.txt'))).toBe(true);
+
+    // Agreed to, the file goes from the list and the disk.
+    acceptNextDialog(page);
+    await browser.getByRole('button', { name: 'Delete scratch.txt' }).click();
+    await expect(browser.getByRole('status')).toHaveText('Deleted "scratch.txt".');
+    await expect(row('scratch.txt')).toHaveCount(0);
+    expect(existsSync(join(relay.workDir, 'scratch.txt'))).toBe(false);
+
+    // A folder goes with all it holds, and a file of it on screen closes.
+    await row('drafts').click();
+    await row('b.md').click();
+    await expect(browser.locator('.preview-pane')).toContainText('B');
+    await browser.getByRole('button', { name: 'Up one level' }).click();
+    page.once('dialog', (d) => {
+      asked = d.message();
+      void d.accept();
+    });
+    await browser.getByRole('button', { name: 'Delete drafts' }).click();
+    await expect.poll(() => asked).toBe('Delete the folder "drafts" and everything in it? This cannot be undone.');
+    await expect(row('drafts')).toHaveCount(0);
+    expect(existsSync(join(relay.workDir, 'drafts'))).toBe(false);
+    await expect(browser.locator('.preview-pane')).toContainText('Pick a file');
+    await expect(row('README.md')).toBeVisible();
+  });
+
+  test('a folder attached to a message reaches the agent by its path, without .git or node_modules, and downloads as a ZIP file', async ({
+    page,
+    relay,
+  }, testInfo) => {
+    const site = testInfo.outputPath('site');
+    mkdirSync(join(site, 'css'), { recursive: true });
+    mkdirSync(join(site, '.git'), { recursive: true });
+    mkdirSync(join(site, 'node_modules', 'x'), { recursive: true });
+    writeFileSync(join(site, 'index.html'), '<h1>Hi</h1>\n');
+    writeFileSync(join(site, 'css', 'style.css'), 'h1 { color: teal; }\n');
+    writeFileSync(join(site, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    writeFileSync(join(site, 'node_modules', 'x', 'index.js'), 'module.exports = 1;\n');
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+
+    // The paperclip offers files or a folder; Escape closes its menu.
+    const clip = page.getByRole('button', { name: 'Attach files or a folder' });
+    await clip.click();
+    const menu = page.getByRole('menu', { name: 'Attach files or a folder' });
+    await expect(menu.getByRole('menuitem')).toHaveText(['Files…', 'Folder…']);
+    await expect(menu.getByRole('menuitem', { name: 'Files…' })).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByRole('menuitem', { name: 'Folder…' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(clip).toBeFocused();
+
+    await page.locator('.composer input[webkitdirectory]').setInputFiles(site);
+    const chip = page.locator('.attach-tray .attach-folder');
+    await expect(chip).toContainText('site');
+    await expect(chip).toContainText('2 files');
+    // WebKit's folder picker leaves out folders whose names start with a dot by itself.
+    await expect(chip).toHaveAttribute('title', /^site\/\nLeft out: (\.git, )?node_modules$/);
+    await send(page, 'What is in the folder?');
+    await finishedReply(page, 'Claude');
+    const [prompt] = await logged(relay, (e) => e.cli === 'claude' && e.prompt?.includes('site/ (a folder of 2 files'));
+    const path = /site\/ \(a folder of 2 files, [^)]*\): (.+)/.exec(prompt!.prompt!)![1]!.trim();
+    expect(readFileSync(join(path, 'css', 'style.css'), 'utf8')).toBe('h1 { color: teal; }\n');
+    expect(existsSync(join(path, '.git'))).toBe(false);
+
+    const link = page.locator('.msg-attachments').getByRole('link', { name: /site/ });
+    await expect(link).toContainText('2 files');
+    await expect(link).toHaveAttribute('download', 'site.zip');
+    // WebKit under Playwright downloads nothing a link opens.
+    if (testInfo.project.name === 'webkit') return;
+    const [download] = await Promise.all([page.waitForEvent('download'), link.click()]);
+    expect(download.suggestedFilename()).toBe('site.zip');
+    const entries = zipEntries(readFileSync(await download.path()));
+    expect([...entries.keys()].sort()).toEqual(['site/', 'site/css/', 'site/css/style.css', 'site/index.html']);
+    expect(entries.get('site/index.html')!.toString('utf8')).toBe('<h1>Hi</h1>\n');
   });
 
   test('a folder too large to zip in full is offered without what git ignores', async ({ page, relay }) => {

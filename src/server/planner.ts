@@ -29,6 +29,7 @@ import {
   type ToolLibraryView,
   type UsageLimit,
   type UsagePayer,
+  attachmentLabel,
 } from '../shared/types';
 import { unknownMentions } from '../shared/mentions';
 import { CONFIG } from './config';
@@ -572,7 +573,7 @@ export function historyForLead(messages: ChatMessage[]): string {
   const lines: string[] = [];
   for (const m of messages) {
     if (m.author.kind === 'system' || m.passed || m.status === 'error') continue;
-    const files = m.parts.flatMap((p) => (p.type === 'attachment' ? [p.name] : []));
+    const files = m.parts.flatMap((p) => (p.type === 'attachment' ? [attachmentLabel(p)] : []));
     const text = textOf(m) + (files.length ? `${textOf(m) ? '\n' : ''}(Attached files: ${files.join(', ')})` : '');
     if (!text) continue;
     const who = m.author.kind === 'user' ? 'User' : `@${m.agentName ?? 'agent'}${m.provider ? ` (${PROVIDER_LABEL[m.provider]})` : ''}`;

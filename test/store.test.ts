@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChatMessage, Conversation, TeamPreset } from '../src/shared/types';
+import type { ChatMessage, Conversation, ConversationSchedule, TeamPreset } from '../src/shared/types';
 import { dataLockFile, lockDataDir, openDatabase, type Database } from '../src/server/db';
 import type { SecretStore } from '../src/server/secrets';
 import { OPEN_AGENT_ROOTS_ENV, OPEN_HOMES_DIR, SettingsStore } from '../src/server/settings';
@@ -694,7 +694,7 @@ describe('Store (SQLite)', () => {
     db.prepare("INSERT INTO deleted_endpoints (id, deleted_at) VALUES ('oldlab', 1)").run();
     early(25, '');
     reopen();
-    expect(version()).toBe(43);
+    expect(version()).toBe(44);
     expect(has("SELECT 1 FROM pragma_table_info('conversations') WHERE name = 'extra_cwds'")).toBe(true);
     expect(db.prepare('SELECT id FROM deleted_endpoints').all()).toEqual([{ id: 'oldlab' }]);
     expect(new Store(db).get(conv.id)!.worktrees).toEqual({
@@ -705,7 +705,7 @@ describe('Store (SQLite)', () => {
       'ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;',
     );
     reopen();
-    expect(version()).toBe(43);
+    expect(version()).toBe(44);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'by_cli'")).toBe(true);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
     // Builds from before the accounts numbered the model backends 19–22: without the accounts or several
@@ -718,7 +718,7 @@ describe('Store (SQLite)', () => {
       );
     beforeAccounts(22, '');
     reopen();
-    expect(version()).toBe(43);
+    expect(version()).toBe(44);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('provider_accounts') WHERE name = 'native_items'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'account'")).toBe(true);
@@ -731,7 +731,7 @@ describe('Store (SQLite)', () => {
       'ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;',
     );
     reopen();
-    expect(version()).toBe(43);
+    expect(version()).toBe(44);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'permission'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('provider_settings') WHERE name = 'sandbox_terminal'")).toBe(true);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
@@ -741,7 +741,7 @@ describe('Store (SQLite)', () => {
              ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
              DROP TABLE memories; DROP TABLE schedule_attachments; DROP TABLE task_requests; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE schedules DROP COLUMN command; ALTER TABLE schedules DROP COLUMN command_only; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox; PRAGMA user_version = 21;`);
     reopen();
-    expect(version()).toBe(43);
+    expect(version()).toBe(44);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'model_backends'")).toBe(true);
   });
 
@@ -788,6 +788,94 @@ describe('Store (SQLite)', () => {
     delete loaded.schedule;
     again.saveSchedule(loaded);
     expect([...again.scheduleFileData(conv.id)]).toEqual([]);
+  });
+
+  it("keeps an automation's attached folder with its files, counts them, and removes them with it", () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const schedule: ConversationSchedule = {
+      text: 'check',
+      repeat: { kind: 'manual' },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 1,
+    };
+    const folder = {
+      name: 'notes',
+      mimeType: 'inode/directory',
+      bytes: new Uint8Array(0),
+      files: [
+        { path: 'a.md', bytes: Uint8Array.from([1, 2]) },
+        { path: 'sub/.hidden', bytes: Uint8Array.from([3, 4, 5]) },
+      ],
+    };
+    const file = { name: 'input.bin', mimeType: 'application/octet-stream', bytes: Uint8Array.from([9]) };
+    store.setSchedule(conv, { ...schedule }, [file, folder], []);
+    // Saved again (a retried save), the folder is not added twice.
+    store.setSchedule(conv, { ...schedule }, [folder], []);
+    const again = new Store(reopen());
+    const loaded = again.get(conv.id)!;
+    expect(loaded.schedule!.attachments).toEqual([
+      { type: 'attachment', id: expect.any(String), name: 'input.bin', mimeType: 'application/octet-stream', size: 1 },
+      { type: 'attachment', id: expect.any(String), name: 'notes', mimeType: 'inode/directory', size: 5, files: 2 },
+    ]);
+    const data = [...again.scheduleFileData(conv.id)];
+    expect(data).toHaveLength(2);
+    expect(data[0]).toEqual({ ...file, bytes: expect.anything() });
+    expect(data[0]!.files).toBeUndefined();
+    expect(data[1]!.name).toBe('notes');
+    expect(data[1]!.files!.map((f) => [f.path, [...f.bytes]])).toEqual([
+      ['a.md', [1, 2]],
+      ['sub/.hidden', [3, 4, 5]],
+    ]);
+    // Another folder of the same name with other contents is another folder.
+    const other = { ...folder, files: [{ path: 'a.md', bytes: Uint8Array.from([7]) }] };
+    again.setSchedule(loaded, { ...schedule }, [other], []);
+    expect(again.get(conv.id)!.schedule!.attachments).toHaveLength(3);
+    // Removing the folder removes its files.
+    const folderId = loaded.schedule!.attachments![1]!.id;
+    again.setSchedule(loaded, { ...schedule }, [], [folderId]);
+    expect(again.get(conv.id)!.schedule!.attachments!.map((a) => a.files)).toEqual([undefined, 1]);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM schedule_attachments WHERE folder = ?').get(folderId)).toEqual({ n: 0 });
+  });
+
+  it('refuses an automation whose files and folders together are more than one message may attach', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const schedule: ConversationSchedule = {
+      text: 'check',
+      repeat: { kind: 'manual' },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 1,
+    };
+    const big = (name: string) => ({ name, mimeType: 'application/octet-stream', bytes: new Uint8Array(15 * 1024 * 1024) });
+    // Nine files of 15 MB: 135 MB, within 200 MB; a folder of 75 MB more is not.
+    store.setSchedule(
+      conv,
+      { ...schedule },
+      Array.from({ length: 9 }, (_, i) => big(`f${i}`)),
+      [],
+    );
+    const folder = {
+      name: 'more',
+      mimeType: 'inode/directory',
+      bytes: new Uint8Array(0),
+      files: Array.from({ length: 5 }, (_, i) => ({ path: `p${i}`, bytes: new Uint8Array(15 * 1024 * 1024) })),
+    };
+    expect(() => store.setSchedule(conv, { ...schedule }, [folder], [])).toThrow(/200 MB/);
+    // Nothing of it was kept.
+    expect(store.get(conv.id)!.schedule!.attachments).toHaveLength(9);
   });
 
   it("keeps a schedule's goal, its tracking state and its webhook (never the token), a webhook's body on its message, and a reply's notice", () => {
