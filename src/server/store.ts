@@ -976,7 +976,12 @@ export class Store {
       for (const r of commands) {
         const data = parseJson<{ run?: Partial<FixedCommandRun> } & Record<string, unknown>>(r.data, {});
         if (data.run?.status !== 'running') continue;
-        expire.run(JSON.stringify({ ...data, run: { ...data.run, status: 'error', reason: t().stoppedNote } }), r.message_id, r.idx);
+        const { endsAt: _endsAt, ...run } = data.run;
+        expire.run(
+          JSON.stringify({ ...data, run: { ...run, status: 'error', reason: t().stoppedNote, stopped: true } }),
+          r.message_id,
+          r.idx,
+        );
       }
     });
   }

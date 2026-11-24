@@ -1218,7 +1218,13 @@ export const zhTW = {
       extraPlaceholder: '例如 --dry-run',
       stdin: '這次給它的輸入（選填）',
       stdinPlaceholder: '它從標準輸入讀的內容，例如要發的貼文',
-      running: '執行中…',
+      stop: '停止',
+      stopped: '已停止',
+      stopsAt: (time: string) => `如果到 ${time} 還沒結束，就會自動停止。`,
+      liveLog: (lines: number) => (lines ? `目前的輸出（${lines} 行，密鑰已遮蔽）` : '目前的輸出（還沒有）'),
+      noOutput: '還沒有輸出。有些程式會等到結束才一次印出來。',
+      refusedHosts: (hosts: string) =>
+        `沙箱擋下了它要連的主機：${hosts}。它們不在這個固定指令的可連主機裡，連不上的那部分可能沒有完成；需要的話，請 agent 把這些主機加進這個固定指令。`,
       result: {
         running: '執行中',
         passed: '完成',

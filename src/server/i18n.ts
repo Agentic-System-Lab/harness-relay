@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { CliInstallBlock, OAuthUse, Permission, FileNameProblem } from '../shared/types';
 import { FIXED_COMMAND_NEWS, INTERACTIVE_LIMITS, LANGS, type FixedCommandRun, type InteractiveSession, type Lang } from '../shared/types';
+import { refusedHostsToTell } from '../shared/handoffs';
 
 /*
  * Language of user-facing server text (errors, system notes, adapter messages).
@@ -99,8 +100,15 @@ function interactiveEndEn(s: Pick<InteractiveSession, 'state' | 'exitCode' | 're
   }
 }
 
-/** How a fixed command's run went, in a line (zh-TW). */
+/** How a fixed command's run went, in a line (zh-TW), with the hosts the sandbox refused it when its reason does not name them. */
 function runLineZh(run: FixedCommandRun): string {
+  const hosts = refusedHostsToTell(run);
+  const line = runStatusZh(run);
+  return hosts.length ? `${ended(line, '。')}沙箱擋下了它要連的主機：${hosts.join(', ')}，它們不在這個固定指令的可連主機裡` : line;
+}
+
+/** How a fixed command's run went, by its status alone (zh-TW). */
+function runStatusZh(run: FixedCommandRun): string {
   const why = run.reason ? `：${run.reason}` : '';
   switch (run.status) {
     case 'running':
@@ -114,12 +122,21 @@ function runLineZh(run: FixedCommandRun): string {
     case 'changed':
       return `沒有執行：儲存或核准之後，它的程式碼改過了（${(run.changed ?? []).slice(0, 5).join('、')}${(run.changed?.length ?? 0) > 5 ? '…' : ''}）。變更經過核准後才會再執行。`;
     default:
-      return `無法執行${why}`;
+      return run.stopped ? '執行到一半被停止了' : `無法執行${why}`;
   }
 }
 
-/** How a fixed command's run went, in a line (English). */
+/** How a fixed command's run went, in a line (English), with the hosts the sandbox refused it when its reason does not name them. */
 function runLineEn(run: FixedCommandRun): string {
+  const hosts = refusedHostsToTell(run);
+  const line = runStatusEn(run);
+  return hosts.length
+    ? `${ended(line, '.')} The sandbox refused the hosts it tried to reach, which are not among this fixed command's hosts: ${hosts.join(', ')}`
+    : line;
+}
+
+/** How a fixed command's run went, by its status alone (English). */
+function runStatusEn(run: FixedCommandRun): string {
   const why = run.reason ? `: ${run.reason}` : '';
   switch (run.status) {
     case 'running':
@@ -133,7 +150,7 @@ function runLineEn(run: FixedCommandRun): string {
     case 'changed':
       return `not run: its code changed since it was saved or approved (${(run.changed ?? []).slice(0, 5).join(', ')}${(run.changed?.length ?? 0) > 5 ? '…' : ''}). It runs again once the changes are approved.`;
     default:
-      return `could not run${why}`;
+      return run.stopped ? 'stopped before it ended' : `could not run${why}`;
   }
 }
 
@@ -190,6 +207,7 @@ const zhTW = {
     noValues: '請至少填一個值，或選擇不提供。',
     badCommand: '這個固定指令的內容無效：請檢查名稱、指令、主機和密鑰名稱。',
     commandRunning: '這個固定指令正在執行，請等它結束。',
+    commandNotRunning: '這個固定指令沒有在這個對話裡執行。',
     changedAgain: '在你查看變更之後，程式碼又改過了：請再查看一次變更。',
     codeNotSeen: '要先讀取它要執行的程式碼，才能儲存。',
     codeChangedSaving: '讀取之後它的程式碼又改過了，所以沒有儲存：請再按一次儲存。程式碼打開著的話，卡片上已經換成現在的內容，可以先看看。',
@@ -205,7 +223,7 @@ const zhTW = {
     namedInTemp: (path: string) => `指令提到的 ${path} 在暫存資料夾裡，agent 可以在那裡寫入，所以無法鎖定它：請把它放進工作目錄。`,
     cwdOutside: (cwd: string) => `${cwd} 不在工作目錄裡，或在已安裝套件的資料夾裡，那裡的程式碼不會被鎖定。`,
     folderBusy: '有執行正在它的資料夾裡寫入，它要執行的程式碼可能還在改：等它結束再執行。',
-    folderHeld: '有一個固定指令或互動指令正在這個對話的資料夾裡執行：等它結束再送出。',
+    folderHeld: '有一個固定指令或互動指令正在這個對話的資料夾裡執行：等它結束，或在它的卡片上停止它，再送出。',
     commandDismissed: (name: string) => `我不儲存固定指令「${name}」。`,
     commandAnswer: (name: string, run?: FixedCommandRun) =>
       run
@@ -1627,6 +1645,7 @@ const en: ServerMessages = {
     noValues: 'Fill in at least one value, or choose not to give them.',
     badCommand: "This fixed command is not valid: check its name, command, hosts and secrets' names.",
     commandRunning: 'This fixed command is running; wait until it ends.',
+    commandNotRunning: 'This fixed command is not running in this conversation.',
     changedAgain: 'Its code changed again after you looked at the changes: look at them again.',
     codeNotSeen: 'Read the code it would run first, then save it.',
     codeChangedSaving:
@@ -1644,7 +1663,7 @@ const en: ServerMessages = {
       `${path}, which the command names, is in a temp folder, where agents can write, so it cannot be pinned: put it in the working directory.`,
     cwdOutside: (cwd) => `${cwd} is not in the working directory, or is in a folder of installed packages, whose code is not pinned.`,
     folderBusy: 'A run is writing in its folder, so the code it would run may still be changing: run it once that is done.',
-    folderHeld: "A fixed or interactive command is running in this conversation's folder: send once it ends.",
+    folderHeld: "A fixed or interactive command is running in this conversation's folder: send once it ends, or stop it on its card.",
     commandDismissed: (name) => `I did not save the fixed command "${name}".`,
     commandAnswer: (name, run) =>
       run

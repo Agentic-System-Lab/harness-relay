@@ -1,5 +1,5 @@
 import type { CodeViewFile, CommandProposal, FixedCommandRun, MessagePart, SecretAsk } from '../shared/types';
-import { checkProposal } from '../shared/handoffs';
+import { checkProposal, refusedHostsToTell } from '../shared/handoffs';
 import { diffLineClass, parseDiff } from './diff';
 
 /*
@@ -126,33 +126,46 @@ export function proposalOf(f: CommandForm): CommandProposal | undefined {
 }
 
 /** What a command card offers now. */
-export function commandActions(part: CommandPart): { decide: boolean; tryIt: boolean; approve: boolean; share: boolean } {
+export function commandActions(part: CommandPart): { decide: boolean; tryIt: boolean; stop: boolean; approve: boolean; share: boolean } {
   const saved = part.status === 'saved' && Boolean(part.commandId);
   const run = part.run;
   const running = run?.status === 'running';
   return {
     decide: part.status === 'proposed',
     tryIt: saved && !running,
+    // Its run, whatever started it (Try it, the outbox, its schedule): this card follows it.
+    stop: saved && running,
     approve: saved && run?.status === 'changed',
     share: saved && Boolean(run) && !running && run!.status !== 'changed',
   };
 }
 
-/** How a run looks on its card: its tone (for the colour), and whether to show its exit code. */
+/**
+ * How a run looks on its card: its tone (for the colour), and whether to show its exit code. One that
+ * ended with 0 although the sandbox refused it hosts is a warning: what needed them may not have been done.
+ */
 export function runTone(run: FixedCommandRun): { tone: 'ok' | 'warn' | 'bad' | 'busy'; code: boolean } {
   switch (run.status) {
     case 'running':
       return { tone: 'busy', code: false };
     case 'passed':
     case 'news':
-      return { tone: 'ok', code: true };
+      return { tone: refusedHostsToTell(run).length ? 'warn' : 'ok', code: true };
     case 'changed':
       return { tone: 'warn', code: false };
     case 'failed':
       return { tone: 'bad', code: true };
     default:
-      return { tone: 'bad', code: false };
+      // Stopped: the user's choice (or the server's), not a failure of its own.
+      return { tone: run.stopped ? 'warn' : 'bad', code: false };
   }
+}
+
+/** How many lines a running run's output so far has, for its log's summary (its `…` line, where its start was cut, not counted). */
+export function outputLines(output: string | undefined): number {
+  if (!output) return 0;
+  const lines = output.split('\n');
+  return lines[0] === '…' ? lines.length - 1 : lines.length;
 }
 
 export type InteractivePart = Extract<MessagePart, { type: 'interactive' }>;

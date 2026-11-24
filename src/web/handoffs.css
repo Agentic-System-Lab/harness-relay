@@ -95,6 +95,17 @@
   cursor: pointer;
   overflow-wrap: anywhere;
 }
+/* A running fixed command's output so far: folded until the user opens it. */
+.handoff-live-log summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.handoff-live-log .outbox-body {
+  margin-top: 6px;
+  max-height: 18rem;
+  font-family: var(--mono);
+  font-size: 12px;
+}
 /* Long lines wrap, as the outbox's boxes do (a phone), each line's colour across its whole width. */
 .outbox-body.handoff-code-text {
   margin: 4px 0 2px;

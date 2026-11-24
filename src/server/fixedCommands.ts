@@ -733,6 +733,8 @@ export interface FixedCommandDeps {
   env: NodeJS.ProcessEnv;
   makeRunDirs: () => RelaySandboxRunDirs;
   sandboxAvailable: () => Promise<SandboxAvailability>;
+  /** Milliseconds between two progress reports (`HANDOFF_LIMITS.progressMs` when absent). */
+  progressMs?: number;
 }
 
 export const defaultFixedCommandDeps: FixedCommandDeps = {
@@ -757,6 +759,24 @@ export interface FixedRunInput {
   /** Other runs' own folders, not readable (`privateRoots()`). */
   privateRoots: string[];
   signal?: AbortSignal;
+  /**
+   * While it runs, for its card: once its process started, then each `progressMs` when something changed.
+   * Never after it ended (its result says it all).
+   */
+  onProgress?: (p: FixedRunProgress) => void;
+}
+
+/** How a run goes while it runs, as its card shows it. */
+export interface FixedRunProgress {
+  /** When its time limit stops it. */
+  endsAt: number;
+  /**
+   * What it printed so far, its end, masked as its output is once it ended: the folder's values, and
+   * those it wrote back to its secrets file so far (one it prints before writing it back is masked once it did).
+   */
+  output: string;
+  /** The hosts the sandbox refused it so far, masked the same way. */
+  refusedHosts: string[];
 }
 
 /** A run's outcome, and the values of its own secrets it wrote that differ from what it was given. */
@@ -826,6 +846,58 @@ export function pinnedCwd(folder: string, cwd: string): boolean {
   return !parts.includes('.git') && !unpinnedFolders(parts);
 }
 
+/** The hosts the sandbox refused a run so far, each masked (a command could put a value in a name it asks for). */
+function refusedOf(run: { readonly refusedHosts: readonly string[] } | undefined, masks: readonly string[]): string[] {
+  return (run?.refusedHosts ?? []).map((h) => maskValues(h, masks));
+}
+
+/** Characters of a running run's output held to report from (its end): more than it shows, so that masking sees whole values. */
+const LIVE_HELD = HANDOFF_LIMITS.output * 4;
+
+/**
+ * A running run's progress for its card: its output lines as they come (`add`), and a report of them
+ * with the hosts refused it so far, made only when something changed (`report`), until it ended (`end`).
+ * Masked at each report with the folder's values and those its secrets file holds then.
+ */
+function liveProgress(
+  onProgress: (p: FixedRunProgress) => void,
+  endsAt: number,
+  values: readonly string[],
+  file: string,
+  run: { readonly refusedHosts: readonly string[] } | undefined,
+): { add: (line: string) => void; report: () => void; end: () => void } {
+  let printed = '';
+  let cut = false;
+  let last: string | undefined;
+  let ended = false;
+  return {
+    add: (line) => {
+      printed += `${line}\n`;
+      if (printed.length > LIVE_HELD) {
+        printed = printed.slice(printed.length - LIVE_HELD);
+        cut = true;
+      }
+    },
+    report: () => {
+      if (ended) return;
+      const masks = [...values, ...Object.values(readBack(file))];
+      const output = printed ? maskEdges(keptOutput(maskValues(printed, masks), HANDOFF_LIMITS.output), masks, cut) : '';
+      const p: FixedRunProgress = { endsAt, output, refusedHosts: refusedOf(run, masks) };
+      const key = JSON.stringify([p.output, p.refusedHosts]);
+      if (key === last) return;
+      last = key;
+      try {
+        onProgress(p);
+      } catch (err) {
+        console.error('[fixed command] progress report failed:', err);
+      }
+    },
+    end: () => {
+      ended = true;
+    },
+  };
+}
+
 /** Runs a fixed command once and says how it went (never throws for the command or the sandbox). */
 export async function runFixedCommand(
   cmd: FixedCommand,
@@ -861,7 +933,8 @@ export async function runFixedCommand(
     const file = join(dirs.tmp, 'secrets.env');
     writeFileSync(file, secretsFile(own), { mode: 0o600, flag: 'wx' });
     chmodSync(file, 0o600);
-    const env = { ...checkEnv(deps.env, line, dirs.tmp), RELAY_SECRETS_FILE: file };
+    // Python writes its output as it goes, not when its buffer fills: its card shows it while it runs.
+    const env = { ...checkEnv(deps.env, line, dirs.tmp), RELAY_SECRETS_FILE: file, PYTHONUNBUFFERED: '1' };
     const sandboxed = await deps.sandboxCommand('/bin/sh', ['-c', SCRIPT], env, {
       permission: 'edit',
       cwd,
@@ -876,7 +949,11 @@ export async function runFixedCommand(
     });
     let res: SpawnResult;
     let left: Record<string, string> = {};
+    const timeoutMs = HANDOFF_LIMITS.timeoutMin * 60_000;
+    const live = input.onProgress ? liveProgress(input.onProgress, Date.now() + timeoutMs, allValues, file, sandboxed.run) : undefined;
+    const ticker = live && setInterval(live.report, deps.progressMs ?? HANDOFF_LIMITS.progressMs);
     try {
+      live?.report();
       res = await deps.runProcess({
         bin: sandboxed.bin,
         args: sandboxed.args,
@@ -884,11 +961,14 @@ export async function runFixedCommand(
         channel: sandboxed.channel,
         cwd,
         signal: input.signal,
-        timeoutMs: HANDOFF_LIMITS.timeoutMin * 60_000,
+        timeoutMs,
         maxCapture: HANDOFF_LIMITS.output * 4,
+        ...(live ? { onLine: live.add } : {}),
         ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
       });
     } finally {
+      if (ticker) clearInterval(ticker);
+      live?.end();
       disposed = true;
       // What it left in its secrets file, read before its folder goes; then the file goes, whatever
       // keeps the folder (a process the sweeps could not end).
@@ -914,6 +994,8 @@ export async function runFixedCommand(
     const output = res.stdout
       ? maskEdges(keptOutput(maskValues(res.stdout, masks), HANDOFF_LIMITS.output), masks, res.stdoutTruncated)
       : '';
+    const refused = refusedOf(sandboxed.run, masks);
+    // The hosts refused it, whatever its exit code: a client that retried them, or gave up on them, may end with 0.
     const base: FixedCommandRun = {
       at,
       source,
@@ -921,9 +1003,9 @@ export async function runFixedCommand(
       exitCode: res.code,
       durationMs: Date.now() - at,
       ...(output ? { output } : {}),
+      ...(refused.length ? { refusedHosts: refused } : {}),
     };
-    const refused = sandboxed.run?.refusedHosts ?? [];
-    if (res.aborted) return { run: { ...base, status: 'error', reason: t().stoppedNote }, written };
+    if (res.aborted) return { run: { ...base, status: 'error', reason: t().stoppedNote, stopped: true }, written };
     if (res.timedOut) return { run: { ...base, status: 'error', reason: t().handoffs.timedOut(HANDOFF_LIMITS.timeoutMin) }, written };
     if (res.code === 0) return { run: base, written };
     if (res.code === FIXED_COMMAND_NEWS) return { run: { ...base, status: 'news' }, written };

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CodeViewFile } from '../../shared/types';
+import { refusedHostsToTell } from '../../shared/handoffs';
 import { api } from '../api';
 import {
   codeFiles,
@@ -8,6 +9,7 @@ import {
   filledValues,
   formOf,
   interactiveActions,
+  outputLines,
   proposalOf,
   runTone,
   sessionTone,
@@ -250,11 +252,14 @@ export function CommandCard({
   messageId: string;
   agentName: string;
 }) {
-  const t = useT();
+  const { t, lang } = useI18n();
   const c = t.handoffs.command;
   const { busy, error, call } = useCall();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(() => formOf(part.proposal));
+  // A running run's output so far, kept scrolled to its end while the user reads the end of it.
+  const live = useRef<HTMLPreElement>(null);
+  const atEnd = useRef(true);
   const [extra, setExtra] = useState('');
   // What the agent suggested typing there, if it did (the block's `input`).
   const [stdin, setStdin] = useState(part.input ?? '');
@@ -290,6 +295,7 @@ export function CommandCard({
       }
       setEditing(false);
     });
+  const stop = () => call(() => api.stopCommand(convId, part.commandId!));
   const tryIt = (confirm = false) =>
     call(async () => {
       await api.tryCommand(convId, part.commandId!, {
@@ -311,6 +317,12 @@ export function CommandCard({
     </label>
   );
   const tone = run ? runTone(run) : undefined;
+  const running = run?.status === 'running';
+  const refused = run ? refusedHostsToTell(run) : [];
+  useEffect(() => {
+    const el = live.current;
+    if (el && atEnd.current) el.scrollTop = el.scrollHeight;
+  }, [run?.output]);
   return (
     <section className={`outbox-card handoff-card handoff-command-${part.status}`} aria-label={c.label(agentName)}>
       <header className="approval-head">
@@ -387,17 +399,50 @@ export function CommandCard({
       {run && tone && (
         <div className={`handoff-run-result handoff-${tone.tone}`} role="status">
           <div>
-            <strong>{c.result[run.status]}</strong>
+            <strong>{run.stopped ? c.stopped : c.result[run.status]}</strong>
             {tone.code && run.exitCode !== undefined && <span className="muted small"> · {c.exitCode(run.exitCode)}</span>}
+            {running && run.endsAt !== undefined && (
+              <span className="muted small">
+                {' · '}
+                {c.stopsAt(new Date(run.endsAt).toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' }))}
+              </span>
+            )}
           </div>
-          {run.reason && <p className="small">{run.reason}</p>}
+          {run.reason && !run.stopped && <p className="small">{run.reason}</p>}
+          {refused.length > 0 && <p className="warn-line small">{c.refusedHosts(refused.join(', '))}</p>}
           {run.status === 'changed' && (
             <>
               <p className="small">{c.changedHint}</p>
               {part.commandId && <CommandChanges convId={convId} commandId={part.commandId} changed={run.changed ?? []} />}
             </>
           )}
-          {run.output && (
+          {/* While it runs, what it printed so far: folded, opened by the user, and kept open as it grows. */}
+          {running && (
+            <details
+              className="handoff-live-log"
+              onToggle={(e) => {
+                const el = live.current;
+                if ((e.currentTarget as HTMLDetailsElement).open && el) {
+                  atEnd.current = true;
+                  el.scrollTop = el.scrollHeight;
+                }
+              }}
+            >
+              <summary className="small">{c.liveLog(outputLines(run.output))}</summary>
+              <pre
+                ref={live}
+                className="outbox-body"
+                tabIndex={0}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+                }}
+              >
+                {run.output || c.noOutput}
+              </pre>
+            </details>
+          )}
+          {!running && run.output && (
             <>
               <p className="muted small">{c.output}</p>
               <pre className="outbox-body">{run.output}</pre>
@@ -470,7 +515,13 @@ export function CommandCard({
           )}
           <div className="approval-actions">
             {/* Approving its changes is on the run's result above; Try it comes back once they are approved. */}
+            {actions.stop && (
+              <button type="button" className="ghost danger small-button" disabled={busy} onClick={() => void stop()}>
+                {c.stop}
+              </button>
+            )}
             {!actions.approve &&
+              !actions.stop &&
               (confirming ? (
                 <>
                   <button type="button" className="primary small-button" disabled={busy || !actions.tryIt} onClick={() => void tryIt(true)}>
@@ -487,7 +538,7 @@ export function CommandCard({
                   disabled={busy || !actions.tryIt}
                   onClick={() => (p.publishes ? setConfirming(true) : void tryIt())}
                 >
-                  {run?.status === 'running' ? c.running : c.tryIt}
+                  {c.tryIt}
                 </button>
               ))}
             {actions.share && (

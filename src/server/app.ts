@@ -2810,6 +2810,12 @@ export function createApp({
     return c.json({ ok: true }, 202);
   });
 
+  // Stop a fixed command's run that this chat's card follows (Try it, the outbox, its schedule): its card says it stopped.
+  app.post('/api/conversations/:id/commands/:commandId/stop', (c) => {
+    orchestrator.stopCommand(c.req.param('id'), c.req.param('commandId'));
+    return c.json({ ok: true });
+  });
+
   // Approve what changed in a fixed command's code: `digest`, of the code whose diff the user saw (`GET
   // …/diff`), which is pinned again. Nothing runs: Try it, Send or its schedule does that.
   app.post('/api/conversations/:id/commands/:commandId/approve', async (c) => {

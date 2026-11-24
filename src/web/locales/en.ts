@@ -1202,7 +1202,14 @@ export const en: Messages = {
       extraPlaceholder: 'such as --dry-run',
       stdin: 'Input for this run (optional)',
       stdinPlaceholder: 'What it reads on its standard input, such as the post to publish',
-      running: 'Running…',
+      stop: 'Stop',
+      stopped: 'Stopped',
+      stopsAt: (time) => `If it is still running at ${time}, it stops.`,
+      liveLog: (lines) =>
+        lines ? `Output so far (${lines} ${lines === 1 ? 'line' : 'lines'}, secrets masked)` : 'Output so far (none yet)',
+      noOutput: 'No output yet. Some programs print everything only when they end.',
+      refusedHosts: (hosts) =>
+        `The sandbox refused the hosts it tried to reach: ${hosts}. They are not among this fixed command's hosts, so what needed them may not have been done; if it needs them, ask the agent to add them to this fixed command.`,
       result: {
         running: 'Running',
         passed: 'Done',

@@ -186,6 +186,14 @@ describe('secrets and fixed commands API', () => {
     expect((await send('POST', `/api/conversations/${conv.id}/commands/c1/try`, {})).status).toBe(404);
   });
 
+  it('stops only a command of the chat that runs: an unknown one is not found, one at rest has nothing to stop', async () => {
+    const { conv } = chatAsking();
+    expect((await send('POST', `/api/conversations/${conv.id}/commands/c1/stop`, {})).status).toBe(404);
+    const id = settings.handoffs.commandId(root, 'check');
+    settings.handoffs.saveCommand(root, id, { name: 'check', run: 'python3 check.py', hosts: [], secrets: [] }, { manifest: {} });
+    expect((await send('POST', `/api/conversations/${conv.id}/commands/${id}/stop`, {})).status).toBe(409);
+  });
+
   it("shows a command's changes with the digest Approve sends, and approves only with that digest", async () => {
     const { conv } = chatAsking();
     writeFileSync(join(root, 'check.py'), 'print(1)\n');
