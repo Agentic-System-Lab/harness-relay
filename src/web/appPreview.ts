@@ -317,6 +317,48 @@ export function safePreviewSession(session: AppPreviewSession, parent: string): 
   }
 }
 
+/** What `openPreviewTab()` uses of a tab `window.open()` gave. */
+export interface PreviewTab {
+  opener: unknown;
+  location: { replace(url: string): void };
+  close(): void;
+}
+
+/**
+ * Opens the preview's page in a tab of its own, cut off from Relay's page (`open` is
+ * `window.open(url, '_blank', features)`, `address` the server's single-use address for it). In a
+ * browser, a blank tab opened within the click (one opened after waiting for the server is a blocked
+ * popup), then sent to the address. The desktop app's window (`appWindow`) opens no blank page (its
+ * guard refuses `about:blank`) and opens a page off the server in the default browser, so there the
+ * address itself, once the server gave it, with no opener; `open()` then answers null, which is no
+ * blocked popup. What went wrong: `'blocked'`, or the error.
+ */
+export async function openPreviewTab(o: {
+  appWindow: boolean;
+  open: (url: string, features?: string) => PreviewTab | null;
+  address: () => Promise<string>;
+}): Promise<'blocked' | Error | undefined> {
+  const failure = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));
+  if (o.appWindow) {
+    try {
+      o.open(await o.address(), 'noopener,noreferrer');
+    } catch (error) {
+      return failure(error);
+    }
+    return undefined;
+  }
+  const tab = o.open('');
+  if (!tab) return 'blocked';
+  tab.opener = null;
+  try {
+    tab.location.replace(await o.address());
+  } catch (error) {
+    tab.close();
+    return failure(error);
+  }
+  return undefined;
+}
+
 export function previewFrameError(
   event: { origin: string; source: unknown; data: unknown },
   frame: unknown,

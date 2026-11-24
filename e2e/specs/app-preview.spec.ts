@@ -56,6 +56,56 @@ test('Files previews a static site, rebuilds edits, stops it and copies errors t
   expect(dockerRequests).toEqual([]);
 });
 
+test.describe("in the desktop app's window", () => {
+  // Electron names itself in the user agent, as in the app's window (src/web/update.ts, isAppWindow).
+  test.use({
+    userAgent:
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HarnessRelay/2026.11.23 Chrome/142.0.0.0 Electron/39.2.0 Safari/537.36',
+  });
+
+  test('New tab hands the default browser the page’s address itself, with no blank page first, and it opens the page there', async ({
+    page,
+    relay,
+    browser,
+  }) => {
+    mkdirSync(join(relay.workDir, 'site'));
+    writeFileSync(join(relay.workDir, 'site', 'index.html'), '<!doctype html><h1>In the default browser</h1>');
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    // The app's window refuses a blank page and opens a page off the server in the default browser, so
+    // window.open() answers null there whatever it opened (desktop/src/lifecycle.ts, guardContents).
+    await page.evaluate(() => {
+      const opened: string[][] = [];
+      Object.assign(window, { relayOpened: opened });
+      window.open = (...args: unknown[]) => (opened.push(args.map(String)), null);
+    });
+    const opened = () => page.evaluate(() => (window as unknown as { relayOpened: string[][] }).relayOpened);
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    const files = page.getByRole('dialog', { name: 'Files' });
+    await files.getByRole('button', { name: 'site', exact: true }).click();
+    await files.getByRole('button', { name: 'Preview this folder' }).click();
+    const panel = page.getByLabel('App preview', { exact: true });
+    await expect(panel.frameLocator('iframe').getByRole('heading')).toHaveText('In the default browser');
+    const button = panel.getByRole('button', { name: 'New tab' });
+    await expect(button).toHaveAttribute('title', 'Open the page in a new tab of your default browser, the whole window for it');
+    await button.click();
+    await expect.poll(opened).toHaveLength(1);
+    const [[url, target, features]] = (await opened()) as [[string, string, string]];
+    expect(new URL(url).pathname).toMatch(/^\/\.relay-preview\/open\/[0-9a-f]{64}$/);
+    expect([target, features]).toEqual(['_blank', 'noopener,noreferrer']);
+    // No blocked popup said: the null was the app's.
+    await expect(panel.getByRole('alert')).toHaveCount(0);
+    // The default browser has no sign-in of Relay's: the single-use address alone opens the page there.
+    const elsewhere = await browser.newContext();
+    try {
+      const tab = await elsewhere.newPage();
+      await tab.goto(url);
+      await expect(tab.getByRole('heading')).toHaveText('In the default browser');
+    } finally {
+      await elsewhere.close();
+    }
+  });
+});
+
 test('a page at the top of a working directory too large to copy whole opens with the files it names, and says so', async ({
   page,
   relay,
@@ -140,8 +190,20 @@ test.describe('the app the team made', () => {
     const card = page.getByRole('region', { name: 'The app is ready to preview' });
     await expect(card).toContainText('site/index.html · @Claude');
     // New tab, beside the title: the page alone in a tab of its own, cut off from this one, and its own reload works.
-    const [tab] = await Promise.all([page.context().waitForEvent('page'), panel.getByRole('button', { name: 'New tab' }).click()]);
+    // In a browser, a blank tab opened on the click itself, before the server gives the address (one opened
+    // after it is a blocked pop-up in Safari): window.open() is watched, and still opens the tab.
+    const newTab = panel.getByRole('button', { name: 'New tab' });
+    await expect(newTab).toHaveAttribute('title', 'Open the page in a new tab, the whole window for it');
+    await page.evaluate(() => {
+      const open = window.open.bind(window);
+      const calls: unknown[][] = [];
+      Object.assign(window, { relayOpened: calls });
+      window.open = (...args: Parameters<typeof window.open>) => (calls.push(args), open(...args));
+    });
+    const [tab] = await Promise.all([page.context().waitForEvent('page'), newTab.click()]);
     await expect(tab.locator('body')).toContainText('Written by Claude');
+    const calls = await page.evaluate(() => (window as unknown as { relayOpened: unknown[][] }).relayOpened);
+    expect(calls.map((args) => args.slice(0, 2))).toEqual([['', '_blank']]);
     expect(await tab.evaluate(() => window.opener)).toBeNull();
     await tab.reload();
     await expect(tab.locator('body')).toContainText('Written by Claude');
