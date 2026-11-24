@@ -130,7 +130,7 @@ export function Sidebar({
         </div>
         <div className="new-row">
           {/* Two halves. */}
-          <button className="new-chat" data-tour="new-chat" onClick={() => navigate({ page: 'new' })}>
+          <button className="new-chat" onClick={() => navigate({ page: 'new' })}>
             <PlusIcon size={15} />
             <span className="new-label">{t.sidebar.newChat}</span>
           </button>
@@ -138,7 +138,7 @@ export function Sidebar({
               and holds the label's words. */}
           <button
             className="new-chat new-schedule"
-            data-tour="new-schedule"
+
             onClick={() => navigate({ page: 'schedule' })}
             aria-label={t.sidebar.newSchedule}
             title={t.sidebar.newSchedule}
@@ -152,7 +152,7 @@ export function Sidebar({
         ) : creating ? (
           <NewGroupBox onClose={() => setCreating(false)} onCreated={onChanged} />
         ) : (
-          <div className="sidebar-actions" data-tour="organize">
+          <div className="sidebar-actions">
             <button type="button" className="sidebar-action" onClick={openSearch}>
               <SearchIcon size={16} /> {t.sidebar.search}
             </button>
@@ -190,7 +190,7 @@ export function Sidebar({
         )}
       </nav>
 
-      <div className="sidebar-bottom" data-tour="settings">
+      <div className="sidebar-bottom">
         {(() => {
           // The open agents only once installed (or found too old): most people have only some of them.
           const shown = PROVIDERS.filter(

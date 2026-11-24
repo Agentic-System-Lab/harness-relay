@@ -2,25 +2,38 @@ import type { Page } from '@playwright/test';
 import { en } from '../../src/web/locales/en';
 import { expect, test } from '../fixtures';
 
-/** The guided tour, whichever step it shows (each step names the dialog after its title). */
-const tour = (page: Page) => page.getByRole('dialog').filter({ hasText: 'Guided tour' });
+/** The guided tour. */
+const tour = (page: Page) => page.getByRole('dialog', { name: 'Guided tour' });
 
-/** The tour's "i / n", once it shows: n, the number of steps. */
-async function tourSteps(page: Page): Promise<number> {
-  const count = tour(page).getByText(/^\d+ \/ \d+$/);
-  await expect(count).toHaveText(/^1 \/ \d+$/);
-  return Number((await count.textContent())!.split('/')[1]);
-}
+/** The topics' titles, as the English locale names them, so that a changed tour changes them here too. */
+const titles = en.tour.steps.map((s) => s.title);
+
+/** The topic shown: its title. */
+const shown = (page: Page) => tour(page).locator('.tour-topic h3');
+
+/** A topic in the list. */
+const listed = (page: Page, title: string) =>
+  tour(page)
+    .getByRole('navigation', { name: 'Tour topics' })
+    .getByRole('button', { name: new RegExp(`^${title}`) });
+
+/** The topics checked in the list, by title. */
+const checked = (page: Page) => tour(page).locator('.tour-list button:has(.tour-mark.read) .tour-name').allTextContents();
+
+/** The home page's question about the topics left to read. */
+const nudge = (page: Page) => page.getByRole('complementary', { name: 'Guided tour' });
 
 /**
  * The animations in the tour (none while it is closed): each one's name, state, start, duration,
- * the properties it changes and the value it starts from. Those of the welcome step's picture
- * (`.tour-art`) are apart: `art` for them alone, else the card's and the backdrop's alone.
+ * the properties it changes and the value it starts from. Those of the topics' pictures (`.tour-art`)
+ * are apart: `art` for them alone, else the card's and the backdrop's alone. Animations only: a
+ * topic's check turning green is a transition.
  */
 function tourAnimations(page: Page, art = false) {
   return page.evaluate(
     (art) =>
       (document.querySelector('.tour')?.getAnimations({ subtree: true }) ?? [])
+        .filter((a) => a instanceof CSSAnimation)
         .filter((a) => Boolean(((a.effect as KeyframeEffect).target as Element | null)?.closest('.tour-art')) === art)
         .map((a) => {
           const effect = a.effect as KeyframeEffect;
@@ -44,183 +57,179 @@ async function appShown(page: Page): Promise<void> {
   await expect(page.locator('.app main.main')).toBeVisible();
 }
 
+/** A first visit again: nothing read, nothing answered. */
+async function firstVisit(page: Page): Promise<void> {
+  // Once the tour the page opened has marked its first topic read, or that would come after.
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('relay:guide'))).not.toBeNull();
+  await page.evaluate(() => localStorage.removeItem('relay:guide'));
+  await page.reload();
+  await expect(tour(page)).toBeVisible();
+}
+
 test.describe('the guided tour', () => {
   test.use({ tour: true });
 
-  test('shows on a first visit, steps through to the end, and is not shown again', async ({ page }) => {
-    // The steps as the English locale names them, so that a changed tour changes them here too.
-    const titles = en.tour.steps.map((s) => s.title);
-    await expect(page.getByRole('dialog', { name: titles[0] })).toBeVisible();
-    const steps = await tourSteps(page);
-    expect(steps).toBeGreaterThan(2);
-    // The first step has nothing to go back to.
-    await expect(tour(page).getByRole('button', { name: 'Back' })).toHaveCount(0);
+  test('opens on a first visit at its first topic, checks each topic shown, and does not open again by itself', async ({ page }) => {
+    await expect(tour(page)).toBeVisible();
+    await expect(shown(page)).toHaveText(titles[0]!);
+    await expect(tour(page).getByText(`1 of ${titles.length} read`)).toBeVisible();
+    expect(await checked(page)).toEqual([titles[0]]);
+    await expect(listed(page, titles[0]!)).toHaveAttribute('aria-current', 'step');
 
     await tour(page).getByRole('button', { name: 'Next' }).click();
-    await expect(page.getByRole('dialog', { name: titles[1] })).toBeVisible();
-    await expect(tour(page).getByText(`2 / ${steps}`)).toBeVisible();
-    await tour(page).getByRole('button', { name: 'Back' }).click();
-    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+    await expect(shown(page)).toHaveText(titles[1]!);
+    await expect(tour(page).getByText(`2 of ${titles.length} read`)).toBeVisible();
+    // Any topic from the list, in any order.
+    await listed(page, 'Automations').click();
+    await expect(shown(page)).toHaveText('Automations');
+    await expect(listed(page, 'Automations')).toHaveAttribute('aria-current', 'step');
+    expect(await checked(page)).toEqual([titles[0], titles[1], 'Automations']);
     // The arrow keys step too.
+    await page.keyboard.press('ArrowLeft');
+    await expect(shown(page)).toHaveText('Connect your phone');
     await page.keyboard.press('ArrowRight');
-    await expect(tour(page).getByText(`2 / ${steps}`)).toBeVisible();
+    await expect(shown(page)).toHaveText('Automations');
 
-    for (let i = 3; i <= steps; i++) {
-      await tour(page).getByRole('button', { name: 'Next' }).click();
-      await expect(tour(page).getByText(`${i} / ${steps}`)).toBeVisible();
-    }
-    // The last step finishes it, with nothing left to skip.
-    await expect(page.getByRole('dialog', { name: titles.at(-1) })).toBeVisible();
-    await expect(tour(page).getByRole('button', { name: 'Skip tour' })).toHaveCount(0);
-    await tour(page).getByRole('button', { name: 'Get started' }).click();
+    // The last topic finishes it.
+    await listed(page, titles.at(-1)!).click();
+    await expect(tour(page).getByRole('button', { name: 'Next' })).toHaveCount(0);
+    await tour(page).getByRole('button', { name: 'Done' }).click();
     await expect(tour(page)).toBeHidden();
+
+    // Not again by itself: the home page asks about the two topics left instead.
+    await page.reload();
+    await appShown(page);
+    await expect(tour(page)).toHaveCount(0);
+    await expect(nudge(page)).toContainText('The guided tour has 2 topics you have not read. Take a look?');
+  });
+
+  test('asks on the home page about the topics left: Show me opens the first of them, Not now stops asking', async ({ page }) => {
+    await expect(tour(page)).toBeVisible();
+    await tour(page).getByRole('button', { name: 'Close the tour' }).click();
+    await expect(tour(page)).toBeHidden();
+    // Not asked on the page that closed it.
+    await expect(nudge(page)).toHaveCount(0);
 
     await page.reload();
     await appShown(page);
     await expect(tour(page)).toHaveCount(0);
-  });
+    await expect(nudge(page)).toContainText(`The guided tour has ${titles.length - 1} topics you have not read.`);
+    // The home page only: it stays out of a chat's way, and is there again back home.
+    await page.locator('.home-start').click();
+    await expect(page).toHaveURL(/#\/new$/);
+    await expect(nudge(page)).toHaveCount(0);
+    await page.goBack();
+    await expect(nudge(page)).toBeVisible();
 
-  test('a returning browser sees only the changed steps, and can still replay the full tour', async ({ page }) => {
-    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
-    await page.evaluate(() => localStorage.setItem('relay:onboarded', '20'));
-    await page.reload();
-    const update = page.getByRole('dialog');
-    await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 15');
-    await expect(update.locator('.tour-art')).toHaveCount(0);
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Start a new chat');
-    await update.getByRole('button', { name: 'Next' }).click();
-    // A member's own limit was added to it.
-    await expect(update).toHaveAccessibleName('A team for every question');
-    await update.getByRole('button', { name: 'Next' }).click();
-    // Subagents' steps and steering were added to it.
-    await expect(update).toHaveAccessibleName('While the team replies');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('When the team needs you');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Notifications and sound');
-    // Closing an unfinished update keeps the last completed version, including changes from skipped releases.
-    await page.reload();
-    await expect(update).toHaveAccessibleName('Connect your phone');
-    await expect(update.locator('.tour-count:visible')).toHaveText('1 / 15');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Start a new chat');
-    await update.getByRole('button', { name: 'Next' }).click();
-    // A member's own limit was added to it.
-    await expect(update).toHaveAccessibleName('A team for every question');
-    await update.getByRole('button', { name: 'Next' }).click();
-    // Subagents' steps and steering were added to it.
-    await expect(update).toHaveAccessibleName('While the team replies');
-    await update.getByRole('button', { name: 'Next' }).click();
-    // "Approve for me" was added to it, and to the permissions step.
-    await expect(update).toHaveAccessibleName('When the team needs you');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Notifications and sound');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('File permission and changes');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Team checks');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Browse and change files');
-    await expect(update).toContainText('Preview app');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Automations');
-    await update.getByRole('button', { name: 'Next' }).click();
-    // The lead agent suggesting groups and naming new chats were added to it.
-    await expect(update).toHaveAccessibleName('Groups, pins and search');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Connect apps to your chats');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Long-term memory');
-    await expect(update).toContainText('Settings → Labs → Long-term memory');
-    await update.getByRole('button', { name: 'Next' }).click();
-    // The Settings step: Labs (long-term memory among it) and the subagents' and workflows' switches were added to it.
-    await expect(update).toHaveAccessibleName('Adjust any time');
-    await update.getByRole('button', { name: 'Done', exact: true }).click();
-    await page.reload();
-    await appShown(page);
-    await expect(update).toHaveCount(0);
-    await page.evaluate(() => localStorage.setItem('relay:onboarded', '35'));
-    await page.reload();
-    await expect(update).toHaveAccessibleName('API keys and endpoints for open-source agents');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Start a new chat');
-    await update.getByRole('button', { name: 'Next' }).click();
-    // A member's own limit was added to it.
-    await expect(update).toHaveAccessibleName('A team for every question');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('While the team replies');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('When the team needs you');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('File permission and changes');
-    await update.getByRole('button', { name: 'Next' }).click();
-    // The lead agent writing the rules was added to it.
-    await expect(update).toHaveAccessibleName('Team checks');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Browse and change files');
-    await expect(update).toContainText('Preview app');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Automations');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Groups, pins and search');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Long-term memory');
-    await update.getByRole('button', { name: 'Next' }).click();
-    await expect(update).toHaveAccessibleName('Adjust any time');
-    await update.getByRole('button', { name: 'Done', exact: true }).click();
-    await expect(update).toHaveCount(0);
-    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
-    await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
-    await expect(update).toHaveAccessibleName('Welcome to Harness Relay');
-    expect(await tourSteps(page)).toBe(en.tour.steps.length);
-  });
-
-  test('can be skipped, and Settings starts it again', async ({ page }) => {
-    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
-    await tour(page).getByRole('button', { name: 'Skip tour' }).click();
-    await expect(tour(page)).toBeHidden();
-    await page.reload();
-    await appShown(page);
-    await expect(tour(page)).toHaveCount(0);
-
-    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
-    await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
-    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
-    await tourSteps(page);
-    // Escape ends it too, and it stays done.
+    await nudge(page).getByRole('button', { name: 'Show me' }).click();
+    await expect(nudge(page)).toHaveCount(0);
+    await expect(shown(page)).toHaveText(titles[1]!);
+    expect(await checked(page)).toEqual([titles[0], titles[1]]);
     await page.keyboard.press('Escape');
     await expect(tour(page)).toBeHidden();
+
+    await page.reload();
+    await expect(nudge(page)).toContainText(`The guided tour has ${titles.length - 2} topics you have not read.`);
+    await nudge(page).getByRole('button', { name: 'Not now' }).click();
+    await expect(nudge(page)).toHaveCount(0);
+    await page.reload();
+    await appShown(page);
+    await expect(nudge(page)).toHaveCount(0);
+    await expect(tour(page)).toHaveCount(0);
+
+    // Settings opens it still, with its checks, at the first topic not read.
+    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
+    await expect(shown(page)).toHaveText(titles[2]!);
+    expect(await checked(page)).toEqual(titles.slice(0, 3));
+  });
+
+  test('a browser that finished an older tour is asked about the topics changed since, marked as updated', async ({ page }) => {
+    await expect(tour(page)).toBeVisible();
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('relay:guide'))).not.toBeNull();
+    await page.evaluate(() => {
+      localStorage.removeItem('relay:guide');
+      localStorage.setItem('relay:onboarded', '20');
+    });
     await page.reload();
     await appShown(page);
     await expect(tour(page)).toHaveCount(0);
+    await expect(nudge(page)).toContainText('6 topics of the guided tour changed. Take a look?');
+    await nudge(page).getByRole('button', { name: 'Show me' }).click();
+    await expect(shown(page)).toHaveText('Get an agent ready');
+    expect(await checked(page)).toEqual(['Meet Harness Relay', 'Get an agent ready']);
+    await expect(tour(page).locator('.tour-changed')).toHaveText(Array(5).fill('Updated'));
+    await expect(listed(page, 'Start a chat')).toContainText('Updated');
+
+    // The tour's version before the checklist: nothing to ask.
+    await page.evaluate(() => {
+      localStorage.removeItem('relay:guide');
+      localStorage.setItem('relay:onboarded', '45');
+    });
+    await page.reload();
+    await appShown(page);
+    await expect(nudge(page)).toHaveCount(0);
+    await expect(tour(page)).toHaveCount(0);
   });
 
-  test("on a phone, the tour is a sheet at the bottom of the screen, and a long step's text scrolls above its buttons", async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 390, height: 560 });
-    // The longest step: file permission and changes.
-    const long = en.tour.steps.findIndex((s) => s.title === 'File permission and changes');
-    expect(long).toBeGreaterThan(0);
-    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
-    for (let i = 0; i < long; i++) await tour(page).getByRole('button', { name: 'Next' }).click();
-    await expect(page.getByRole('dialog', { name: en.tour.steps[long]!.title })).toBeVisible();
+  test("a topic's button goes where it says and closes the tour", async ({ page }) => {
+    await listed(page, 'Start a chat').click();
+    await tour(page).getByRole('link', { name: 'Start a new chat' }).click();
+    await expect(tour(page)).toBeHidden();
+    await expect(page).toHaveURL(/#\/new$/);
 
-    const card = page.locator('.tour-card:not(.tour-measure)');
+    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
+    await listed(page, 'Connect your phone').click();
+    await tour(page).getByRole('link', { name: 'Connect your phone' }).click();
+    await expect(tour(page)).toBeHidden();
+    await expect(page).toHaveURL(/#\/settings\/home-screen$/);
+    await expect(page.locator('#settings-home-screen')).toBeInViewport();
+  });
+
+  test('on a phone, the tour is a sheet at the bottom showing one topic, and All topics shows the list', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await firstVisit(page);
+    const card = page.locator('.tour-card');
+    const next = card.getByRole('button', { name: 'Next' });
+    const list = card.getByRole('navigation', { name: 'Tour topics' });
+    await expect(shown(page)).toHaveText(titles[0]!);
+    await expect(list).toBeHidden();
+    // Its bottom at the screen's, with Next in it.
+    const atBottom = async () => {
+      const c = (await card.boundingBox())!;
+      return c.y > 0 && Math.abs(c.y + c.height - 844) <= 1;
+    };
+    await expect.poll(atBottom).toBe(true);
+    await expect(next).toBeInViewport({ ratio: 1 });
+
+    await card.getByRole('button', { name: 'All topics' }).click();
+    await expect(list).toBeVisible();
+    await expect(shown(page)).toBeHidden();
+    await expect(listed(page, titles[0]!)).toBeFocused();
+    expect(await atBottom()).toBe(true);
+    await listed(page, 'Automations').click();
+    await expect(list).toBeHidden();
+    await expect(shown(page)).toHaveText('Automations');
+    await expect(next).toBeFocused();
+    expect(await atBottom()).toBe(true);
+  });
+
+  test("on a short phone, the picture gives its room back, and a topic's text scrolls above its buttons", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 300 });
+    await firstVisit(page);
+    await page.locator('.tour-card').getByRole('button', { name: 'All topics' }).click();
+    await listed(page, 'While the team works').click();
+    await expect(shown(page)).toHaveText('While the team works');
+    const card = page.locator('.tour-card');
     const text = card.locator('.tour-body');
     const next = card.getByRole('button', { name: 'Next' });
-    // On the screen, its bottom at the screen's, with Next in it.
+    await expect(card.locator('.tour-art > svg')).toBeHidden();
     const inView = async () => {
       const [c, n] = [await card.boundingBox(), await next.boundingBox()];
-      return c!.y >= 0 && Math.abs(c!.y + c!.height - 560) <= 1 && n!.y + n!.height <= c!.y + c!.height;
+      return c!.y >= 0 && Math.abs(c!.y + c!.height - 300) <= 1 && n!.y + n!.height <= c!.y + c!.height;
     };
-    expect(await inView()).toBe(true);
+    await expect.poll(inView).toBe(true);
     const sizes = () =>
       text.evaluate((el) => ({ top: el.scrollTop, scrolls: el.scrollHeight > el.clientHeight, max: el.scrollHeight - el.clientHeight }));
     expect(await sizes()).toMatchObject({ top: 0, scrolls: true });
@@ -235,9 +244,9 @@ test.describe('the guided tour', () => {
       .toBe(true);
     expect(await inView()).toBe(true);
     await expect(card.locator('.tour-foot.scrolls')).toBeVisible();
-    // The next step starts at its top.
+    // The next topic starts at its top.
     await next.click();
-    await expect(page.getByRole('dialog', { name: en.tour.steps[long + 1]!.title })).toBeVisible();
+    await expect(shown(page)).toHaveText(titles[titles.indexOf('While the team works') + 1]!);
     expect((await sizes()).top).toBe(0);
   });
 
@@ -246,9 +255,8 @@ test.describe('the guided tour', () => {
   }) => {
     // Opened at a phone's size: Next takes the focus while the sheet is still below the screen.
     await page.setViewportSize({ width: 390, height: 560 });
-    await page.reload();
-    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
-    const card = page.locator('.tour-card:not(.tour-measure)');
+    await firstVisit(page);
+    const card = page.locator('.tour-card');
     const next = card.getByRole('button', { name: 'Next' });
     await expect.poll(() => tourAnimations(page).then((a) => a.map((x) => x.name))).toEqual(['tour-scrim-in', 'tour-sheet-in']);
     await expect.poll(() => tourAnimations(page).then((a) => a.every((x) => x.state === 'finished'))).toBe(true);
@@ -268,9 +276,9 @@ test.describe('the guided tour', () => {
     expect(await atBottom()).toBe(true);
     await expect(next).toBeInViewport({ ratio: 1 });
     await expect(next).toBeFocused();
-    // The next step keeps the sheet where it is: the animation does not play again.
+    // The next topic keeps the sheet where it is: the animation does not play again.
     await next.click();
-    await expect(page.getByRole('dialog', { name: en.tour.steps[1]!.title })).toBeVisible();
+    await expect(shown(page)).toHaveText(titles[1]!);
     expect(await tourAnimations(page)).toEqual(opened);
     expect(await atBottom()).toBe(true);
 
@@ -279,7 +287,7 @@ test.describe('the guided tour', () => {
     await expect(tour(page)).toBeHidden();
     const replay = async () => {
       await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
-      await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+      await expect(tour(page)).toBeVisible();
     };
     await page.getByRole('button', { name: 'Open sidebar' }).click();
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
@@ -299,31 +307,31 @@ test.describe('the guided tour', () => {
     expect(await atBottom()).toBe(true);
   });
 
-  test('on a wide screen, Next stays in one place through the steps in the middle of the screen', async ({ page }) => {
+  test('on a wide screen, the card keeps one size and Next one place through the topics', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
-    const card = page.locator('.tour-card:not(.tour-measure)');
-    const next = card.getByRole('button', { name: 'Next' });
+    await firstVisit(page);
+    const card = page.locator('.tour-card');
+    const next = card.locator('.tour-foot .primary');
     // Only a phone's sheet slides in: here the card and the backdrop are still.
     expect(await tourAnimations(page)).toEqual([]);
-    // Where Next is at each step in the middle of the screen (the others point at the sidebar).
-    const places = new Set<number>();
-    for (let i = 0; i < en.tour.steps.length - 1; i++) {
-      await expect(page.getByRole('dialog', { name: en.tour.steps[i]!.title })).toBeVisible();
-      if ((await card.getAttribute('class'))!.includes('centered')) places.add(Math.round((await next.boundingBox())!.y));
-      await next.click();
+    const places = new Set<string>();
+    for (const title of titles) {
+      await listed(page, title).click();
+      await expect(shown(page)).toHaveText(title);
+      const [c, n] = [(await card.boundingBox())!, (await next.boundingBox())!];
+      places.add(`${Math.round(c.height)} ${Math.round(n.y)} ${Math.round(n.x + n.width)}`);
     }
-    expect(places.size).toBe(1);
+    expect([...places]).toHaveLength(1);
   });
 
-  test("the welcome step's picture: a request going in and a result coming out, drawn once, then still; not on the next step, and still from the start with reduced motion", async ({
+  test("the welcome topic's picture: a request going in and a result coming out, drawn once, then still; another on the next topic, and still from the start with reduced motion", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
-    const art = page.locator('.tour-card:not(.tour-measure) .tour-art');
+    await firstVisit(page);
+    const art = page.locator('.tour-art[data-art="welcome"]');
     await expect(art.locator('svg')).toBeVisible();
-    // Decorative, and without words: the step's text says what Harness Relay is.
+    // Decorative, and without words: the topic's text says what Harness Relay is.
     await expect(art).toHaveAttribute('aria-hidden', 'true');
     await expect(art.locator('svg')).toHaveText('');
     // Your request, Harness Relay's mark (the logo's three dots), and the result: two lines added, one removed, a check.
@@ -337,13 +345,13 @@ test.describe('the guided tour', () => {
     const result = (await art.locator('.result').boundingBox())!;
     expect(request.y + request.height).toBeLessThan(result.y);
     expect(request.x).toBeLessThan(result.x);
-    // It fills the room the short text leaves: it starts below the text and ends above the dots.
-    const text = (await page.locator('.tour-card:not(.tour-measure) .tour-body p').boundingBox())!;
+    // Above the topic's title, below the card's head.
     const box = (await art.locator('svg').boundingBox())!;
-    const dots = (await page.locator('.tour-card:not(.tour-measure) .tour-dots').boundingBox())!;
-    expect(box.y).toBeGreaterThanOrEqual(text.y + text.height);
-    expect(box.y + box.height).toBeLessThanOrEqual(dots.y);
-    expect(box.height).toBeGreaterThan(200);
+    const title = (await shown(page).boundingBox())!;
+    const head = (await page.locator('.tour-head').boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(head.y + head.height);
+    expect(box.y + box.height).toBeLessThanOrEqual(title.y);
+    expect(box.height).toBeGreaterThan(180);
 
     // It plays once and comes to rest, with transform, opacity and the arrows' dash alone.
     await expect.poll(() => tourAnimations(page, true).then((a) => a.length)).toBeGreaterThan(0);
@@ -361,7 +369,7 @@ test.describe('the guided tour', () => {
       'tour-art-write',
     ]);
     // At rest: the request, the mark and the result there, the arrows drawn, the ring gone.
-    const shown = async () => {
+    const atRest = async () => {
       for (const part of ['.request', '.mark', '.result', '.check']) await expect(art.locator(part)).toHaveCSS('opacity', '1');
       for (const edge of await art.locator('.edge').all()) await expect(edge).toHaveCSS('stroke-dashoffset', '0px');
       // The arrowheads shown, the lines written out whole.
@@ -370,50 +378,72 @@ test.describe('the guided tour', () => {
       for (const line of await art.locator('.line').all()) await expect(line).toHaveCSS('transform', /^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
       await expect(art.locator('.halo')).toHaveCSS('opacity', '0');
     };
-    await shown();
+    await atRest();
 
-    // The next step has no picture.
+    // The next topic has a picture of its own.
     await tour(page).getByRole('button', { name: 'Next' }).click();
-    await expect(page.getByRole('dialog', { name: en.tour.steps[1]!.title })).toBeVisible();
+    await expect(shown(page)).toHaveText(titles[1]!);
     await expect(art).toHaveCount(0);
+    await expect(page.locator('.tour-art[data-art="agents"] > svg')).toBeVisible();
 
     // With reduced motion: the still picture at once, nothing moving.
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await tour(page).getByRole('button', { name: 'Back' }).click();
+    await listed(page, titles[0]!).click();
     await expect(art.locator('svg')).toBeVisible();
     expect(await tourAnimations(page, true)).toEqual([]);
-    await shown();
+    await atRest();
   });
 
-  test("the welcome step's picture takes the room the card leaves it, and is left out where that is too little", async ({ page }) => {
-    // A window whose card leaves the picture less than its largest size: it shrinks to the room, between the text and the dots.
-    await page.setViewportSize({ width: 1280, height: 520 });
-    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
-    const svg = page.locator('.tour-card:not(.tour-measure) .tour-art svg');
+  test('every topic has a picture of its own, without words, that comes to rest', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await firstVisit(page);
+    const pictures = new Set<string>();
+    for (const title of titles) {
+      await listed(page, title).click();
+      await expect(shown(page)).toHaveText(title);
+      const art = page.locator('.tour-art');
+      await expect(art).toHaveCount(1);
+      await expect(art.locator('> svg')).toBeVisible();
+      await expect(art).toHaveAttribute('aria-hidden', 'true');
+      await expect(art).toHaveText('');
+      pictures.add((await art.getAttribute('data-art'))!);
+      await expect
+        .poll(() => tourAnimations(page, true).then((a) => a.every((x) => x.state === 'finished')), { timeout: 10_000 })
+        .toBe(true);
+    }
+    expect(pictures.size).toBe(titles.length);
+  });
+
+  test('a picture takes the room above its topic, and is left out where that is too little', async ({ page }) => {
+    // A window that cuts the card: the picture shrinks to the room, between the head and the title.
+    await page.setViewportSize({ width: 1280, height: 440 });
+    await firstVisit(page);
+    const svg = page.locator('.tour-art > svg');
     await expect(svg).toBeVisible();
-    const text = (await page.locator('.tour-card:not(.tour-measure) .tour-body p').boundingBox())!;
     const box = (await svg.boundingBox())!;
-    const dots = (await page.locator('.tour-card:not(.tour-measure) .tour-dots').boundingBox())!;
-    expect(box.y).toBeGreaterThanOrEqual(text.y + text.height);
-    expect(box.y + box.height).toBeLessThanOrEqual(dots.y);
-    expect(box.height).toBeLessThan(300);
-    // A short window: the card is cut to the screen, and the step's text takes it all.
-    await page.setViewportSize({ width: 1280, height: 380 });
-    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
-    await expect(page.locator('.tour-card:not(.tour-measure) .tour-art svg')).toBeHidden();
-    // On a phone, the sheet makes room for it: in its room, between the text and the dots, so the step's text does not scroll.
+    const head = (await page.locator('.tour-head').boundingBox())!;
+    const title = (await shown(page).boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(head.y + head.height);
+    expect(box.y + box.height).toBeLessThanOrEqual(title.y);
+    expect(box.height).toBeLessThan(216);
+    await expect(page.locator('.tour-foot')).not.toHaveClass(/scrolls/);
+    // A short window: the card is cut to the screen, and the topic's text takes it all.
+    await page.setViewportSize({ width: 1280, height: 320 });
+    await expect(shown(page)).toHaveText(titles[0]!);
+    await expect(svg).toBeHidden();
+    // On a phone, the sheet makes room for it, between All topics and the title, so the topic's text does not scroll.
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(svg).toBeVisible();
     // Measured at once: the sheet may still be sliding up.
     const onPhone = await page.evaluate(() => {
-      const box = (part: string) => document.querySelector(`.tour-card:not(.tour-measure) ${part}`)!.getBoundingClientRect();
-      return { text: box('.tour-body p'), room: box('.tour-art'), svg: box('.tour-art svg'), dots: box('.tour-dots') };
+      const rect = (part: string) => document.querySelector(`.tour-card ${part}`)!.getBoundingClientRect();
+      return { all: rect('.tour-all'), room: rect('.tour-art'), svg: rect('.tour-art > svg'), title: rect('.tour-topic h3') };
     });
-    expect(onPhone.svg.top).toBeGreaterThanOrEqual(onPhone.text.bottom);
+    expect(onPhone.svg.top).toBeGreaterThanOrEqual(onPhone.all.bottom);
     expect(onPhone.svg.top).toBeGreaterThanOrEqual(onPhone.room.top);
     expect(onPhone.svg.bottom).toBeLessThanOrEqual(onPhone.room.bottom);
-    expect(onPhone.svg.bottom).toBeLessThanOrEqual(onPhone.dots.top);
-    await expect(page.locator('.tour-card:not(.tour-measure) .tour-foot')).not.toHaveClass(/scrolls/);
+    expect(onPhone.svg.bottom).toBeLessThanOrEqual(onPhone.title.top);
+    await expect(page.locator('.tour-foot')).not.toHaveClass(/scrolls/);
   });
 });
 

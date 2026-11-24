@@ -541,12 +541,12 @@ test.describe('on a phone', () => {
   test.describe('with the guided tour', () => {
     test.use({ tour: true });
 
-    test('a swipe over the guided tour leaves the sidebar shut, and opens it once the tour is skipped', async ({ page }) => {
-      const tour = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Skip tour' }) });
+    test('a swipe over the guided tour leaves the sidebar shut, and opens it once the tour is closed', async ({ page }) => {
+      const tour = page.getByRole('dialog', { name: 'Guided tour' });
       await expect(tour).toBeVisible();
       await swipe(tour, 150);
       expect(await drawerOpen(page)).toBe(false);
-      await tour.getByRole('button', { name: 'Skip tour' }).tap();
+      await tour.getByRole('button', { name: 'Close the tour' }).tap();
       await expect(tour).toBeHidden();
       await swipe(page.locator('.main'), 150);
       await expect(page.locator('.sidebar')).toBeInViewport({ ratio: 1 });
