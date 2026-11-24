@@ -177,6 +177,25 @@ test.describe('approvals', () => {
     await expect((await finishedReply(page, 'Claude')).locator('.approval-done')).toContainText('Declined');
   });
 
+  test('a request a background subagent makes while the turn answers can still be answered after the turn has its reply', async ({
+    page,
+    relay,
+  }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'read-only' });
+    await send(page, 'Start the job e2e:bgask');
+    const card = page.getByRole('region', { name: '@Claude wants to run a command' });
+    await expect(card.locator('.approval-detail')).toContainText('echo e2e-approval');
+    // The turn has its reply meanwhile, and the request still waits for the user (Claude Code's input stays open).
+    await expect(replies(page, 'Claude').last()).toContainText('Started a background job.');
+    await page.waitForTimeout(1500);
+    await expect(card.locator('.approval-waiting')).toHaveText('Waiting for you');
+    await card.getByRole('button', { name: 'Allow', exact: true }).click();
+    // The subagent ran it, and Claude Code said so in a turn of its own, in the same reply.
+    const reply = await finishedReply(page, 'Claude');
+    await expect(reply).toContainText("The background job's command ran: e2e-approval.");
+    await expect(reply.locator('.approval-done')).toHaveText(/Allowed$/);
+  });
+
   test('a request the CLI stops waiting for while the lead agent reviews it says so at once, and the reply goes on', async ({
     page,
     relay,
@@ -190,9 +209,7 @@ test.describe('approvals', () => {
     await expect(page.locator('.approval-card')).toHaveCount(0);
     const line = reply.locator('.approval-done.withdrawn');
     await expect(line).toContainText('echo e2e-approval');
-    await expect(line).toContainText(
-      'Withdrawn: its CLI decided without waiting for your answer (by a rule or hook of its own, say), and an answer no longer reaches it',
-    );
+    await expect(line).toContainText('Withdrawn: its CLI stopped waiting for your answer, and an answer no longer reaches it');
     await expect(line).not.toContainText('Approved for you');
     await expect(line.locator('.approval-mark')).toHaveText('↩');
     await expect(reply).toContainText('It stopped waiting for an answer and decided by its own rule. The command ran: e2e-approval.');

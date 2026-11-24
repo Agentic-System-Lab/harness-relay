@@ -1785,10 +1785,19 @@ async function runClaudeTurn(
     send({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response } });
   // What else keeps the input open once the turn has its result: approvals waiting, background
   // subagents at work, a turn Claude Code starts by itself after one.
-  const hold = new ClaudeInputHold(() => maybeEndInput(), {
-    followUp: CLAUDE_FOLLOW_UP_MS,
-    background: claudeBackgroundHoldMs(o.nativeOn),
-  });
+  // Never past a moment before the turn's own limit, so that Claude Code answers before that ends it.
+  const hold = new ClaudeInputHold(
+    () => maybeEndInput(),
+    {
+      followUp: CLAUDE_FOLLOW_UP_MS,
+      background: claudeBackgroundHoldMs(o.nativeOn),
+      deadline: Date.now() + TURN_TIMEOUT_MS - CLAUDE_BG_WAIT_MARGIN_MS,
+    },
+    (taskIds) => {
+      for (const taskId of taskIds)
+        send({ type: 'control_request', request_id: `stop-${randomUUID()}`, request: { subtype: 'stop_task', task_id: taskId } });
+    },
+  );
 
   const onControl = (req: ClaudeControlRequest) => {
     if (req.subtype === 'hook_callback') {
@@ -1995,6 +2004,19 @@ export function claudeBackgroundHoldMs(on: readonly NativeOnPart[] = [], turnMs:
   return Number.isFinite(set) && set > 0 ? set : CLAUDE_BG_WAIT_DEFAULT_MS;
 }
 
+/** The background tasks Claude Code itself waits for once its input ends (2.1.331), but its commands. */
+const CLAUDE_WAITED_TASKS = new Set(['local_agent', 'local_workflow']);
+
+/** How long a run's input may stay open for what Claude Code still does by itself (`ClaudeInputHold`). */
+export interface ClaudeHoldLimits {
+  /** For the turn Claude Code starts by itself after a background task ended, to start. */
+  followUp: number;
+  /** For background subagents and workflows once the turn has its result: then they are stopped. */
+  background: number;
+  /** When nothing holds it any more, whatever still runs (an epoch time): before the turn's own limit. */
+  deadline?: number;
+}
+
 /**
  * What else keeps a run's input open once its turn has a result, besides the messages sent into it
  * (`ClaudeSteering`). Once its input ends, Claude Code refuses every approval still waiting ("Tool
@@ -2002,18 +2024,22 @@ export function claudeBackgroundHoldMs(on: readonly NativeOnPart[] = [], turnMs:
  * without a card: a background subagent's request that came while the turn answered had its card
  * expire with the run, unanswered, while the subagent went on without it. So the input stays open:
  * - while an approval Claude Code asked for (`can_use_tool`) waits for its answer, unless Claude Code
- *   withdrew it (`control_cancel_request`, when its own hook or rule decided first: `withdraw()`);
- * - while a background subagent or workflow is at work (`background_tasks_changed`; not a background
- *   command, which may run as long as a server does), for at most `backgroundMs` after the result, as
- *   long as Claude Code itself waits for them;
+ *   withdrew it (`control_cancel_request`: `withdraw()`);
+ * - while a background subagent or workflow it waits for is at work (`background_tasks_changed`: a
+ *   `local_agent` or `local_workflow` not `ambient`, `awaited` nor `off_host`; never a background
+ *   command, which may run as long as a server does), for at most `background` after the result, the
+ *   wait Claude Code itself would have given them: then they are stopped (`stopTasks`, Claude Code's
+ *   `stop_task`), since Claude Code's own wait only starts once its input ends;
  * - while a turn Claude Code started by itself after the result runs (its `system` `init`), and for
- *   `followUpMs` after a background task ended, for that turn to start.
- * The user's stop ends it all the same (the runner's `maybeEndInput`).
+ *   `followUp` after a background task it listed ended, for that turn to start;
+ * and never past `deadline`. The user's stop ends it all the same (the runner's `maybeEndInput`).
  */
 export class ClaudeInputHold {
   /** Approvals asked for and not answered yet, by request id: aborted when withdrawn. */
   private asks = new Map<string, AbortController>();
-  /** Background subagents and workflows at work, by task id. */
+  /** Every background task Claude Code lists, by id. */
+  private listed = new Set<string>();
+  /** Those of them it waits for: subagents and workflows. */
   private agents = new Set<string>();
   private answered = false;
   /** A turn Claude Code started after the latest result runs. */
@@ -2023,11 +2049,26 @@ export class ClaudeInputHold {
   private followUp: NodeJS.Timeout | undefined;
   private background: NodeJS.Timeout | undefined;
   private backgroundOver = false;
+  private deadline: NodeJS.Timeout | undefined;
+  private over = false;
 
   constructor(
     private onChange: () => void,
-    private ms: { followUp: number; background: number } = { followUp: CLAUDE_FOLLOW_UP_MS, background: CLAUDE_BG_WAIT_DEFAULT_MS },
-  ) {}
+    private limits: ClaudeHoldLimits = { followUp: CLAUDE_FOLLOW_UP_MS, background: CLAUDE_BG_WAIT_DEFAULT_MS },
+    private stopTasks: (taskIds: string[]) => void = () => undefined,
+  ) {
+    if (limits.deadline !== undefined) {
+      this.deadline = setTimeout(
+        () => {
+          this.over = true;
+          this.stopAgents();
+          this.onChange();
+        },
+        Math.max(0, limits.deadline - Date.now()),
+      );
+      this.deadline.unref?.();
+    }
+  }
 
   /** An approval Claude Code asked for: its signal aborts if Claude Code withdraws it. */
   ask(requestId: string): AbortSignal {
@@ -2069,27 +2110,30 @@ export class ClaudeInputHold {
       this.clearFollowUp();
       this.onChange();
     } else if (ev.subtype === 'background_tasks_changed' && Array.isArray(ev.tasks)) {
-      const now = new Set<string>(
-        ev.tasks
-          .filter((t: any) => t && t.task_type !== 'local_bash' && typeof t.task_id === 'string')
-          .map((t: any) => t.task_id as string),
+      // Every background task live now (a level, not an edge: it replaces the last one).
+      const tasks: Record<string, any>[] = ev.tasks.filter((t: any) => t && typeof t.task_id === 'string');
+      const listed = new Set(tasks.map((t) => t.task_id as string));
+      const ended = [...this.listed].some((id) => !listed.has(id));
+      this.listed = listed;
+      this.agents = new Set(
+        tasks
+          .filter((t) => CLAUDE_WAITED_TASKS.has(t.task_type) && t.ambient !== true && t.awaited !== true && t.off_host !== true)
+          .map((t) => t.task_id as string),
       );
-      const ended = [...this.agents].some((id) => !now.has(id));
-      this.agents = now;
-      if (ended) this.taskEnded();
-      if (!now.size) {
+      if (ended) {
+        this.newsWaits = true;
+        if (this.answered && !this.turnRunning) this.waitForFollowUp();
+      }
+      if (!this.agents.size) {
         clearTimeout(this.background);
         this.background = undefined;
       } else if (this.answered) this.waitForBackground();
-      this.onChange();
-    } else if (ev.subtype === 'task_notification') {
-      // A background command's news too: its turn follows, and may ask.
-      this.taskEnded();
       this.onChange();
     }
   }
 
   holds(): boolean {
+    if (this.over) return false;
     return this.asks.size > 0 || (this.agents.size > 0 && !this.backgroundOver) || this.turnRunning || this.followUp !== undefined;
   }
 
@@ -2098,20 +2142,17 @@ export class ClaudeInputHold {
     this.clearFollowUp();
     clearTimeout(this.background);
     this.background = undefined;
-  }
-
-  private taskEnded(): void {
-    this.newsWaits = true;
-    if (this.answered && !this.turnRunning) this.waitForFollowUp();
+    clearTimeout(this.deadline);
+    this.deadline = undefined;
   }
 
   private waitForFollowUp(): void {
-    if (this.followUp) return;
+    if (this.followUp || this.over) return;
     this.followUp = setTimeout(() => {
       this.followUp = undefined;
       this.newsWaits = false;
       this.onChange();
-    }, this.ms.followUp);
+    }, this.limits.followUp);
     this.followUp.unref?.();
   }
 
@@ -2121,13 +2162,19 @@ export class ClaudeInputHold {
   }
 
   private waitForBackground(): void {
-    if (this.background || this.backgroundOver) return;
+    if (this.background || this.backgroundOver || this.over) return;
     this.background = setTimeout(() => {
       this.background = undefined;
       this.backgroundOver = true;
+      this.stopAgents();
       this.onChange();
-    }, this.ms.background);
+    }, this.limits.background);
     this.background.unref?.();
+  }
+
+  /** Claude Code is asked to stop the subagents and workflows still at work: their news then ends the run. */
+  private stopAgents(): void {
+    if (this.agents.size) this.stopTasks([...this.agents]);
   }
 }
 

@@ -1004,6 +1004,8 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
       label = `${verdict.reason}${t().antigravityEndsTurn}`;
     } else if (o.requestApproval) {
       const answer = await o.requestApproval(antigravityApprovalRequest(o.permission, call, o.cwd, o.addDirs), withdrawn);
+      // Withdrawn by the CLI meanwhile: no answer goes, and its call is not the user's refusal.
+      if (withdrawn?.aborted) return null;
       decision = answer.allow ? { allow: true } : { allow: false, reason: answer.note ?? '' };
       label = declinedLabel(answer.note);
     } else decision = { allow: false, reason: 'Not covered by the permission' };

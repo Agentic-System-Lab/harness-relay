@@ -2087,16 +2087,23 @@ describe("RLM's sub-model through Claude Code (a toolless run)", () => {
 describe('what keeps a run’s input open once its turn has answered', () => {
   const result = { type: 'result', subtype: 'success' };
   const init = { type: 'system', subtype: 'init' };
-  const tasks = (...t: [string, string][]) => ({
+  const tasks = (...t: (Record<string, unknown> & { task_id: string; task_type: string })[]) => ({
     type: 'system',
     subtype: 'background_tasks_changed',
-    tasks: t.map(([task_id, task_type]) => ({ task_id, task_type })),
+    tasks: t,
   });
-  const setup = () => {
+  const agent = (task_id: string, more: Record<string, unknown> = {}) => ({ task_id, task_type: 'local_agent', ...more });
+  const shell = (task_id: string) => ({ task_id, task_type: 'local_bash' });
+  const setup = (deadline?: number) => {
     vi.useFakeTimers();
     const changes: boolean[] = [];
-    const hold: ClaudeInputHold = new ClaudeInputHold(() => changes.push(hold.holds()), { followUp: 3000, background: 60_000 });
-    return { hold, changes };
+    const stopped: string[][] = [];
+    const hold: ClaudeInputHold = new ClaudeInputHold(
+      () => changes.push(hold.holds()),
+      { followUp: 3000, background: 60_000, ...(deadline !== undefined ? { deadline } : {}) },
+      (ids) => stopped.push(ids),
+    );
+    return { hold, changes, stopped };
   };
   afterEach(() => vi.useRealTimers());
 
@@ -2119,32 +2126,47 @@ describe('what keeps a run’s input open once its turn has answered', () => {
     expect(hold.withdraw('a')).toBe(false);
     expect(hold.withdraw('hook-PreToolUse')).toBe(false);
     hold.settled('nothing');
+    hold.close();
   });
 
-  it('holds it while a background subagent or workflow works, not a background command, and for so long only', () => {
-    const { hold } = setup();
-    hold.handle(tasks(['shell', 'local_bash']));
+  it('holds it for the subagents and workflows Claude Code waits for, then stops them, as long as it would wait', () => {
+    const { hold, stopped } = setup();
+    // What Claude Code does not wait for itself: a background command, a task it runs elsewhere or keeps
+    // around, another kind of task.
+    hold.handle(
+      tasks(
+        shell('sh'),
+        agent('ambient', { ambient: true }),
+        agent('awaited', { awaited: true }),
+        agent('elsewhere', { off_host: true }),
+        { task_id: 'remote', task_type: 'remote_agent' },
+        { task_id: 'dream', task_type: 'dream' },
+      ),
+    );
     hold.handle(result);
     expect(hold.holds()).toBe(false);
-    hold.handle(tasks(['shell', 'local_bash'], ['sub', 'local_agent'], ['flow', 'local_workflow']));
+    // Listed after the result too.
+    hold.handle(tasks(shell('sh'), agent('sub'), { task_id: 'flow', task_type: 'local_workflow' }));
     expect(hold.holds()).toBe(true);
-    // Claude Code waits for them as long as `background` once the turn has answered: so long, then no longer.
     vi.advanceTimersByTime(59_999);
     expect(hold.holds()).toBe(true);
+    expect(stopped).toEqual([]);
+    // Claude Code's own wait starts only once the input ends: so they are stopped then, not waited for twice.
     vi.advanceTimersByTime(1);
+    expect(stopped).toEqual([['sub', 'flow']]);
     expect(hold.holds()).toBe(false);
     hold.close();
   });
 
   it('holds it for the turn Claude Code starts by itself once a background task ended, until that turn answers', () => {
     const { hold } = setup();
-    hold.handle(tasks(['sub', 'local_agent']));
+    hold.handle(tasks(agent('sub')));
     // A turn's own `init` before its first result is no turn of Claude Code's own.
     hold.handle(init);
     hold.handle(result);
     expect(hold.holds()).toBe(true);
-    // The subagent ends: Claude Code tells the model in a turn of its own, which starts at once.
-    hold.handle({ type: 'system', subtype: 'task_notification', tool_use_id: 'toolu_1', status: 'completed' });
+    // The subagent ends (its news, then the level without it): Claude Code tells the model in a turn of its own.
+    hold.handle({ type: 'system', subtype: 'task_notification', task_id: 'sub', status: 'completed' });
     hold.handle(tasks());
     expect(hold.holds()).toBe(true);
     hold.handle(init);
@@ -2155,11 +2177,15 @@ describe('what keeps a run’s input open once its turn has answered', () => {
     hold.close();
   });
 
-  it('waits a moment only for a turn that never starts (the news went into the turn running)', () => {
+  it('waits a moment only for a turn that never starts, and not at all after a foreground subagent', () => {
     const { hold, changes } = setup();
-    hold.handle(tasks(['sub', 'local_agent']));
-    hold.handle(tasks());
+    // A foreground subagent's news: never listed as background work, so no turn of its own follows.
+    hold.handle({ type: 'system', subtype: 'task_notification', task_id: 'fg', status: 'completed' });
+    hold.handle(result);
     expect(hold.holds()).toBe(false);
+    // A background task that ended within the turn: its news may have gone into it, or a turn follows.
+    hold.handle(tasks(agent('sub')));
+    hold.handle(tasks());
     hold.handle(result);
     expect(hold.holds()).toBe(true);
     vi.advanceTimersByTime(2999);
@@ -2167,10 +2193,31 @@ describe('what keeps a run’s input open once its turn has answered', () => {
     vi.advanceTimersByTime(1);
     expect(hold.holds()).toBe(false);
     expect(changes.at(-1)).toBe(false);
-    // A background command's news after the result too.
-    hold.handle({ type: 'system', subtype: 'task_notification', tool_use_id: 'toolu_2', status: 'completed' });
+    // A background command that ends after the result: its turn follows, and may ask.
+    hold.handle(tasks(shell('sh')));
+    expect(hold.holds()).toBe(false);
+    hold.handle(tasks());
     expect(hold.holds()).toBe(true);
     vi.advanceTimersByTime(3000);
+    expect(hold.holds()).toBe(false);
+    hold.close();
+  });
+
+  it('never holds it past its deadline, whatever still waits, and stops what it waited for then', () => {
+    vi.useFakeTimers();
+    const { hold, changes, stopped } = setup(Date.now() + 5000);
+    hold.ask('a');
+    hold.handle(tasks(agent('sub')));
+    hold.handle(result);
+    hold.handle(init);
+    expect(hold.holds()).toBe(true);
+    vi.advanceTimersByTime(5000);
+    expect(hold.holds()).toBe(false);
+    expect(changes.at(-1)).toBe(false);
+    expect(stopped).toEqual([['sub']]);
+    // Nothing starts a wait after it.
+    hold.handle(tasks());
+    hold.handle(result);
     expect(hold.holds()).toBe(false);
     hold.close();
   });

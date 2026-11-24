@@ -287,15 +287,19 @@ describe('the generic ACP turn', () => {
       let withdrawn: AbortSignal | undefined;
       r.o.requestApproval = (_req, signal) => {
         withdrawn = signal;
-        // The orchestrator answers once it closed the card.
-        return new Promise((resolve) => signal!.addEventListener('abort', () => resolve({ allow: true })));
+        // The orchestrator answers once it closed the card: no.
+        return new Promise((resolve) => signal!.addEventListener('abort', () => resolve({ allow: false })));
       };
-      await acpTurn(r.o, spec(), deps(fakeSandbox([])));
+      await withLang('en', () => acpTurn(r.o, spec(), deps(fakeSandbox([]))));
       expect(withdrawn!.aborted).toBe(true);
-      // One answer to it, JSON-RPC's "cancelled", and never the allow that came after.
+      // One answer to it, JSON-RPC's "cancelled", and never the refusal that came after.
       expect(r.log().filter((m) => m.id === 100 && !m.method)).toEqual([
         expect.objectContaining({ id: 100, error: { code: -32800, message: 'Request cancelled' } }),
       ]);
+      // Its call's row ends as the agent ended it, never as the user's refusal.
+      const ends = r.events.filter((e) => e.type === 'tool_end' && e.id === 'e1');
+      expect(ends.length).toBeGreaterThan(0);
+      expect(JSON.stringify(ends)).not.toMatch(/declined/i);
     },
   );
 

@@ -1404,8 +1404,7 @@ export const en: Messages = {
     reviewApproved: 'Approved for you by the lead agent',
     denied: 'Declined',
     expired: 'No answer (the turn ended)',
-    withdrawn:
-      'Withdrawn: its CLI decided without waiting for your answer (by a rule or hook of its own, say), and an answer no longer reaches it',
+    withdrawn: 'Withdrawn: its CLI stopped waiting for your answer, and an answer no longer reaches it',
     pageTitle: (n) => `(${n}) Needs you · Harness Relay`,
     withNote: (note) => `: ${note}`,
     moreLines: (n) => (n === 1 ? '+1 line' : `+${n} lines`),

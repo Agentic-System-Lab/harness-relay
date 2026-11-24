@@ -1544,6 +1544,8 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
     // Not covered by the permission: the user decides, when the conversation asks.
     if (!decision.allow && o.requestApproval) {
       const answer = await o.requestApproval(grokApprovalRequest(call), withdrawn);
+      // Withdrawn by the CLI meanwhile: no answer goes, and its call is not the user's refusal.
+      if (withdrawn?.aborted) return null;
       decision = answer.allow ? { allow: true } : declined(call, answer.note);
     }
     if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, decision.label);

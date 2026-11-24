@@ -1422,7 +1422,7 @@ export const zhTW = {
     reviewApproved: '首席 agent 已替你核准',
     denied: '已拒絕',
     expired: '沒有回覆（這一輪已結束）',
-    withdrawn: '已撤回：它的 CLI 沒等你回答就自己決定了（例如依它自己的規則或 hook），你的回答不會再送到它那裡',
+    withdrawn: '已撤回：它的 CLI 不再等你回答，你的回答也不會再送到它那裡',
     pageTitle: (n: number) => `(${n}) 等你回覆 · Harness Relay`,
     withNote: (note: string) => `：${note}`,
     moreLines: (n: number) => `還有 ${n} 行`,

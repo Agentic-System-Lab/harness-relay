@@ -802,6 +802,8 @@ async function acpSession(
     if (!decision.allow && (!own || ('ask' in own && own.ask)) && o.requestApproval) {
       const answer = await o.requestApproval(acpApprovalRequest(info, o.permission), withdrawn);
       if (userAborted || o.signal.aborted) return cancelled;
+      // Withdrawn by the agent meanwhile: no answer goes, and its call is not the user's refusal.
+      if (withdrawn?.aborted) return cancelled;
       decision = answer.allow ? { allow: true } : acpDeclined(info, answer.note);
     }
     if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, decision.label);

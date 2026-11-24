@@ -589,6 +589,96 @@ async function claudeTurn(steps, o) {
       });
       full += `The ${step.tool} tool said: ${said} `;
     }
+    if (step.type === 'bgask') {
+      // A background subagent (Claude Code 2.1.331): listed, started, its call answered at once; it asks
+      // while the turn goes on, and Claude Code tells the model what it did in a turn of its own.
+      const agent = `toolu_bg_${++n}_${process.pid}`;
+      out({
+        type: 'assistant',
+        session_id: o.sessionId,
+        message: {
+          id: `msg_tool_${n}`,
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: agent,
+              name: 'Agent',
+              input: { description: 'Background job', prompt: 'Print a line.', run_in_background: true },
+            },
+          ],
+        },
+      });
+      const task = `task_bg_${n}`;
+      out({
+        type: 'system',
+        subtype: 'background_tasks_changed',
+        tasks: [{ task_id: task, task_type: 'local_agent', description: 'Background job' }],
+        session_id: o.sessionId,
+      });
+      out({
+        type: 'system',
+        subtype: 'task_started',
+        task_id: task,
+        tool_use_id: agent,
+        is_backgrounded: true,
+        task_type: 'local_agent',
+        session_id: o.sessionId,
+      });
+      out({
+        type: 'user',
+        session_id: o.sessionId,
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: agent, content: 'Async agent launched successfully.' }] },
+        tool_use_result: { status: 'async_launched' },
+      });
+      void (async () => {
+        const input = { command: 'echo e2e-approval', description: 'Print a line (an e2e check)' };
+        const call = `toolu_bgcall_${++n}_${process.pid}`;
+        out({
+          type: 'assistant',
+          session_id: o.sessionId,
+          parent_tool_use_id: agent,
+          message: { id: `msg_tool_${n}`, role: 'assistant', content: [{ type: 'tool_use', id: call, name: 'Bash', input }] },
+        });
+        // Its input ending while it waits refuses it, as Claude Code does.
+        let refuse;
+        const ended = new Promise((resolve) => (refuse = resolve));
+        const onEnd = () =>
+          refuse({
+            behavior: 'deny',
+            message: 'Tool permission request failed: AbortError: Tool permission stream closed before response received',
+          });
+        process.stdin.once('end', onEnd);
+        const answer = await Promise.race([o.ask({ tool_name: 'Bash', input, tool_use_id: call, agent_id: task }), ended]);
+        process.stdin.off('end', onEnd);
+        const ok = answer.behavior === 'allow';
+        out({
+          type: 'user',
+          session_id: o.sessionId,
+          parent_tool_use_id: agent,
+          message: {
+            role: 'user',
+            content: [{ type: 'tool_result', tool_use_id: call, content: ok ? 'e2e-approval' : answer.message, is_error: !ok }],
+          },
+        });
+        const said = ok ? "The background job's command ran: e2e-approval." : `The background job's command did not run: ${answer.message}`;
+        out({
+          type: 'system',
+          subtype: 'task_notification',
+          task_id: task,
+          tool_use_id: agent,
+          status: 'completed',
+          summary: said,
+          session_id: o.sessionId,
+        });
+        out({ type: 'system', subtype: 'background_tasks_changed', tasks: [], session_id: o.sessionId });
+        await sleep(20);
+        out({ type: 'system', subtype: 'init', session_id: o.sessionId, tools: [], mcp_servers: [] });
+        await stream('text', said);
+        claudeResult(o, { subtype: 'success', is_error: false, result: said });
+      })();
+      full += 'Started a background job. ';
+    }
     if (step.type === 'approve') {
       const input = { command: step.command, description: 'Print a line (an e2e check)' };
       const refused = await hookBefore('Bash', input);
