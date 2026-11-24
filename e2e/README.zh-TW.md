@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 55 個 spec 檔、654 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 55 個 spec 檔、655 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -71,7 +71,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
-| [首席 agent 在團隊之外的協助](#首席-agent-在團隊之外的協助) | [`lead-drafts.spec.ts`](specs/lead-drafts.spec.ts) | 7 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本)、[團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[自動任務](../docs/user-guide.zh-TW.md#自動任務)、[群組](../docs/user-guide.zh-TW.md#群組)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
+| [首席 agent 在團隊之外的協助](#首席-agent-在團隊之外的協助) | [`lead-drafts.spec.ts`](specs/lead-drafts.spec.ts) | 8 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本)、[團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[自動任務](../docs/user-guide.zh-TW.md#自動任務)、[群組](../docs/user-guide.zh-TW.md#群組)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 12 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 27 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[實驗室](../docs/user-guide.zh-TW.md#實驗室)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
@@ -615,6 +615,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查內容 |
 | --- | --- | --- |
 | 撰寫新範本，可以復原，儲存後會保留 | Claude Code | 在**＋ 新增範本**裡按**請首席 agent 撰寫範本**：說明列出*名稱改為「Review pair」*和*改寫說明*，名稱欄和成員（Reviewer、Tester）都填好了；**復原**會再清空；再問一次並儲存後，範本庫列出「Review pair」。 |
+| 在各 CLI 狀態到之前請首席 agent 撰寫的新範本，照樣套用 | Claude Code | 擋住 `/api/providers` 並重新載入，讓**＋ 新增範本**打開時沒有成員；按**請首席 agent 撰寫範本**，然後在它的回答被擋住時放行狀態（就像 Windows 上狀態來得晚）：回答照樣套用（說明、Reviewer），不會出現*首席 agent 撰寫期間範本已經變更*。以前狀態的團隊會取代它被問的那一個，回答就被丟掉。 |
 | 讀過專案後撰寫對話的團隊檢查，儲存團隊後會保留 | Claude Code | 在**團隊設定 → 進階設定**按**請首席 agent 撰寫規則**：說明寫它讀了專案，列出*保護 .env*和*新增指令 npm test*，欄位也顯示它們；團隊設定自己的**請首席 agent 調整**仍是另一個輸入框。之後把成員改名為「Claudia」，**復原**會清空規則並保留新名字，再問一次時規則套用在團隊目前的樣子上；**儲存**後對話有這兩條規則和 Claudia。 |
 | 開源 agent 當首席時，在它的沙箱能讀的空資料夾裡起草，不在 Harness Relay 的暫存資料夾 | Pi | 以 Pi 當首席 agent，在**新自動任務**按**請首席 agent 填寫**會得到回覆（假 CLI 的排程填好訊息）：它的執行在 Harness Relay 自己的沙箱裡啟動，那個沙箱不能讀暫存資料夾。只在那個沙箱能運作的地方執行。 |
 | 用一句話填好新的自動任務 | Claude Code | 在**新自動任務**按**請首席 agent 填寫**，會填好訊息、**每天**和 18:00；**建立自動任務**可以按。 |

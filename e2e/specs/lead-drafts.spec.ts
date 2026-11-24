@@ -41,6 +41,43 @@ test.describe("the lead agent's drafts in the editors", () => {
     await expect(page.locator('.preset-card', { hasText: 'Review pair' })).toBeVisible();
   });
 
+  test("applies a new template's draft asked before the CLIs' statuses came, which leave its team as the lead agent wrote it", async ({
+    page,
+  }) => {
+    // A slow start (Windows probes each CLI): the statuses come while the lead agent writes the template.
+    // Before, their team replaced the one it was asked about, and its answer was dropped as stale.
+    let releaseStatuses!: () => void;
+    const statuses = new Promise<void>((r) => (releaseStatuses = r));
+    await page.route(/\/api\/providers(\?.*)?$/, async (route) => {
+      await statuses;
+      await route.continue();
+    });
+    let releaseDraft!: () => void;
+    const draftHeld = new Promise<void>((r) => (releaseDraft = r));
+    await page.route('**/api/presets/draft', async (route) => {
+      const response = await route.fetch();
+      await draftHeld;
+      await route.fulfill({ response });
+    });
+    await page.reload();
+    await openNewChat(page);
+    await page.locator('.template-library > summary').click();
+    await page.locator('.preset-card.new-template .preset-main').click();
+    const editor = page.getByRole('dialog', { name: 'New template' });
+    await editor.getByRole('textbox', { name: en.templateDraft.title }).fill('A team to review pull requests');
+    await editor.getByRole('button', { name: en.templateDraft.submit }).click();
+    // The statuses come, and the page takes them, while the lead agent's answer is on its way.
+    const came = page.waitForResponse(/\/api\/providers(\?.*)?$/);
+    releaseStatuses();
+    await came;
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 100))));
+    releaseDraft();
+    const result = editor.locator('.team-reviser-result');
+    await expect(result).toContainText('The fake lead agent wrote a review pair.');
+    await expect(editor.locator('input[value="Reviewer"]')).toBeVisible();
+    await expect(editor.getByText(en.templateDraft.changedMeanwhile)).toHaveCount(0);
+  });
+
   test("writes a chat's team checks after reading its project, kept once the team is saved", async ({ page, relay }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
