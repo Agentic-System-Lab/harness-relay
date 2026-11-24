@@ -359,7 +359,9 @@ const SECRETS_SCRIPT = '#!/bin/sh\ncat "$RELAY_SECRETS_FILE"\n';
  * token when it names none.
  */
 function repairReply(prompt) {
-  const scripts = [...prompt.matchAll(/^- (\S+), which you wrote in this turn, reads \$RELAY_SECRETS_FILE/gm)].map((m) => m[1]);
+  const scripts = [...prompt.matchAll(/^- The file ("(?:[^"\\]|\\.)*"), which you wrote in this turn, reads \$RELAY_SECRETS_FILE/gm)].map(
+    (m) => JSON.parse(m[1]),
+  );
   const secrets = [...prompt.matchAll(/names the secret (\w+), which is not kept/g)].map((m) => m[1]);
   if (!scripts.length && !secrets.length) return '[PASS]';
   const names = [...new Set([...(scripts.length ? ['E2E_TOKEN'] : []), ...secrets])];

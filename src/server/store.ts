@@ -370,15 +370,19 @@ function toPart(r: PartRow): MessagePart {
         type: 'outbox',
         ...parseJson(r.data, { id: '', tool: '', title: '', preview: { fields: [] }, status: 'failed' as const }),
       };
-    case 'notice':
-      return { type: 'notice', text: r.text ?? '' };
+    case 'notice': {
+      // What the agent is told of it at its next turn, kept across a restart.
+      const d = parseJson<{ forAgent?: unknown }>(r.data, {});
+      return { type: 'notice', text: r.text ?? '', ...(typeof d.forAgent === 'string' ? { forAgent: d.forAgent } : {}) };
+    }
     case 'secrets': {
-      const d = parseJson<{ id?: unknown; folder?: unknown; asks?: unknown }>(r.data, {});
+      const d = parseJson<{ id?: unknown; folder?: unknown; asks?: unknown; byRelay?: unknown }>(r.data, {});
       return {
         type: 'secrets',
         id: typeof d.id === 'string' ? d.id : '',
         folder: typeof d.folder === 'string' ? d.folder : '',
         asks: Array.isArray(d.asks) ? (d.asks as SecretAsk[]) : [],
+        ...(d.byRelay === true ? { byRelay: true } : {}),
       };
     }
     case 'command':
@@ -461,8 +465,9 @@ function partColumns(p: MessagePart): (string | null)[] {
   switch (p.type) {
     case 'text':
     case 'thinking':
-    case 'notice':
       return [p.text, null, null, null, null, null, null, null];
+    case 'notice':
+      return [p.text, null, null, null, null, null, null, p.forAgent ? JSON.stringify({ forAgent: p.forAgent }) : null];
     case 'tool':
       return [null, p.id, p.name, nul(p.detail), p.status, nul(p.error), nul(p.output), toolDataJson(p)];
     case 'plan':

@@ -78,7 +78,10 @@ export function SecretsCard({
     if (done) setValues({});
   };
   return (
-    <section className={`outbox-card handoff-card ${waiting.length ? '' : 'handoff-done'}`} aria-label={c.label(agentName)}>
+    <section
+      className={`outbox-card handoff-card ${waiting.length ? '' : 'handoff-done'}`}
+      aria-label={part.byRelay ? c.labelRelay(agentName) : c.label(agentName)}
+    >
       <header className="approval-head">
         <span className="approval-icon" aria-hidden>
           <KeyIcon size={16} />

@@ -437,15 +437,19 @@ export async function diffFiles(root: string, base: string, head: string): Promi
 }
 
 /**
- * The files added or changed between two commits whose added or removed lines hold `word` (git's `-G`;
- * a binary file has no such lines), in one git command: a turn's scripts that read a variable, say.
- * `word` is letters, digits and `_` only.
+ * Of `paths` (the repository's, as git names them), those added or changed between two commits whose
+ * added or removed lines hold `word` (git's `-G`; a binary file has no such lines), in one git command:
+ * the scripts a turn changed where they read a variable, say. `word` is letters, digits and `_` only;
+ * each path is taken literally, never as a pattern.
  */
-export async function changedWithWord(root: string, base: string, head: string, word: string): Promise<string[]> {
+export async function changedWithWord(root: string, base: string, head: string, word: string, paths: readonly string[]): Promise<string[]> {
   if (!/^\w+$/.test(word)) throw new Error(`Not a word: ${word}`);
-  const r = await git(root, ['diff', '--no-renames', '-z', '--name-only', '--diff-filter=AM', `-G${word}`, base, head], {
-    maxCapture: MAX_OUTPUT_BYTES,
-  });
+  if (!paths.length) return [];
+  const r = await git(
+    root,
+    ['diff', '--no-renames', '-z', '--name-only', '--diff-filter=AM', `-G${word}`, base, head, '--', ...paths.map((p) => `:(literal)${p}`)],
+    { maxCapture: MAX_OUTPUT_BYTES },
+  );
   return r.stdout.split('\0').filter(Boolean);
 }
 

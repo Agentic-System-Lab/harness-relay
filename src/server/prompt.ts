@@ -401,7 +401,7 @@ Each turn prompt says which secrets and fixed commands this working directory ha
 export function handoffRepairPrompt(gaps: readonly HandoffGap[]): string {
   const lines = gaps.map((g) =>
     g.kind === 'script'
-      ? `- ${g.path}, which you wrote in this turn, reads $RELAY_SECRETS_FILE, but no fixed command runs it: the user has no card to save and try it with.`
+      ? `- The file ${JSON.stringify(g.path)}, which you wrote in this turn, reads $RELAY_SECRETS_FILE, but no fixed command runs it: the user has no card to save and try it with.`
       : `- The fixed command "${g.command}" you proposed names the secret ${g.name}, which is not kept and which no card asks for.`,
   );
   return `Harness Relay checked your reply before the user answers it: the user gets a card only for a block in the reply, and yours left these out.

@@ -4,7 +4,7 @@
  * keeps a turn's changes, and which of them no fixed command runs; the secrets a proposed command names
  * that nobody asks for.
  */
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -77,6 +77,33 @@ describe('secretsScripts', () => {
   });
 });
 
+describe('secretsScripts: what it reads and names', () => {
+  it.skipIf(process.platform === 'win32')('never reads through a link, and never names a file it could not quote', async () => {
+    writeFileSync(join(repo, 'outside.py'), 'RELAY_SECRETS_FILE\n');
+    const changes = await changesOf(() => {
+      symlinkSync(join(repo, 'outside.py'), join(repo, 'link.py'));
+      writeFileSync(join(repo, 'bad\nname.py'), 'RELAY_SECRETS_FILE\n');
+      // A path longer than it names (in folders: one name has at most 255 bytes).
+      const deep = join(repo, 'a'.repeat(120), 'b'.repeat(120));
+      mkdirSync(deep, { recursive: true });
+      writeFileSync(join(deep, `${'c'.repeat(GAP_LIMITS.path - 240)}.py`), 'RELAY_SECRETS_FILE\n');
+      // A name git would read as a pattern's magic, taken as it is.
+      writeFileSync(join(repo, ':weird.py'), 'print(1)\n');
+    });
+    expect(await secretsScripts(changes, repo)).toEqual([]);
+    const edited = await changesOf(() => writeFileSync(join(repo, ':weird.py'), 'import os\nos.environ["RELAY_SECRETS_FILE"]\n'));
+    expect(await secretsScripts(edited, repo)).toEqual([':weird.py']);
+  });
+
+  it("reads a parallel turn's files from its commit, not the working tree", async () => {
+    const changes = await changesOf(() => writeFileSync(join(repo, 'fetch.py'), 'RELAY_SECRETS_FILE\n'));
+    // Not in the working tree any more: as in a worktree of its own, it is read from the commit.
+    rmSync(join(repo, 'fetch.py'));
+    expect(await secretsScripts(changes, repo)).toEqual([]);
+    expect(await secretsScripts([{ ...changes[0]!, isolated: true }], repo)).toEqual(['fetch.py']);
+  });
+});
+
 describe('handoffGaps', () => {
   it('names each script no fixed command runs, by its file name in a command line', () => {
     expect(
@@ -93,10 +120,25 @@ describe('handoffGaps', () => {
     expect(
       handoffGaps({ scripts: ['titanic/download.py'], commands: [{ run: 'python3 titanic/download.py' }], proposed: [], asked: new Set() }),
     ).toEqual([]);
+    // Run as a module, or by its name alone (an npm script, a make target).
+    expect(
+      handoffGaps({
+        scripts: ['pkg/download.py', 'fetch.js', 'sync.sh'],
+        commands: [{ run: 'python3 -m pkg.download' }, { run: 'npm run fetch' }, { run: 'make sync' }],
+        proposed: [],
+        asked: new Set(),
+      }),
+    ).toEqual([]);
     // A name that only begins the same is not the script's.
     expect(handoffGaps({ scripts: ['post.py'], commands: [{ run: 'python3 post.py.bak' }], proposed: [], asked: new Set() })).toEqual([
       { kind: 'script', path: 'post.py' },
     ]);
+  });
+
+  it('names no script in a reply that proposes a command: a script it does not name is likely its helper', () => {
+    expect(handoffGaps({ scripts: ['lib/secrets.py'], commands: [], proposed: [{ name: 'post', secrets: [] }], asked: new Set() })).toEqual(
+      [],
+    );
   });
 
   it('names each secret a proposed command needs that is neither kept nor asked for, once', () => {

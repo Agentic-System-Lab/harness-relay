@@ -1347,19 +1347,32 @@ export class Orchestrator {
   /**
    * Takes a finished reply's hand-off blocks out of its text and records them: the secrets it asks for
    * and the fixed commands it proposes become cards that wait for the user (returns whether there is
-   * one); a run of a saved fixed command goes to the outbox, for the user to send.
+   * one); a run of a saved fixed command goes to the outbox, for the user to send. `again`: a second
+   * take-out for the same reply (the run that asked for the cards it left out), where what the reply has
+   * already counts against each limit, and a secret it asks for or a command it proposes already gets
+   * no second card.
    */
-  private takeHandoffs(conv: Conversation, msg: ChatMessage, agent: AgentConfig, o: { automation?: boolean } = {}): boolean {
+  private takeHandoffs(
+    conv: Conversation,
+    msg: ChatMessage,
+    agent: AgentConfig,
+    o: { automation?: boolean; again?: boolean } = {},
+  ): boolean {
     const blocks = takeHandoffBlocks(msg);
     if (!blocks.length) return false;
     const folder = this.handoffFolder(conv);
     const store = this.settings.handoffs;
+    const had = {
+      secrets: new Set(o.again ? msg.parts.flatMap((p) => (p.type === 'secrets' ? p.asks.map((a) => a.name) : [])) : []),
+      commands: new Set(o.again ? msg.parts.flatMap((p) => (p.type === 'command' ? [p.proposal.name] : [])) : []),
+      interactive: o.again ? msg.parts.filter((p) => p.type === 'interactive').length : 0,
+    };
     const asks: SecretAsk[] = [];
     // The blocks past a reply's limits: the user and, on its next turn, the agent are told which.
     const left = { secrets: [] as string[], commands: [] as string[], interactive: 0 };
     for (const b of blocks) {
-      if (b.kind !== 'secret' || asks.some((a) => a.name === b.name)) continue;
-      if (asks.length >= HANDOFF_LIMITS.secretsPerReply) {
+      if (b.kind !== 'secret' || asks.some((a) => a.name === b.name) || had.secrets.has(b.name)) continue;
+      if (had.secrets.size + asks.length >= HANDOFF_LIMITS.secretsPerReply) {
         if (!left.secrets.includes(b.name)) left.secrets.push(b.name);
         continue;
       }
@@ -1376,8 +1389,8 @@ export class Orchestrator {
     let proposed = 0;
     const renewed = new Set<string>();
     for (const b of blocks) {
-      if (b.kind !== 'command') continue;
-      if (proposed >= HANDOFF_LIMITS.commandsPerReply) {
+      if (b.kind !== 'command' || had.commands.has(b.name)) continue;
+      if (had.commands.size + proposed >= HANDOFF_LIMITS.commandsPerReply) {
         if (!left.commands.includes(b.name)) left.commands.push(b.name);
         continue;
       }
@@ -1408,7 +1421,7 @@ export class Orchestrator {
     const blocked = this.interactiveDeps.platform === 'win32' ? 'windows' : o.automation ? 'automation' : undefined;
     for (const b of blocks) {
       if (b.kind !== 'interactive') continue;
-      if (interactive >= INTERACTIVE_LIMITS.perReply) {
+      if (had.interactive + interactive >= INTERACTIVE_LIMITS.perReply) {
         left.interactive++;
         continue;
       }
@@ -1472,27 +1485,32 @@ export class Orchestrator {
 
   /**
    * The cards a finished reply leaves the user without (`handoffGaps()`): a script its turn wrote that
-   * reads $RELAY_SECRETS_FILE with no fixed command to run it, and a secret a command it proposes names
-   * that is neither kept nor asked for on a card. None when they cannot be told (a working directory
-   * gone): the reply stands as it is.
+   * reads $RELAY_SECRETS_FILE in a reply that proposes no command and with none to run it (not on native
+   * Windows, where no fixed command runs), and a secret a command it proposes names that is neither kept
+   * nor asked for on a card, while the reply has room for one. None for a reply that passed. `scripts`:
+   * those found already (a second check reads no file again). None when they cannot be told (a working
+   * directory gone): the reply stands as it is.
    */
-  private async replyGaps(conv: Conversation, msg: ChatMessage): Promise<HandoffGap[]> {
+  private async replyGaps(conv: Conversation, msg: ChatMessage, scripts?: string[]): Promise<{ gaps: HandoffGap[]; scripts: string[] }> {
     try {
-      return await this.gapsOf(conv, msg);
+      return await this.gapsOf(conv, msg, scripts);
     } catch (err) {
       console.warn('[orchestrator] could not check the cards a reply needs:', (err as Error).message);
-      return [];
+      return { gaps: [], scripts: [] };
     }
   }
 
-  private async gapsOf(conv: Conversation, msg: ChatMessage): Promise<HandoffGap[]> {
+  private async gapsOf(conv: Conversation, msg: ChatMessage, known?: string[]): Promise<{ gaps: HandoffGap[]; scripts: string[] }> {
+    if (isPass(textOf(msg))) return { gaps: [], scripts: [] };
     const folder = this.handoffFolder(conv);
     const proposed = msg.parts.flatMap((p) => (p.type === 'command' ? [p.proposal] : []));
-    const scripts = await secretsScripts(msg.changes, folder);
-    if (!scripts.length && !proposed.some((c) => c.secrets.length)) return [];
+    const scripts =
+      known ?? (proposed.length || this.fixedCommandDeps.platform === 'win32' ? [] : await secretsScripts(msg.changes, folder));
+    const room = HANDOFF_LIMITS.secretsPerReply - msg.parts.reduce((n, p) => n + (p.type === 'secrets' ? p.asks.length : 0), 0);
+    if (!scripts.length && !(room > 0 && proposed.some((c) => c.secrets.length))) return { gaps: [], scripts };
     const store = this.settings.handoffs;
     const parts = [...conv.messages.filter((m) => m !== msg), msg].flatMap((m) => m.parts);
-    return handoffGaps({
+    const gaps = handoffGaps({
       scripts,
       commands: [
         ...store.commands(folder),
@@ -1506,6 +1524,9 @@ export class Orchestrator {
         ),
       ]),
     });
+    // The secrets past the reply's limit could get no card, neither from the agent nor from Harness Relay.
+    let secrets = 0;
+    return { gaps: gaps.filter((g) => g.kind !== 'secret' || secrets++ < room), scripts };
   }
 
   /**
@@ -1514,19 +1535,18 @@ export class Orchestrator {
    * command runs, for the user and, at its next turn, the agent. Returns whether it asks the user.
    */
   private fillGaps(conv: Conversation, msg: ChatMessage, agent: AgentConfig, gaps: readonly HandoffGap[]): boolean {
-    const asks: SecretAsk[] = gaps
-      .flatMap((g) =>
-        g.kind === 'secret' ? [{ name: g.name, reason: t().handoffs.secretForCommand(g.command), status: 'waiting' as const }] : [],
-      )
-      .slice(0, HANDOFF_LIMITS.secretsPerReply);
-    if (asks.length) msg.parts.push({ type: 'secrets', id: randomUUID(), folder: this.handoffFolder(conv), asks });
+    const asks: SecretAsk[] = gaps.flatMap((g) =>
+      g.kind === 'secret' ? [{ name: g.name, reason: t().handoffs.secretForCommand(g.command), status: 'waiting' as const }] : [],
+    );
+    if (asks.length) msg.parts.push({ type: 'secrets', id: randomUUID(), folder: this.handoffFolder(conv), asks, byRelay: true });
     const scripts = gaps.flatMap((g) => (g.kind === 'script' ? [g.path] : []));
     if (scripts.length) {
       const one = scripts.length === 1;
+      const named = scripts.map((p) => JSON.stringify(p)).join(', ');
       msg.parts.push({
         type: 'notice',
         text: t().handoffs.scriptWithoutCommand(agent.name, scripts),
-        forAgent: `Your last reply's ${scripts.join(', ')} ${one ? 'reads' : 'read'} $RELAY_SECRETS_FILE, but no fixed command runs ${one ? 'it' : 'them'}, so the user got no card to save and try ${one ? 'it' : 'them'} with. If ${one ? 'it is' : 'they are'} meant to run as a fixed command, propose ${one ? 'it' : 'them'} with a <command> block, and a <secret> block for each secret not kept yet.`,
+        forAgent: `The file${one ? '' : 's'} ${named}, which your last reply wrote, ${one ? 'reads' : 'read'} $RELAY_SECRETS_FILE, but no fixed command runs ${one ? 'it' : 'them'}, so the user got no card to save and try ${one ? 'it' : 'them'} with. If ${one ? 'it is' : 'they are'} meant to run as a fixed command, propose ${one ? 'it' : 'them'} with a <command> block, and a <secret> block for each secret not kept yet.`,
       });
     }
     return asks.length > 0;
@@ -6610,9 +6630,15 @@ export class Orchestrator {
     let changesKept = false;
     const recordChanges = async () => {
       if (!before) return;
+      const earlier = msg.changes;
       try {
         msg.changes = await this.captureChanges(conv.id, before, run.ws.isolated ? wts : undefined, agent);
         if (msg.changes?.some((c) => !c.isolated && c.files.length)) this.markChecksStale(conv);
+        // Recorded again (the run that asked for left-out cards changed files too): the first snapshot is not kept.
+        for (const c of earlier ?? []) {
+          if (c.head !== c.base && msg.changes?.find((n) => n.root === c.root)?.head !== c.head)
+            await forgetCommits(c.root, conv.id, [c.head]);
+        }
       } catch (err) {
         console.warn('[orchestrator] could not record changes:', (err as Error).message);
       }
@@ -6975,12 +7001,15 @@ export class Orchestrator {
       // (`steerInto`, when the conversation steers: read as each message is sent).
       // (A repair's run goes on with what the turn's own took.)
       if (repair === undefined) steered = [];
-      const onSteer = STEER_PROVIDERS.includes(agent.provider)
-        ? (steer: SteerTurn | undefined) => {
-            if (steer && !turnEnd.signal.aborted) (run.steers ??= new Map()).set(agent.id, { steer, took });
-            else run.steers?.delete(agent.id);
-          }
-        : undefined;
+      // Never into the run that asks for left-out cards, told to write nothing else: a message the user
+      // sends meanwhile (a card's answer too) waits in the queue for the next turn.
+      const onSteer =
+        STEER_PROVIDERS.includes(agent.provider) && repair === undefined
+          ? (steer: SteerTurn | undefined) => {
+              if (steer && !turnEnd.signal.aborted) (run.steers ??= new Map()).set(agent.id, { steer, took });
+              else run.steers?.delete(agent.id);
+            }
+          : undefined;
       const turnSignal = AbortSignal.any([run.abort.signal, turnEnd.signal]);
       const hooks = this.turnHooksOf(conv, agent, [cwd, ...addDirs], workspace, turnSignal, notice);
       const relay =
@@ -7109,7 +7138,7 @@ export class Orchestrator {
       // secret its command names that nobody asks for): asked for once more, in the same reply, where
       // someone may answer it; what is still missing then, Harness Relay asks for itself or says.
       await recordChanges();
-      let gaps = await this.replyGaps(conv, msg);
+      let { gaps, scripts } = await this.replyGaps(conv, msg);
       if (gaps.length && !run.unattended && state.sessionId && !run.abort.signal.aborted) {
         const asking: MessagePart = { type: 'notice', text: t().handoffs.askedAgain(agent.name) };
         textOpen = false;
@@ -7131,16 +7160,27 @@ export class Orchestrator {
           }
           this.takeMemory(conv, msg, agent);
           takeSchedule(msg);
-          if (this.takeHandoffs(conv, msg, agent)) asks = true;
+          if (this.takeHandoffs(conv, msg, agent, { again: true })) asks = true;
           if (takeAsk(msg)) asks = true;
         } catch (err) {
-          // Stopped, or its CLI failed: the reply stands as it was, with what is still missing below.
+          // Stopped, or its CLI failed: the reply stands as it was, what that run wrote of the blocks
+          // taken out unacted (as from a reply that failed), what it spent added, and what is still
+          // missing filled below.
           if (!(err instanceof AgentRunError && err.aborted))
             console.warn(`[orchestrator] @${agent.name} gave no missing cards:`, (err as Error).message);
+          if (err instanceof AgentRunError && err.usage) result = addUsage(result, err.usage);
+          for (let i = msg.parts.length - 1; i >= from; i--) {
+            const part = msg.parts[i]!;
+            if (part.type !== 'text') continue;
+            const text = splitAsk(withoutStepsTail(splitSteps(withoutHandoffBlocks(part.text, { partial: false })).text)).text;
+            if (text === part.text) continue;
+            if (text.trim()) part.text = text;
+            else msg.parts.splice(i, 1);
+          }
         }
-        // Its run may have changed files after all.
-        changesKept = false;
-        gaps = await this.replyGaps(conv, msg);
+        // Its run changed files after all (it was told not to): recorded again once the turn ends.
+        if (msg.parts.slice(from).some((p) => p.type === 'tool')) changesKept = false;
+        ({ gaps } = await this.replyGaps(conv, msg, scripts));
         if (passedOn) gaps = gaps.filter((g) => g.kind !== 'script');
         // Nothing was missing after all, and the run that asked said nothing else: the note that it was asked goes.
         if (passedOn && !gaps.length && !msg.parts.slice(from).some((p) => p.type === 'text' || p.type === 'tool')) {

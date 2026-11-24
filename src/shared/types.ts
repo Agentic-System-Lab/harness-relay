@@ -2595,7 +2595,14 @@ export type MessagePart =
    * The secrets the reply asked the user for (its `<secret>` blocks, taken out of its text): their
    * names and why, never a value. `folder`: the working directory they are kept for.
    */
-  | { type: 'secrets'; id: string; folder: string; asks: SecretAsk[] }
+  | {
+      type: 'secrets';
+      id: string;
+      folder: string;
+      asks: SecretAsk[];
+      /** Harness Relay asks, not the agent: secrets a fixed command the reply proposed names, which the reply left out. */
+      byRelay?: boolean;
+    }
   /**
    * A fixed command the reply proposed (its `<command>` block, taken out of its text): the user saves
    * it for the working directory, or not. `run`: its last run from this card.
