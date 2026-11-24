@@ -22,6 +22,7 @@ import { GitInstallDialog } from './components/GitInstallDialog';
 import { NewChat, emptyChatDraft } from './components/NewChat';
 import { NewSchedule, type NewAutomationDraft } from './components/NewSchedule';
 import { SignIn } from './components/SignIn';
+import { TourNudge } from './components/TourNudge';
 import { UpdateDialog } from './components/UpdateDialog';
 import { hashFor, routeFromHash, type Route, type SettingsReturn } from './route';
 import { askSignedIn, runFirstCheck, signInWhere, signInWithLink, type LinkDeps, type LinkResult, type PageStart } from './signin';
@@ -188,8 +189,18 @@ export function App() {
 
 function RelayApp() {
   const t = useT();
-  const [tourSince, setTourSince] = useState(pendingTour);
-  const tourOpen = tourSince !== null;
+  // The guided tour: open on a first visit; else, with topics left to read, the home page asks about them.
+  const [tourStart] = useState(pendingTour);
+  const [tourOpen, setTourOpen] = useState(tourStart === 'open');
+  const [tourAsk, setTourAsk] = useState(tourStart === 'ask');
+  const openTour = () => {
+    setTourAsk(false);
+    setTourOpen(true);
+  };
+  const closeTour = () => {
+    setTourAsk(false);
+    setTourOpen(false);
+  };
   const [route, setRoute] = useState<Route>(parseHash);
   const [appStatus] = useState(() => new DraftAppStatus());
   const [chatDraft, setChatDraft] = useState(emptyChatDraft);
@@ -696,7 +707,7 @@ function RelayApp() {
               providers={providers}
               catalog={catalog}
               refreshProviders={refreshProviderInfo}
-              onShowTour={() => setTourSince(0)}
+              onShowTour={openTour}
               update={update}
               onCheckUpdate={checkUpdate}
               onInstallUpdate={installUpdate}
@@ -715,10 +726,11 @@ function RelayApp() {
         </Deferred>
       )}
       {tourOpen && (
-        <Deferred onClose={() => setTourSince(null)}>
-          <Onboarding since={tourSince!} onClose={() => setTourSince(null)} />
+        <Deferred onClose={closeTour}>
+          <Onboarding onClose={closeTour} />
         </Deferred>
       )}
+      {tourAsk && !tourOpen && route.page === 'home' && <TourNudge onShow={openTour} onLater={() => setTourAsk(false)} />}
       {sandboxOpen && sandbox.view && (
         <Deferred
           onClose={() => {

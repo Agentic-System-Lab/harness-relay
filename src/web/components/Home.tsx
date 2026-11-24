@@ -25,7 +25,7 @@ export function Home({ waiting, mobile }: { waiting?: ConversationSummary; mobil
             </Fragment>
           ))}
         </h1>
-        <a className="primary home-start" data-tour="new-chat" href={hashFor({ page: 'new' })}>
+        <a className="primary home-start" href={hashFor({ page: 'new' })}>
           {t.home.start}
         </a>
         {waiting && (
@@ -34,7 +34,7 @@ export function Home({ waiting, mobile }: { waiting?: ConversationSummary; mobil
           </a>
         )}
         {mobile && !fromHomeScreen() && (
-          <a className="home-waiting" data-tour="pair-phone" href={settingsHref('home-screen')}>
+          <a className="home-waiting" href={settingsHref('home-screen')}>
             {t.homeScreen.title}
           </a>
         )}

@@ -1,32 +1,21 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import { useT, type Messages } from '../i18n';
-import { markDone, TOUR_STEPS, tourIndices } from '../tour';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useT } from '../i18n';
+import { hashFor, scrollToSection, settingsHref, type SettingsSection } from '../route';
+import { changed, isRead, markRead, readGuide, TOUR_STEPS, unread, type GuideState, type TopicId } from '../tour';
+import { CheckIcon, ChevronIcon } from './icons';
 import { TourArt } from './TourArt';
 
-interface Box {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-}
+/** Where a topic's button goes: a page, or a card of Settings (scrolled to, as the app's links to it do). */
+export const TOPIC_LINKS: Partial<Record<TopicId, { href: string; section?: SettingsSection }>> = {
+  agents: { href: settingsHref('overview'), section: 'overview' },
+  chat: { href: hashFor({ page: 'new' }) },
+  phone: { href: settingsHref('home-screen'), section: 'home-screen' },
+  automations: { href: hashFor({ page: 'schedule' }) },
+  apps: { href: settingsHref('apps'), section: 'apps' },
+};
 
 /**
- * The target's box when it is actually on screen (the sidebar is off-canvas on small screens): the first
- * one that is, when there are several (the bell is in the sidebar, and in the corner while it is collapsed).
- */
-function targetBox(name: string | undefined): Box | null {
-  if (!name) return null;
-  const onScreen = (r: DOMRect) => r.width > 0 && r.right > 0 && r.left < window.innerWidth;
-  const r = [...document.querySelectorAll<HTMLElement>(`[data-tour="${name}"]`)].map((el) => el.getBoundingClientRect()).find(onScreen);
-  if (!r) return null;
-  const pad = 6;
-  return { top: r.top - pad, left: r.left - pad, width: r.width + pad * 2, height: r.height + pad * 2 };
-}
-
-const CARD_WIDTH = 360;
-
-/**
- * How far a key scrolls a step's text that shows `page` pixels of its `total`: a line for the arrows,
+ * How far a key scrolls a topic's text that shows `page` pixels of its `total`: a line for the arrows,
  * nearly a page for Page Up and Down, all the way for Home and End; undefined for any other key.
  */
 export function scrollBy(key: string, page: number, total: number): number | undefined {
@@ -36,108 +25,54 @@ export function scrollBy(key: string, page: number, total: number): number | und
   return by[key];
 }
 
-/** Next to the target when there is room on its right, otherwise below or above it. */
-function cardPosition(box: Box, cardHeight: number): { top: number; left: number } {
-  const margin = 16;
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const clampTop = (top: number) => Math.max(margin, Math.min(top, vh - cardHeight - margin));
-  if (box.left + box.width + margin + CARD_WIDTH <= vw - margin) {
-    return { top: clampTop(box.top), left: box.left + box.width + margin };
+function stored(): GuideState | null {
+  try {
+    return readGuide();
+  } catch {
+    return null;
   }
-  const left = Math.max(margin, Math.min(box.left, vw - CARD_WIDTH - margin));
-  const below = box.top + box.height + margin;
-  return below + cardHeight <= vh - margin ? { top: below, left } : { top: clampTop(box.top - cardHeight - margin), left };
 }
 
-/** A step's text: the tour's name and where it is, the title, the text and its points. */
-function StepText({
-  step,
-  label,
-  count,
-  titleId,
-}: {
-  step: Messages['tour']['steps'][number];
-  label: string;
-  count: string;
-  titleId?: string;
-}) {
-  return (
-    <>
-      <div className="tour-top">
-        <span className="tour-label">{label}</span>
-        <span className="tour-count">{count}</span>
-      </div>
-      <h2 id={titleId}>{step.title}</h2>
-      <p>{step.body}</p>
-      {step.points && (
-        <ul>
-          {step.points.map((p) => (
-            <li key={p}>{p}</li>
-          ))}
-        </ul>
-      )}
-    </>
-  );
+/** The first topic not read yet, else the first. */
+function firstTopic(): number {
+  const [next] = unread(stored());
+  return next ? TOUR_STEPS.findIndex((s) => s.id === next) : 0;
 }
 
-/** A step-by-step guide to the main features, shown on the first visit and from Settings. */
-export function Onboarding({ since, onClose }: { since: number; onClose: () => void }) {
+/**
+ * The guided tour: a checklist of short topics beside the one shown, each checked once it has been
+ * shown. Opened on a first visit, from the question the page asks about the topics left (TourNudge)
+ * and from Settings. On a phone it is a sheet at the bottom showing the topic or, with All topics, the list.
+ */
+export function Onboarding({ onClose }: { onClose: () => void }) {
   const t = useT();
-  const indices = tourIndices(since);
-  const steps = indices.map((index) => t.tour.steps[index]!);
-  const label = since === 0 ? t.tour.label : t.tour.updated;
-  const [i, setI] = useState(0);
-  const [box, setBox] = useState<Box | null>(null);
-  const [cardHeight, setCardHeight] = useState(240);
-  /** The step's text is taller than the card has room for: it scrolls, above the footer. */
+  const [i, setI] = useState(firstTopic);
+  const [state, setState] = useState(stored);
+  /** On a phone, the sheet shows the topic or the list (a wide screen shows both). */
+  const [view, setView] = useState<'topic' | 'list'>('topic');
+  /** The topic's text is taller than the room it has: it scrolls, above the buttons. */
   const [scrolls, setScrolls] = useState(false);
-  const card = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
-  const measure = useRef<HTMLDivElement>(null);
-  /**
-   * The tallest step's text (px): a centered card is that tall at every step (on a wide screen), so
-   * that its buttons stay in one place; on a short screen it is cut to the screen, and the text scrolls.
-   */
-  const [tallest, setTallest] = useState<number>();
   const primary = useRef<HTMLButtonElement>(null);
-  const step = steps[i]!;
-  const stepIndex = indices[i]!;
-  const last = i === steps.length - 1;
+  const list = useRef<HTMLOListElement>(null);
+  const step = TOUR_STEPS[i]!;
+  const text = t.tour.steps[i]!;
+  const link = TOPIC_LINKS[step.id];
+  const last = i === TOUR_STEPS.length - 1;
+  const readCount = TOUR_STEPS.filter((s) => isRead(state, s.id)).length;
 
-  const finish = useCallback(() => {
-    markDone();
-    onClose();
-  }, [onClose]);
+  // Shown: read.
+  useEffect(() => {
+    markRead(step.id);
+    setState(stored());
+  }, [step.id]);
 
-  // Track the target (layout can change: resizing, the sidebar opening).
-  useLayoutEffect(() => {
-    const update = () => setBox(targetBox(TOUR_STEPS[stepIndex]?.target));
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, [stepIndex]);
-
-  useLayoutEffect(() => {
-    if (card.current) setCardHeight(card.current.offsetHeight);
-  }, [i, box, t]);
-
-  // Each step starts at its top (not again when the window turns or is resized).
+  // Each topic starts at its top.
   useLayoutEffect(() => {
     if (body.current) body.current.scrollTop = 0;
   }, [i]);
 
-  // The tallest step, measured again when the window's width or the language changes.
-  useLayoutEffect(() => {
-    const el = measure.current;
-    if (!el) return;
-    const update = () => setTallest(Math.max(0, ...[...el.children].map((c) => (c as HTMLElement).offsetHeight)) || undefined);
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, [t]);
-
-  // Whether the step's text scrolls (the line above the footer) follows the window's size.
+  // Whether the topic's text scrolls (the line above the buttons) follows the window's size.
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
@@ -145,18 +80,23 @@ export function Onboarding({ since, onClose }: { since: number; onClose: () => v
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
-  }, [i, box, t, tallest]);
+  }, [i, t, view]);
 
   // Without scrolling: on a phone the sheet is still below the screen, sliding up, when Next takes the focus.
-  useEffect(() => primary.current?.focus({ preventScroll: true }), [i]);
+  useEffect(() => primary.current?.focus({ preventScroll: true }), []);
+
+  const show = useCallback((n: number) => {
+    setI(n);
+    setView('topic');
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') finish();
-      else if (e.key === 'ArrowRight') setI((n) => Math.min(n + 1, steps.length - 1));
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowRight') setI((n) => Math.min(n + 1, TOUR_STEPS.length - 1));
       else if (e.key === 'ArrowLeft') setI((n) => Math.max(n - 1, 0));
       else {
-        // The focus is on the buttons: the keys that scroll scroll the step's text (it scrolls by
+        // The focus is on the buttons: the keys that scroll scroll the topic's text (it scrolls by
         // itself when it has the focus).
         const el = body.current;
         const by = el && e.target !== el ? scrollBy(e.key, el.clientHeight, el.scrollHeight) : undefined;
@@ -168,66 +108,89 @@ export function Onboarding({ since, onClose }: { since: number; onClose: () => v
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [finish, steps.length]);
+  }, [onClose]);
 
-  const pos = box ? cardPosition(box, cardHeight) : null;
+  const openList = () => {
+    setView('list');
+    // The topic shown, in the list that takes the sheet's place.
+    requestAnimationFrame(() => list.current?.querySelector<HTMLElement>('[aria-current]')?.focus({ preventScroll: true }));
+  };
 
   return (
     <div className="tour" role="dialog" aria-modal="true" aria-labelledby="tour-title">
-      <div className={`tour-scrim ${box ? '' : 'dim'}`} />
-      {box && <div className="tour-spot" style={box} aria-hidden />}
-      {/* Every step's text, out of sight, to measure the tallest: a centered card is that tall. Its
-          count is left blank (only the line's height counts), so the page shows one "3 / 18". */}
-      <div ref={measure} className="tour-card tour-measure" aria-hidden inert>
-        {steps.map((s, n) => (
-          <div key={n} className="tour-body">
-            <StepText step={s} label={label} count={'\u00a0'} />
-          </div>
-        ))}
-      </div>
-      <div
-        ref={card}
-        className={`tour-card ${pos ? 'anchored' : 'centered'}`}
-        style={
-          pos
-            ? { top: pos.top, left: pos.left, width: CARD_WIDTH }
-            : tallest
-              ? ({ '--tour-body-height': `${tallest}px` } as CSSProperties)
-              : undefined
-        }
-      >
-        {/* The step scrolls when it is taller than the screen allows; the dots and buttons stay below it. */}
-        <div
-          ref={body}
-          className="tour-body"
-          // A stop for the keyboard only while the text scrolls.
-          {...(scrolls ? { tabIndex: 0, role: 'region', 'aria-labelledby': 'tour-title' } : {})}
-        >
-          <StepText step={step} label={label} count={t.tour.step(i + 1, steps.length)} titleId="tour-title" />
-          {/* The welcome step's picture, in the room its short text leaves (not measured: the card keeps its height). */}
-          {stepIndex === 0 && <TourArt />}
-        </div>
-        <div className={`tour-foot ${scrolls ? 'scrolls' : ''}`}>
-          <div className="tour-dots" aria-hidden>
-            {steps.map((_, n) => (
-              <i key={n} className={n === i ? 'on' : ''} />
-            ))}
-          </div>
-          <div className="tour-actions">
-            {!last && (
-              <button type="button" className="link-button tour-skip" onClick={finish}>
-                {t.tour.skip}
-              </button>
-            )}
-            {i > 0 && (
-              <button type="button" className="ghost small-button" onClick={() => setI(i - 1)}>
-                {t.tour.back}
-              </button>
-            )}
-            <button ref={primary} type="button" className="primary small-button" onClick={() => (last ? finish() : setI(i + 1))}>
-              {last ? (since ? t.tour.finishUpdate : t.tour.done) : t.tour.next}
+      <div className="tour-scrim" />
+      <div className="tour-card" data-view={view}>
+        <header className="tour-head">
+          <h2 id="tour-title">{t.tour.title}</h2>
+          <span className="tour-progress">{t.tour.progress(readCount, TOUR_STEPS.length)}</span>
+          <button type="button" className="icon-button tour-close" onClick={onClose} aria-label={t.tour.close} title={t.tour.close}>
+            ×
+          </button>
+        </header>
+        <div className="tour-main">
+          <nav className="tour-list" aria-label={t.tour.topics}>
+            <ol ref={list}>
+              {TOUR_STEPS.map((s, n) => {
+                const read = isRead(state, s.id);
+                return (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      className={n === i ? 'on' : undefined}
+                      aria-current={n === i ? 'step' : undefined}
+                      onClick={() => {
+                        show(n);
+                        if (view === 'list') requestAnimationFrame(() => primary.current?.focus({ preventScroll: true }));
+                      }}
+                    >
+                      <span className={`tour-mark ${read ? 'read' : ''}`} aria-hidden="true">
+                        {read && <CheckIcon size={12} />}
+                      </span>
+                      <span className="tour-name">{t.tour.steps[n]!.title}</span>
+                      {read ? (
+                        <span className="visually-hidden">{t.tour.read}</span>
+                      ) : (
+                        changed(state, s.id) && <span className="tour-changed">{t.tour.changed}</span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+          <section className="tour-topic" aria-labelledby="tour-topic-title">
+            <button type="button" className="tour-all" onClick={openList}>
+              <ChevronIcon size={14} />
+              {t.tour.allTopics}
             </button>
-          </div>
+            <div
+              ref={body}
+              className="tour-body"
+              // A stop for the keyboard only while the text scrolls.
+              {...(scrolls ? { tabIndex: 0, role: 'region', 'aria-labelledby': 'tour-topic-title' } : {})}
+            >
+              <TourArt key={step.id} topic={step.id} />
+              <h3 id="tour-topic-title">{text.title}</h3>
+              <p>{text.body}</p>
+            </div>
+            <div className={`tour-foot ${scrolls ? 'scrolls' : ''}`}>
+              {link && text.action && (
+                <a
+                  className="ghost small-button tour-go"
+                  href={link.href}
+                  onClick={() => {
+                    if (link.section) scrollToSection(link.section);
+                    onClose();
+                  }}
+                >
+                  {text.action}
+                </a>
+              )}
+              <button ref={primary} type="button" className="primary small-button" onClick={() => (last ? onClose() : show(i + 1))}>
+                {last ? t.tour.done : t.tour.next}
+              </button>
+            </div>
+          </section>
         </div>
       </div>
     </div>

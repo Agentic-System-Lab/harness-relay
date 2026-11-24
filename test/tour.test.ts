@@ -1,223 +1,161 @@
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
-import { HOOK_PROVIDERS, PROVIDER_LABEL } from '../src/shared/types';
-import { scrollBy } from '../src/web/components/Onboarding';
-import { markDone, pendingTour, TOUR_STEPS, TOUR_VERSION, tourIndices } from '../src/web/tour';
+import { scrollBy, TOPIC_LINKS } from '../src/web/components/Onboarding';
+import {
+  changed,
+  guideOnStart,
+  markRead,
+  parseGuide,
+  pendingTour,
+  quietTour,
+  TOUR_STEPS,
+  TOUR_VERSION,
+  unread,
+  type TopicId,
+} from '../src/web/tour';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 
+const ALL = TOUR_STEPS.map((s) => s.id);
+const guide = (value: object) => JSON.stringify(value);
+
+/** A localStorage of a few keys, for the functions that read and write the browser's. */
+function storage(initial: Record<string, string> = {}) {
+  const values = new Map(Object.entries(initial));
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => void values.set(key, value),
+  });
+  return values;
+}
+
 describe('guided tour', () => {
-  it('points at one target (or none) per step', () => {
+  it('has one topic for each step of both locales, each named once', () => {
     expect(TOUR_STEPS).toHaveLength(en.tour.steps.length);
     expect(TOUR_STEPS).toHaveLength(zhTW.tour.steps.length);
+    expect(new Set(ALL).size).toBe(ALL.length);
   });
 
-  it('points only at elements the app has (a data-tour attribute in the client)', () => {
-    const web = fileURLToPath(new URL('../src/web/', import.meta.url));
-    const files = (dir: string): string[] =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-        e.isDirectory() ? files(join(dir, e.name)) : /\.tsx?$/.test(e.name) ? [join(dir, e.name)] : [],
-      );
-    const names = new Set(files(web).flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/data-tour="([^"]+)"/g)].map((m) => m[1])));
-    for (const { target } of TOUR_STEPS) if (target) expect([...names], `data-tour="${target}"`).toContain(target);
-  });
-
-  it('remembers a browser, shows changes since its version, and preserves a newer marker during manual replay', () => {
-    let value: string | null = null;
-    vi.stubGlobal('localStorage', {
-      getItem: () => value,
-      setItem: (_: string, v: string) => {
-        value = v;
-      },
+  it.each([en, zhTW])('names the way there of each topic that has one, in $langName', (messages) => {
+    TOUR_STEPS.forEach((s, n) => {
+      expect(Boolean(messages.tour.steps[n]!.action), s.id).toBe(Boolean(TOPIC_LINKS[s.id]));
     });
+  });
+
+  it('keeps each topic short', () => {
+    for (const step of [...en.tour.steps, ...zhTW.tour.steps]) {
+      expect(step.title.length, step.title).toBeLessThanOrEqual(24);
+      expect(step.body.length, step.title).toBeLessThanOrEqual(190);
+    }
+  });
+
+  it('opens on a first visit only, then asks about the topics left', () => {
+    expect(guideOnStart(parseGuide(null, null))).toBe('open');
+    // One topic read: the others are left, none of them read before.
+    const one = parseGuide(null, guide({ seen: { welcome: 17 } }));
+    expect(guideOnStart(one)).toBe('ask');
+    expect(unread(one)).toEqual(ALL.slice(1));
+    expect(unread(one).some((id) => changed(one, id))).toBe(false);
+    // Every topic read: nothing.
+    const all = parseGuide(null, guide({ seen: Object.fromEntries(TOUR_STEPS.map((s) => [s.id, s.revision])) }));
+    expect(unread(all)).toEqual([]);
+    expect(guideOnStart(all)).toBeNull();
+  });
+
+  it('counts a tour finished before the checklist as read up to its version', () => {
+    // The version the last tour had, or a test's: nothing to read.
+    expect(guideOnStart(parseGuide(String(TOUR_VERSION), null))).toBeNull();
+    expect(guideOnStart(parseGuide('999', null))).toBeNull();
+    // An older one: the topics changed since, each read before in an earlier form.
+    const old = parseGuide('20', null);
+    expect(unread(old)).toEqual(['agents', 'chat', 'team', 'phone', 'automations', 'apps']);
+    expect(unread(old).every((id) => changed(old, id))).toBe(true);
+    expect(guideOnStart(old)).toBe('ask');
+    expect(unread(parseGuide('44', null))).toEqual(['team']);
+    // The tour before it had versions.
+    expect(unread(parseGuide('1', null))).toEqual(ALL);
+    // A topic read since counts, whatever the old version.
+    expect(unread(parseGuide('20', guide({ seen: { agents: 39, chat: 44 } })))).toEqual(['team', 'phone', 'automations', 'apps']);
+  });
+
+  it('marks a topic read in an earlier revision as changed', () => {
+    const state = parseGuide(null, guide({ seen: { welcome: 17, agents: 20 } }));
+    expect(unread(state)[0]).toBe('agents');
+    expect(changed(state, 'agents')).toBe(true);
+    expect(changed(state, 'chat')).toBe(false);
+    expect(changed(state, 'welcome')).toBe(false);
+  });
+
+  it('stops asking after "Not now" until a topic changes', () => {
+    expect(guideOnStart(parseGuide(null, guide({ seen: { welcome: 17 }, quiet: TOUR_VERSION })))).toBeNull();
+    // Answered before the newest topic changed: asked about it.
+    const newest = TOUR_STEPS.find((s) => s.revision === TOUR_VERSION)!;
+    expect(guideOnStart(parseGuide(null, guide({ seen: { welcome: 17 }, quiet: TOUR_VERSION - 1 })))).toBe('ask');
+    const rest = guide({
+      seen: Object.fromEntries(TOUR_STEPS.filter((s) => s.id !== 'agents').map((s) => [s.id, s.revision])),
+      quiet: TOUR_VERSION - 1,
+    });
+    // Only a topic older than the answer left: not asked.
+    expect(newest.id).not.toBe('agents');
+    expect(guideOnStart(parseGuide(null, rest))).toBeNull();
+  });
+
+  it('reads what it cannot use as nothing read', () => {
+    for (const broken of ['{', 'null', '[]', guide({ seen: 'x' }), guide({ seen: { welcome: -1, nope: 3 }, quiet: 'x' })]) {
+      const state = parseGuide(null, broken);
+      expect(state, broken).not.toBeNull();
+      expect(unread(state), broken).toEqual(ALL);
+      expect(guideOnStart(state), broken).toBe('ask');
+    }
+    expect(unread(parseGuide('broken', null))).toEqual(ALL);
+  });
+
+  it('remembers what this browser read, and its "Not now"', () => {
+    const values = storage();
     try {
-      expect(pendingTour()).toBe(0);
-      expect(tourIndices(0)).toHaveLength(en.tour.steps.length);
-      const titles = (since: number) => tourIndices(since).map((i) => en.tour.steps[i]!.title);
-      expect(titles(20)).toEqual([
-        'Connect your phone',
-        'API keys and endpoints for open-source agents',
-        'Start a new chat',
-        'A team for every question',
-        'While the team replies',
-        'When the team needs you',
-        'Notifications and sound',
-        'File permission and changes',
-        'Team checks',
-        'Browse and change files',
-        'Automations',
-        'Groups, pins and search',
-        'Connect apps to your chats',
-        'Long-term memory',
-        'Adjust any time',
-      ]);
-      expect(titles(21)).toEqual([
-        'Connect your phone',
-        'API keys and endpoints for open-source agents',
-        'Start a new chat',
-        'A team for every question',
-        'While the team replies',
-        'When the team needs you',
-        'Notifications and sound',
-        'File permission and changes',
-        'Team checks',
-        'Browse and change files',
-        'Automations',
-        'Groups, pins and search',
-        'Connect apps to your chats',
-        'Long-term memory',
-        'Adjust any time',
-      ]);
-      expect(titles(22)).toEqual([
-        'Connect your phone',
-        'API keys and endpoints for open-source agents',
-        'Start a new chat',
-        'A team for every question',
-        'While the team replies',
-        'When the team needs you',
-        'Notifications and sound',
-        'File permission and changes',
-        'Team checks',
-        'Browse and change files',
-        'Automations',
-        'Groups, pins and search',
-        'Connect apps to your chats',
-        'Long-term memory',
-        'Adjust any time',
-      ]);
-      for (let version = 23; version <= 32; version++) {
-        expect(titles(version)).toEqual([
-          'API keys and endpoints for open-source agents',
-          'Start a new chat',
-          'A team for every question',
-          'While the team replies',
-          'When the team needs you',
-          'File permission and changes',
-          'Team checks',
-          'Browse and change files',
-          'Automations',
-          'Groups, pins and search',
-          'Connect apps to your chats',
-          'Long-term memory',
-          'Adjust any time',
-        ]);
-      }
-      for (let version = 33; version <= 36; version++) {
-        expect(titles(version)).toEqual([
-          'API keys and endpoints for open-source agents',
-          'Start a new chat',
-          'A team for every question',
-          'While the team replies',
-          'When the team needs you',
-          'File permission and changes',
-          'Team checks',
-          'Browse and change files',
-          'Automations',
-          'Groups, pins and search',
-          'Long-term memory',
-          'Adjust any time',
-        ]);
-      }
-      for (const version of [37, 38])
-        expect(titles(version)).toEqual([
-          'API keys and endpoints for open-source agents',
-          'Start a new chat',
-          'A team for every question',
-          'While the team replies',
-          'When the team needs you',
-          'File permission and changes',
-          'Team checks',
-          'Browse and change files',
-          'Automations',
-          'Groups, pins and search',
-          'Long-term memory',
-          'Adjust any time',
-        ]);
-      expect(titles(39)).toEqual([
-        'Start a new chat',
-        'When the team needs you',
-        'File permission and changes',
-        'Team checks',
-        'Browse and change files',
-        'Automations',
-        'Groups, pins and search',
-        'Long-term memory',
-        'Adjust any time',
-      ]);
-      // Publishing a preview came to the files step.
-      expect(titles(40)).toEqual([
-        'Start a new chat',
-        'When the team needs you',
-        'File permission and changes',
-        'Team checks',
-        'Browse and change files',
-        'Automations',
-        'Groups, pins and search',
-        'Long-term memory',
-        'Adjust any time',
-      ]);
-      // "Approve for me" came to the steps on what needs the user and on the file permission.
-      expect(titles(41)).toEqual([
-        'Start a new chat',
-        'When the team needs you',
-        'File permission and changes',
-        'Team checks',
-        'Browse and change files',
-        'Automations',
-        'Groups, pins and search',
-        'Long-term memory',
-        'Adjust any time',
-      ]);
-      // Long-term memory came, in Labs, which the Settings step names.
-      expect(titles(42)).toEqual([
-        'Start a new chat',
-        'When the team needs you',
-        'Team checks',
-        'Browse and change files',
-        'Automations',
-        'Groups, pins and search',
-        'Long-term memory',
-        'Adjust any time',
-      ]);
-      // The lead agent writing a template, team checks and an automation, proposing one in a chat,
-      // organizing the groups and naming new chats came to those steps.
-      expect(titles(43)).toEqual([
-        'Start a new chat',
-        'When the team needs you',
-        'Team checks',
-        'Browse and change files',
-        'Automations',
-        'Groups, pins and search',
-      ]);
-      // Steps, secrets and fixed commands, signing in and the browser handed over came to what needs the user; editing and uploading to the files.
-      expect(titles(44)).toEqual(['When the team needs you', 'Browse and change files']);
-      expect(tourIndices(45)).toEqual([]);
-      value = '21';
-      expect(pendingTour()).toBe(21);
-      markDone();
+      expect(pendingTour()).toBe('open');
+      markRead('welcome');
+      expect(pendingTour()).toBe('ask');
+      quietTour();
       expect(pendingTour()).toBeNull();
-      value = '999';
-      markDone();
-      expect(value).toBe('999');
-      value = 'broken';
-      expect(pendingTour()).toBe(0);
+      expect(JSON.parse(values.get('relay:guide')!)).toEqual({ seen: { welcome: 17 }, quiet: TOUR_VERSION });
+      for (const id of ALL) markRead(id as TopicId);
+      expect(unread(parseGuide(null, values.get('relay:guide')!))).toEqual([]);
+      // The tour's old key is left as it was.
+      expect(values.has('relay:onboarded')).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    const old = storage({ 'relay:onboarded': '44' });
+    try {
+      expect(pendingTour()).toBe('ask');
+      markRead('team');
+      expect(pendingTour()).toBeNull();
+      expect(old.get('relay:onboarded')).toBe('44');
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  it.each([en, zhTW])('explains the permissions and CLI support for team checks in $langName', (messages) => {
-    const step = messages.tour.steps.find((s) => s.title === messages.checks.title);
-    expect(step?.body).toContain(messages.permissions.edit.label);
-    expect(step?.body).toContain(messages.permissions.full.label);
-    const points = step?.points?.join('\n');
-    for (const provider of HOOK_PROVIDERS) expect(points).toContain(PROVIDER_LABEL[provider]);
+  it('opens nothing by itself where the page cannot use its storage', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+    });
+    try {
+      expect(pendingTour()).toBeNull();
+      expect(() => markRead('welcome')).not.toThrow();
+      expect(() => quietTour()).not.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
-  it("scrolls a long step's text with the keys, while the focus is on its buttons", () => {
+  it("scrolls a long topic's text with the keys, while the focus is on its buttons", () => {
     expect(scrollBy('ArrowDown', 300, 900)).toBe(40);
     expect(scrollBy('ArrowUp', 300, 900)).toBe(-40);
     expect(scrollBy('PageDown', 300, 900)).toBe(260);
@@ -230,22 +168,19 @@ describe('guided tour', () => {
     expect(scrollBy(' ', 300, 900)).toBeUndefined();
   });
 
-  it('shows the steps that changed since the version a browser last saw, at least one for each version', () => {
-    // A version no step was raised to would open a tour with nothing in it.
+  it('has a topic at each version, so a version always has something to show', () => {
     expect(Math.max(...TOUR_STEPS.map((s) => s.revision))).toBe(TOUR_VERSION);
-    expect(tourIndices(TOUR_VERSION - 1).length).toBeGreaterThan(0);
-    expect(tourIndices(TOUR_VERSION)).toEqual([]);
-    expect(TOUR_STEPS).toHaveLength(en.tour.steps.length);
+    expect(unread(parseGuide(String(TOUR_VERSION - 1), null)).length).toBeGreaterThan(0);
   });
 
-  it('gets a new version when its steps change', () => {
+  it('gets a new version when its topics change', () => {
     const fingerprint = createHash('sha256')
       .update(JSON.stringify([zhTW.tour.steps, en.tour.steps]))
       .digest('hex')
       .slice(0, 12);
-    // The steps changed? Raise TOUR_VERSION in src/web/tour.ts so people who finished the tour
-    // see the updated steps, then update both values here. For a change not worth showing again (a typo), update only the
-    // fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 45, fingerprint: '8abeb3eb3df4' });
+    // The topics changed? Raise TOUR_VERSION in src/web/tour.ts and give it to each topic changed, so
+    // that browsers which read them are asked about them again, then update both values here. For a
+    // change not worth asking about again (a typo), update only the fingerprint.
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 45, fingerprint: 'e6f9023bd2f9' });
   });
 });

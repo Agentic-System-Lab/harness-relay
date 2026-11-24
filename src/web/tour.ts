@@ -1,35 +1,32 @@
-// This browser's last finished or skipped tour. Pre-versioned tours stored '1' in the same key.
+// The guided tour: a checklist of short topics (components/Onboarding.tsx), each checked once read.
+// Before the checklist, a browser kept only the last tour version it finished or skipped, in DONE_KEY
+// (pre-versioned tours stored '1'): every topic up to that version counts as read.
 const DONE_KEY = 'relay:onboarded';
+/** The topics read, each at the revision it was read in, and the version a "Not now" answered. */
+const GUIDE_KEY = 'relay:guide';
 export const TOUR_VERSION = 45;
 
-/** Ordered like tour.steps in both locales. Each revision is when that step last changed for readers. */
-export const TOUR_STEPS: { target?: string; revision: number }[] = [
-  { revision: 17 }, // welcome
-  { target: 'settings', revision: 20 }, // check agents
-  { target: 'pair-phone', revision: 23 }, // connect a phone
-  { target: 'settings', revision: 39 }, // model connections (context windows)
-  { target: 'new-chat', revision: 44 }, // new chat (the lead agent writes a template)
-  { revision: 39 }, // auto team (a member's own limit)
-  { revision: 1 }, // modes
-  { revision: 9 }, // writing a message
-  { revision: 39 }, // while the team replies (subagents, steering)
-  { revision: 45 }, // when the team needs you (steps, secrets and fixed commands, signing in, the browser handed over)
-  { target: 'settings', revision: 23 }, // notifications and sound
-  { target: 'inbox', revision: 18 },
-  { revision: 42 }, // permissions (Approve for me)
-  { revision: 44 }, // team checks (the lead agent writes them)
-  { revision: 45 }, // files (editing and uploading; app previews: Dockerfiles, opening by themselves, the header's button; publishing)
-  { revision: 20 }, // share
-  { target: 'new-schedule', revision: 44 }, // automations (filled in from a sentence, proposed in a chat)
-  { target: 'organize', revision: 44 }, // groups (the lead agent suggests them, names new chats)
-  { target: 'settings', revision: 33 }, // common apps and the tool library
-  { target: 'settings', revision: 43 }, // long-term memory (in Labs, off by default)
-  { target: 'settings', revision: 4 }, // agent sessions
-  { target: 'settings', revision: 43 }, // settings (Labs: long-term memory too; subagents and workflows)
-];
+/** Ordered like tour.steps in both locales. Each revision is when that topic last changed for readers. */
+export const TOUR_STEPS = [
+  { id: 'welcome', revision: 17 },
+  { id: 'agents', revision: 39 }, // signing in, the open agents' model connections
+  { id: 'chat', revision: 44 }, // the team the lead agent builds, the file permission
+  { id: 'team', revision: 45 }, // replies as they come, approvals, questions, cards for the user
+  { id: 'phone', revision: 23 },
+  { id: 'automations', revision: 44 },
+  { id: 'apps', revision: 33 },
+] as const satisfies readonly { id: string; revision: number }[];
 
-export function tourIndices(since: number): number[] {
-  return TOUR_STEPS.flatMap((step, index) => (step.revision > since ? [index] : []));
+export type TopicId = (typeof TOUR_STEPS)[number]['id'];
+
+/** What this browser keeps of the tour. */
+export interface GuideState {
+  /** Every topic with a revision up to it was read (the tour version a browser finished before the checklist). */
+  base: number;
+  /** The revision each topic was last read in. */
+  seen: Partial<Record<TopicId, number>>;
+  /** No asking again until a topic changes after this version ("Not now"). */
+  quiet: number;
 }
 
 function storedVersion(stored: string | null): number {
@@ -37,20 +34,83 @@ function storedVersion(stored: string | null): number {
   return Number.isSafeInteger(version) && version > 0 ? version : 0;
 }
 
-/** Zero opens the full tour, a positive version opens the changes since then, null means up to date. */
-export function pendingTour(): number | null {
-  try {
-    const seen = storedVersion(localStorage.getItem(DONE_KEY));
-    return seen >= TOUR_VERSION ? null : seen;
-  } catch {
-    return null; // No storage: the full tour stays available from Settings.
-  }
+function revisionOf(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
-export function markDone(): void {
+/** The state as stored: null for a browser that never opened the tour. */
+export function parseGuide(done: string | null, guide: string | null): GuideState | null {
+  if (done === null && guide === null) return null;
+  let parsed: { seen?: unknown; quiet?: unknown } = {};
   try {
-    if (storedVersion(localStorage.getItem(DONE_KEY)) < TOUR_VERSION) localStorage.setItem(DONE_KEY, String(TOUR_VERSION));
+    const value: unknown = guide === null ? {} : JSON.parse(guide);
+    if (value && typeof value === 'object') parsed = value;
+  } catch {
+    /* a broken value counts as nothing read */
+  }
+  const seen: GuideState['seen'] = {};
+  const stored = parsed.seen && typeof parsed.seen === 'object' ? (parsed.seen as Record<string, unknown>) : {};
+  for (const { id } of TOUR_STEPS) {
+    const revision = revisionOf(stored[id]);
+    if (revision) seen[id] = revision;
+  }
+  return { base: storedVersion(done), seen, quiet: revisionOf(parsed.quiet) };
+}
+
+export function isRead(state: GuideState | null, id: TopicId): boolean {
+  const topic = TOUR_STEPS.find((s) => s.id === id)!;
+  return Boolean(state) && topic.revision <= Math.max(state!.base, state!.seen[id] ?? 0);
+}
+
+/** The topics not read in their current revision, in tour order. */
+export function unread(state: GuideState | null): TopicId[] {
+  return TOUR_STEPS.filter((s) => !isRead(state, s.id)).map((s) => s.id);
+}
+
+/** Whether a topic not read now was read in an earlier revision: it changed since. */
+export function changed(state: GuideState | null, id: TopicId): boolean {
+  return Boolean(state) && !isRead(state, id) && (state!.base > 0 || state!.seen[id] !== undefined);
+}
+
+/**
+ * What the page does with the tour as it opens: `open` it on a first visit, `ask` about the topics
+ * left to read (unless "Not now" answered for them), or nothing.
+ */
+export function guideOnStart(state: GuideState | null): 'open' | 'ask' | null {
+  if (!state) return 'open';
+  const left = TOUR_STEPS.filter((s) => !isRead(state, s.id));
+  return left.some((s) => s.revision > state.quiet) ? 'ask' : null;
+}
+
+export function readGuide(): GuideState | null {
+  return parseGuide(localStorage.getItem(DONE_KEY), localStorage.getItem(GUIDE_KEY));
+}
+
+function writeGuide(change: (state: GuideState) => GuideState): void {
+  try {
+    const state = change(readGuide() ?? { base: 0, seen: {}, quiet: 0 });
+    localStorage.setItem(GUIDE_KEY, JSON.stringify({ seen: state.seen, quiet: state.quiet }));
   } catch {
     /* storage unavailable */
   }
+}
+
+/** What the page does with the tour as it opens; nothing without storage (Settings still opens it). */
+export function pendingTour(): 'open' | 'ask' | null {
+  try {
+    return guideOnStart(readGuide());
+  } catch {
+    return null;
+  }
+}
+
+/** A topic was shown: checked, in its current revision. */
+export function markRead(id: TopicId): void {
+  const revision = TOUR_STEPS.find((s) => s.id === id)!.revision;
+  writeGuide((state) => (isRead(state, id) ? state : { ...state, seen: { ...state.seen, [id]: revision } }));
+}
+
+/** "Not now": no asking again until a topic changes. */
+export function quietTour(): void {
+  writeGuide((state) => ({ ...state, quiet: Math.max(state.quiet, TOUR_VERSION) }));
 }

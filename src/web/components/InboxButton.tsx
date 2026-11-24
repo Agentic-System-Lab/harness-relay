@@ -14,7 +14,7 @@ export function InboxButton({ unread, onOpen }: { unread: number; onOpen: () => 
     <button
       type="button"
       className={`icon-button inbox-button ${badge ? 'has-unread' : ''}`}
-      data-tour="inbox"
+
       onClick={onOpen}
       aria-label={label}
       aria-haspopup="dialog"

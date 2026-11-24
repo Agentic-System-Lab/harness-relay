@@ -1,4 +1,4 @@
-import { FIXED_COMMAND_NEWS, HOOK_PROVIDERS, PROVIDER_LABEL } from '../../shared/types';
+import { FIXED_COMMAND_NEWS } from '../../shared/types';
 import type { Messages } from './zh-TW';
 
 const EFFORT: Record<string, string> = {
@@ -3065,7 +3065,7 @@ export const en: Messages = {
       openAgents: 'Open-source agents',
     },
     tour: 'Guided tour',
-    tourHint: 'A step-by-step introduction to the main features.',
+    tourHint: 'A few short topics to get you started; each one you read is checked.',
     replayTour: 'Replay the tour',
     cwd: 'Default working directories',
     cwdHint:
@@ -3437,223 +3437,54 @@ export const en: Messages = {
   },
 
   tour: {
-    step: (i, n) => `${i} / ${n}`,
-    back: 'Back',
+    title: 'Guided tour',
+    progress: (read: number, n: number) => `${read} of ${n} read`,
+    topics: 'Tour topics',
+    allTopics: 'All topics',
+    read: 'Read',
+    changed: 'Updated',
+    close: 'Close the tour',
     next: 'Next',
-    skip: 'Skip tour',
-    done: 'Get started',
-    label: 'Guided tour',
-    updated: 'What’s new in Harness Relay',
-    finishUpdate: 'Done',
+    done: 'Done',
+    ask: {
+      unread: (n: number) => `The guided tour has ${n === 1 ? 'one topic' : `${n} topics`} you have not read. Take a look?`,
+      changed: (n: number) => `${n === 1 ? 'One topic' : `${n} topics`} of the guided tour changed. Take a look?`,
+      show: 'Show me',
+      later: 'Not now',
+    },
     steps: [
       {
-        title: 'Welcome to Harness Relay',
-        body: 'A task assistant: Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code, and five open-source agents (OpenCode, Goose, Cline, OpenHands and Pi), answer your questions and work on your code together, all on your own computer. The next few steps show you around.',
+        title: 'Meet Harness Relay',
+        body: 'Claude Code, Codex, Copilot and other AI agents team up in one chat to get your task done, all on your own computer.',
       },
       {
-        title: 'Check that each agent is ready',
-        body: 'Open Settings & sign-in to see which AI assistants are ready. Choose an assistant to install its CLI or sign in. For an open-source assistant, open Model connections to add a provider key or endpoint. One ready assistant is enough to start.',
+        title: 'Get an agent ready',
+        body: 'Install or sign in to any CLI under Settings & sign-in, and you can start. Open-source agents need no sign-in: add an API key or endpoint under Model connections.',
+        action: 'Open Settings & sign-in',
+      },
+      {
+        title: 'Start a chat',
+        body: 'Type your question, pick a working directory and a file permission, and send it. The lead agent builds a team for it.',
+        action: 'Start a new chat',
+      },
+      {
+        title: 'While the team works',
+        body: 'Replies show as they are written, and you can step in or stop at any time. When the team needs your approval or an answer, a card shows in the chat and the bell tells you.',
       },
       {
         title: 'Connect your phone',
-        body: 'Use your phone to send tasks, approve requests and download results. Your computer runs the agents.',
-        points: [
-          'Choose Connect your phone above Settings in the computer’s sidebar, or at the top right of Home when the sidebar is collapsed. Pair your phone there, then follow the instructions for your home screen.',
-          'New to Tailscale? Scan its download code and sign in on both devices. Then scan the separate, single-use Harness Relay code.',
-          'Phone connected means a phone has the page open. A locked phone stays paired. If a send loses its response, retry the same draft in the same tab.',
-        ],
-      },
-      {
-        title: 'API keys and endpoints for open-source agents',
-        body: 'OpenCode, Goose, Cline, OpenHands and Pi need no sign-in: they use the models you set up in Settings → Model connections:',
-        points: [
-          'Enter a provider key, or open Custom endpoints, enter your server URL and choose Load models. Choose models to show your assistants. Save verifies the selected and manually entered IDs with the server.',
-          "Open Context windows and output limits: Save reads each model's context window from vLLM or llama.cpp, and you can type one in for another server, so agents on a small model compact in time",
-          'A member\'s model is "backend/model", such as openai/gpt-5.4-nano or homelab/muse-glimmer-30b-nvfp4',
-          "The Claude subscription and Grok's sign-in cannot be used by these CLIs: use an API key or your own endpoint",
-          "Below full access they run in Harness Relay's own sandbox: in read-only they cannot write in the working directory, and other hosts than the model backend are asked about first (a few are refused without asking)",
-        ],
-      },
-      {
-        title: 'Start a new chat',
-        body: 'Choose Start a new chat on the home page and type or dictate your question. Relay checks app connections in the background when you sign in. Select Common apps (four squares) to choose available apps to mention in your question. Disabled choices show what needs attention. Manage app connections opens their settings. Check the working directory and file permission, then choose Send question. Team templates are under Manage team templates, where the lead agent can write one for you.',
-      },
-      {
-        title: 'A team for every question',
-        body: 'For each new question, the lead agent chooses the team from the question and the conversation so far: it keeps the current team, uses a template, adapts one, or designs a new team. A team it designed or adapted can be saved as a template in one click.',
-        points: [
-          'Choose Wait for my confirmation to review the proposed team, or Start answering right away to use it immediately. New chats remember your last choice. You can also change it in the team settings.',
-          'What you write before confirming goes to the team with the question; a message that @mentions a member goes straight to them, with no new team',
-          '"Have the lead agent review the team\'s replies" (on in every new chat; turn it off in a chat that does not need it, also on the team design card): once the team has answered, the lead agent marks what needs a close look in the replies and suggests the next steps',
-          "In Team settings a member can also have a limit of its own, where its agent has one: Claude Code's cost per turn, Copilot's AI credits, Goose's model calls or OpenCode's steps",
-          'Change the lead agent in Settings; the file permission is always yours to choose, and the lead agent never changes it',
-        ],
-      },
-      {
-        title: 'Three conversation modes',
-        body: 'How members take turns:',
-        points: [
-          'Roundtable: in turn, each seeing what earlier speakers said',
-          'Parallel: everyone answers at once, independently, for easy comparison',
-          'Relay: one at a time, handing off with @mentions',
-        ],
-      },
-      {
-        title: 'Write your message',
-        body: 'Enter sends; Shift+Enter starts a new line. On a phone or tablet, Enter starts a new line and ↑ sends.',
-        points: [
-          'Type @Member and only that member replies',
-          'Paste a screenshot, drop files or click 📎 to attach them; every agent can read them',
-          'Press 🎙 and speak: whisper.cpp turns it into text on your computer, and the recording is never uploaded (installed the first time you use it)',
-          'Point at a message to copy it; your own messages can be edited and resent',
-          "The branch icon under an agent's reply (Branch conversation) goes on from that reply in a new chat to try another direction; this one stays as it is",
-        ],
-      },
-      {
-        title: 'While the team replies',
-        body: "Replies appear as they are written: you see each agent's thinking, its to-do list and every tool step, the work it hands to its own subagents folded under the step that started them, and the images, videos and Mermaid diagrams it makes right in the chat.",
-        points: [
-          'The message box stays open: Enter adds your message to the discussion, delivered before the next turn; until then you can edit or withdraw it',
-          'Turn on Send messages into running turns while the team works in Team settings: where its CLI can take one, your message goes straight into the speaking member\'s turn, marked "Sent into …\'s turn"',
-          '⌘/Ctrl+Enter stops the team and asks your message instead',
-          '■ Stop interrupts at any time; "Continue" lets the team keep going',
-        ],
-      },
-      {
-        title: 'When the team needs you',
-        body: "Agents don't overstep and don't guess:",
-        points: [
-          "To do something the file permission doesn't cover (install a package, push code…), an agent asks in the chat: allow it once, always allow it in this chat, or decline and say what to do instead. With the Approve for me permission, the lead agent approves what it judges safe first, and asks you only about the rest",
-          'When a good answer depends on something only you know, an agent asks you first and the team waits for your answer; or skip the question and let the team go on',
-          'A mail or an invitation an agent wants to send waits in the outbox: a card in its reply, sent only when you click Send (or Discard it)',
-          "What only you can do comes as a card: steps to tick off (Done, or I'm stuck); a secret, kept out of the chat and away from the agents, for a script Harness Relay runs itself in its own sandbox (a fixed command, on a schedule too); a command to sign in, which you start and type into; the chat's browser, to sign in to a site yourself, in a window or here",
-          'The sidebar marks the conversations waiting for you: "Needs you" and "Answer needed"',
-        ],
-      },
-      {
-        title: 'Notifications and sound',
-        body: 'No need to keep an eye on the sidebar: turn them on in Settings → Notifications and sound, and you are told when the team finishes replying or needs you. Each browser and each phone has its own choice:',
-        points: [
-          'Show notifications: one pops up while the tab is in the background or its window is behind another; click it to open that chat',
-          'Play a sound: two notes when a reply is done, three when you are needed',
-          'On your phone, open Settings → Connect your phone for the iPhone or Android illustrated guide. On iPhone, launch the Home Screen icon before enabling Lock Screen notifications',
-          'Choose only "A reply is done" or "I am needed" if you like, and send a test notification to try it',
-        ],
-      },
-      {
-        title: 'Notifications from the team',
-        body: 'The bell at the top of the sidebar, left of the collapse button, keeps every notification from the team, also those that came while no page was open: a reply done or ended with an error, an approval waiting, a team to confirm, a question for you, a goal held up. Its red count is how many you have not read:',
-        points: [
-          'Click the bell to see them, the newest first; click one to open its chat',
-          'Opening a chat marks its notifications read; "Mark all as read" and "Clear all" are at the bottom',
-          'Every signed-in browser sees the same list; with the sidebar collapsed, the bell is in the top-left corner, right of the expand button; on a phone, a dot on the menu button says some are unread',
-        ],
-      },
-      {
-        title: 'File permission and changes',
-        body: 'Every chat has a file permission:',
-        points: [
-          'Read-only: read files, analyse, look things up on the web',
-          'Edit: change files in the working directory, run tests and builds',
-          'Approve for me: as Edit, and the lead agent approves what is safe beyond it, asking you about the rest',
-          'Full access: run any command without asking',
-          "Below full access, each agent's commands but Cursor's and Antigravity's run in a sandbox: they write only in the working directory and temp folders, and cannot read your browsers' folders or Harness Relay's data. Claude Code, Codex, Grok and Copilot use their own; the open-source agents use Harness Relay's (on native Windows only Codex and Copilot have one, and the open-source agents run only with full access). Cursor has none: every command it wants to run asks you first (or is refused, if the chat refuses automatically), except those on your Cursor team's allowlist, and one you allow runs with your full rights. So does Antigravity: every command it wants to run asks you first, and it ends its turn when you refuse one",
-          "Edit mode is refused in your home folder and in Harness Relay's own folder: choose a project's folder",
-          'Raising the permission makes every agent start a fresh session, with the whole history, at its next turn',
-          'Each turn lists the files it changed, with a diff; in parallel mode you choose whose result to apply',
-        ],
-      },
-      {
-        title: 'Team checks',
-        body: 'Set one list of rules for the whole team in Team settings or a template, or have the lead agent write it after reading the project. Team checks run in chats with Edit or Full access.',
-        points: [
-          'Protected paths: written as in .gitignore, such as .env or *.pem; the team may not create, change or delete them',
-          "Commit format: a regular expression every commit's subject must match",
-          'Commands: such as npm test, which must succeed',
-          `Hooks run around supported tool calls on macOS and Linux for ${HOOK_PROVIDERS.map((p) => PROVIDER_LABEL[p]).join(', ')}. A Before hook that fails refuses the call.`,
-          "Once the team has answered, Harness Relay checks them itself, and a card after the replies says how each went; while one fails, the members' next turns are asked to fix it, and you can Check again, Ask a member to fix it or Skip",
-          'In Parallel mode, commands check a member’s result before you apply it. In Settings → Apps and tools → Tool library, set the starting rules for new chats and automations under Hooks and Default team checks.',
-        ],
-      },
-      {
-        title: 'Browse and change files',
-        body: "Files in a chat's header (under ⋯ on a phone) opens its working directory, so you can see what the agents made without leaving the chat:",
-        points: [
-          'Code with line numbers and highlighting, Markdown rendered or as source, images and videos shown',
-          "In parallel mode, look at each member's worktree before you apply its result",
-          'Edit a text file, make a new one or upload files into the folder you are in, from a phone too; while the team is writing there, a save is refused until it is done',
-          'When the team makes an app, its preview opens by itself, and Preview at the top right shows or hides it. Preview app beside an HTML, package.json, Dockerfile or compose file link, or Preview this folder in Files, opens one too. With a Dockerfile any language runs, as its page or in a terminal you can type into. Relay offers to install Docker if the app needs it, and you can add preview errors to your message. Once it works, Publish… puts it online in your own free Render and Neon accounts (Settings → Publish to the cloud).',
-          'Download a folder as a ZIP file, the one you are in too (the whole working directory included); one too large can come without the files git ignores',
-        ],
-      },
-      {
-        title: 'Share a conversation',
-        body: "Share in a chat's header (under ⋯ on a phone) shares the whole chat; the share icon under an agent's reply shares everything up to that reply. Tool calls and thinking are left out:",
-        points: [
-          "Copy it as Markdown, or create a public link: a page that looks like the chat, put on GitHub as a secret gist with your GitHub CLI (gh) and opened on Harness Relay's website",
-          'Settings → Shared conversations lists every link; remove the ones that should go, and their gists are deleted',
-        ],
+        body: 'Hand out tasks and approve requests from your phone, while the agents keep running on this computer.',
+        action: 'Connect your phone',
       },
       {
         title: 'Automations',
-        body: 'Choose New automation (the lightning bolt beside New chat). Type a message and choose what starts it, or have the lead agent fill it in from a sentence; Common apps (four squares) picks services for each run. The lead agent designs the team. In a chat, choose Automation in its header (under ⋯ on a phone), or ask for it there: an agent proposes one you create in a click.',
-        points: [
-          'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), when something happens (a new mail, an event, a pull request or failed CI, a file), or when a program calls its webhook; a new one has no set times',
-          'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',
-          'Nobody may be watching: by default anything beyond the file permission is refused (unless you always allow it in this chat) and the agent works around it; or choose "Ask me"',
-          'It sends only while Harness Relay runs: a missed time is skipped, or sent once when it starts if you choose',
-          'A goal to track: each run is told the goal and what earlier runs reported, and says where it stands; the automation switches off once it is reached, and a run that fails is tried again',
-          'A webhook lets a program on your computer (a git hook, a CI runner) send the message now, with what it posted',
-          'A clock in the sidebar marks the conversation, amber when the last time was not sent or its last check failed',
-        ],
+        body: 'Give the team a task on a schedule, or when something happens: a new mail, a new pull request and more.',
+        action: 'New automation',
       },
       {
-        title: 'Groups, pins and search',
-        body: 'When the list grows, sort it into groups:',
-        points: [
-          'The folder button beside Search (New group) makes a group; drag conversations onto it (or use the folder button on a conversation)',
-          'The pin in a conversation\'s top-left corner keeps it under "Pinned", above the groups (on a computer, point at the conversation to see the pin)',
-          "Once you have groups, the lead agent puts each new conversation in the group it fits, and the lead agent's button beside New group suggests how to organize them all",
-          'The lead agent also gives each new chat a short title from its first message (switch it off in Settings → Lead agent)',
-          '"Search" looks through titles and everything you and the agents wrote',
-        ],
-      },
-      {
-        title: 'Connect apps to your chats',
-        body: 'Open Settings → Apps and tools → Common apps and choose a service. For Teams, sign in with a Microsoft work or school account. For Slack, choose the assistant you use in Relay.',
-        points: [
-          'For Gmail, Google Calendar or Google Drive, sign in to Google from the service’s row. On each Drive account card you can enable document editing or remove Drive while keeping Gmail and Calendar. Account sign-in settings (OAuth 2.0) has setup guides and lets you disconnect an entire Google or Microsoft account.',
-          'Choose assistants on the tool’s row. For Slack, open Send from Relay to choose who can draft messages. Relay shows a preview before posting a message, changing an Obsidian note or writing a Google document.',
-          'To add a custom tool, skill or shared instruction, switch to the Tool library tab.',
-        ],
-      },
-      {
-        title: 'Long-term memory',
-        body: 'An experiment, off until you turn it on in Settings → Labs → Long-term memory. Agents then keep what they learn in one chat that later chats can use: your preferences and decisions, facts they checked, mistakes to avoid. Ask an agent to remember something, or let it judge what is worth keeping.',
-        points: [
-          'A reply that saved a note shows it in a Long-term memory card under its text: Set aside stops agents getting it, and Restore brings it back',
-          'Pinned notes come with every chat; the others reach an agent when they bear on what you said',
-          'Settings → Labs → Long-term memory turns it on and off, lists every note to search, edit, pin, set aside or delete, and can hold new notes until you keep them',
-          'Now and then the lead agent tidies the notes against the chats they came from; it never changes notes you wrote',
-        ],
-      },
-      {
-        title: 'Agent sessions and AgentsView',
-        body: 'Want a close look at what each agent did? In Settings → Agent sessions:',
-        points: [
-          'Give the CLIs a folder of their own (such as ~/.relay-agents): their sign-in, settings and session records stay apart from your own use of the CLIs',
-          "Enter AgentsView's address: each conversation becomes one thread in AgentsView, with each agent's own session under it, including tool calls, tokens and cost",
-          'Both are optional, and only an AgentsView on this computer is accepted',
-        ],
-      },
-      {
-        title: 'Adjust any time',
-        body: "In Settings you can switch the language (繁體中文 / English), set up API keys and endpoints (the open-source agents run on them, and Claude Code, Codex, Grok and GitHub Copilot on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, turn each CLI's own subagents and Claude Code's and Grok's workflows on or off, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.",
-        points: [
-          'Version, the first card: the version you have; the desktop app checks for a new one every hour, offers it once in a dialog, and updates from there, from the card or from its menu',
-          'The speech-bubble button at the right end of the Settings & sign-in row reports a problem or an idea by email, with the version and system details, and screenshots if you like',
-          'Labs, the last card: experimental features, each off until you turn it on, such as long-term memory and assistants scripting the tools',
-        ],
+        title: 'Common apps',
+        body: 'Connect Gmail, your calendar, Slack and more for the agents to look things up; nothing is sent before you confirm it.',
+        action: 'Open Common apps',
       },
     ],
   },
