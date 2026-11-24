@@ -261,7 +261,10 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
       return { type: 'text', text: `[Harness Relay: ${p.text}]` };
     case 'secrets':
       // Names and answers only: a value is never in the chat.
-      return { type: 'text', text: `[Asked the user for secrets: ${p.asks.map((a) => `${a.name} (${a.status})`).join(', ')}]` };
+      return {
+        type: 'text',
+        text: `[${p.byRelay ? 'Harness Relay asked the user for secrets a proposed command needs' : 'Asked the user for secrets'}: ${p.asks.map((a) => `${a.name} (${a.status})`).join(', ')}]`,
+      };
     case 'command':
       return {
         type: 'text',

@@ -1185,6 +1185,8 @@ export const zhTW = {
   handoffs: {
     secrets: {
       label: (agent: string) => `@${agent} 要的密鑰`,
+      labelRelay: (agent: string) => `@${agent} 提議的固定指令需要的密鑰`,
+      byRelay: '這些是 Harness Relay 代為詢問的：這則回覆提議的固定指令需要它們，但 agent 沒有要。',
       title: '需要你提供密鑰',
       hint: '值只存在這台電腦的憑證儲存區，給這個工作目錄用：不會進入聊天，也不會交給任何 agent，只有列出它的固定指令拿得到。Harness Relay 從不需要你帳號本身的密碼。',
       folder: (folder: string) => `工作目錄：${folder}`,

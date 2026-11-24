@@ -60,7 +60,7 @@ flowchart LR
 | `src/server/reviewer.ts` | 首席 agent 審閱：首席 agent 從上次審閱之後讀到的團隊回覆、它的 prompt，以及把它的 JSON 回覆轉成審閱結果（`src/shared/review.ts`：找出它引用的文字，與聊天畫面共用） |
 | `src/server/grouping.ts` | 側邊欄群組：首席 agent 在背景依新對話的第一則訊息，把它分到使用者的某個群組（`AutoGrouper`） |
 | `src/server/memory.ts` | 長期記憶：回覆中的 `<remember>` 與 `<forget>` 區塊對記憶做了什麼、使用者的修改、一個回合拿到哪些記憶，以及首席 agent 在背景整理記憶（`LongTermMemory`；區塊與挑選記憶的方式在 `src/shared/memory.ts`）；見[長期記憶](#長期記憶) |
-| `src/server/handoffs.ts`、`src/server/fixedCommands.ts` | 密鑰與固定指令：工作目錄的密鑰（值在憑證儲存區，名稱在 `app_settings`）與固定指令、指令的鎖定，以及它在 Harness Relay 自己的沙箱裡執行，密鑰放在檔案裡、輸出經過遮蔽（回覆區塊在 `src/shared/handoffs.ts`）；見[密鑰與固定指令](#密鑰與固定指令) |
+| `src/server/handoffs.ts`、`src/server/fixedCommands.ts`、`src/server/handoffGaps.ts` | 密鑰與固定指令：回覆漏掉的卡片（`handoffGaps.ts`）、工作目錄的密鑰（值在憑證儲存區，名稱在 `app_settings`）與固定指令、指令的鎖定，以及它在 Harness Relay 自己的沙箱裡執行，密鑰放在檔案裡、輸出經過遮蔽（回覆區塊在 `src/shared/handoffs.ts`）；見[密鑰與固定指令](#密鑰與固定指令) |
 | `src/server/prompt.ts` | 角色簡報（system prompt）、每回合的 prompt、`@` 解析、`[PASS]` 判斷 |
 | `src/server/approvals.ts` | 「本對話都允許」的規則 key 與比對 |
 | `src/server/commands.ts` | 解析一行 shell 指令實際會執行哪些程式（串接、命令替換、`sh -c`／`eval`、`env`／`sudo`、保留字與 `if`／`while`／`for` 等複合指令、git 的全域選項）：用於核准規則 key，以及 Grok、Copilot 與開源 agent 的推送／發佈判斷 |
@@ -546,6 +546,16 @@ agent 的 CLI 在這段期間會一直等待；每回合的安全逾時（1 天�
 - `<command-run name="post">輸入</command-run>`：把已儲存指令的一次執行放進待送出匣（`FIXED_COMMAND_TOOL`，參數是指令的 id、卡片當時顯示的指令，以及輸入）；資料夾沒有這個名稱的指令時，改留一個 `notice`。它不會詢問使用者。
 
 超過每則回覆上限的區塊（5 個密鑰、3 個指令、2 個互動指令）不會有卡片：一個 `notice` part 會寫明是哪些（`leftOutNotice()`），它的 `forAgent` 文字會在那個 agent 的下一輪告訴它一次（`prompt.ts` 的 `notesForAgent()`、`TurnInfo.notes`，以 `notice:<id>` 記在它的 `seen`）。
+
+**回覆漏掉的卡片。** agent 可能只用文字提到卡片，卻沒寫出它的區塊（回覆說「請提供 token 並試跑指令」，裡面卻沒有 `<secret>` 或 `<command>`），使用者就沒有東西可以回答。briefing 會說明文字不會變成卡片；而且回覆結束後（pass 的回覆除外），orchestrator 不管回覆怎麼寫，都會檢查三種能確定判斷的缺漏（`replyGaps()`；`src/server/handoffGaps.ts` 的 `handoffGaps()`）：
+
+- 在沒有提議任何指令的回覆裡（有提議的 agent 知道怎麼做：它沒提到的腳本多半是輔助模組），這一輪新增、讀取 `$RELAY_SECRETS_FILE` 的腳本，或改到讀取它那幾行的腳本，卻沒有固定指令執行它：這個資料夾沒有已儲存、也沒有在等待中的卡片上提議的指令，其指令列提到這個腳本的檔名，或在會這樣稱呼腳本的地方提到不含副檔名的名稱（Python 模組 `python3 -m pkg.download`；套件管理器的 script `npm run fetch`、`yarn fetch`；make 或 just 的目標）：其他字（`git checkout main` 裡的 `main`）都不算提到腳本；
+- 這則回覆提議的指令執行這種腳本，卻沒有指名任何密鑰（沒寫 `secrets=`）：執行時拿不到密鑰；
+- 這則回覆提議的指令用到某個密鑰，但它既沒有保管，也沒有卡片在要（等待中或已拒絕），而且回覆在上限內還放得下一張卡片。
+
+原生 Windows 上不檢查，那裡固定指令不會執行。這一輪的檔案從磁碟讀取：工作目錄的，平行模式則讀 agent 的 worktree（最多 500 個檔案，每個讀前 1 MB，總共 32 MB，絕不透過連結，讀取時不會卡住伺服器）；只有不知道 worktree 在哪時才透過 git 讀（最多 20 個）。只有讀取它的被修改檔案，才對儲存庫跑一次 `git diff -G`，看改動的行是否提到它（`workspace.ts` 的 `changedWithWord()`，路徑照字面使用）。文字說明、二進位檔和已刪除的檔案不算；含控制字元或隱藏字元、或超過 300 個字元的路徑也不算，讓檔名永遠不會被當成 Harness Relay 自己的話（提到路徑時都會加上引號）。
+
+發現缺漏、而且有人可以回答時（不是自動化的執行，CLI 也留有 session），會用同一個 session 為同一則回覆再跑一次，只帶 `handoffRepairPrompt()`：不送出聊天內容，也不記為已讀，使用者在這期間送出的訊息也不會進入這次執行（不會 steer：它在佇列裡等）。回覆還在寫的時候，它的卡片會拒絕回答（409），因為回答會卡在回覆最後的提問後面。這個提示列出缺什麼，只要求補上區塊；若腳本不是要做成固定指令、其實不讀密鑰，或已有儲存的指令執行它，就回 `[PASS]`。回覆會多一個 `notice` 說 Harness Relay 已請它補上（若 pass 之後沒有缺漏、這次執行也沒說別的，就再拿掉）。這次執行的區塊會像回覆本身的一樣變成卡片（`takeHandoffs(…, { again: true })`）：用回覆裡已有的名稱再提議的指令，會在使用者還沒決定前取代那張卡片；回覆已經要的密鑰不會再多一張卡片；回覆已有的卡片也算進各自的上限。它的費用和 token 數加到回覆上。它的筆記和提議的排程會像任何回覆一樣取出；補問的執行失敗或被停止時，回覆維持原樣，它寫出的交接與步驟區塊會像失敗的回覆那樣被取出而不執行，它的花費也會加上去。這一輪的改動在檢查前記錄，只有那次執行用了工具時，才在這一輪結束時再記錄一次（第一次的快照就不保留）。之後仍缺的（自動化的執行則立即）由 Harness Relay 自己補上（`fillGaps()`）：為這些密鑰做一張它自己的 `secrets` 卡片（`byRelay`：卡片和它的名稱都會說明是 Harness Relay 在問），每個的原因寫明是哪個指令需要它，並向使用者提問；並為每個沒有指令的腳本、每個沒有指名密鑰的指令各加一個 `notice`，它的 `forAgent` 會在 agent 的下一輪告訴它（notice 的 `forAgent` 存在 `message_parts.data`，重新啟動也不會遺失）。它無法判斷的：agent 只用文字要密鑰，沒有腳本也沒有指令；同一則回覆另外提議了無關的指令時旁邊的腳本；以及原生 Windows 上的一切。這些只能靠 briefing 防範。
 
 回覆串流時，`withoutHandoffBlocks()` 會把區塊藏起來，包括還在寫的那個（以及結尾還在打的標籤，例如 `<se`）。失敗或被停止的回覆不會詢問任何事：它的區塊會被取出而不執行。對話現在無法接收時（`cardAnswerable()`：暫時被佔住、佇列已滿），卡片的回答（密鑰、指令的儲存、不儲存或分享、互動指令的送出或不執行）會在卡片決定之前就被拒絕（409），卡片可以再回答；如果在最後一刻才被拒絕，回答會在佇列裡等著。分支複製到的、執行還在進行的指令卡片會顯示已停止。兩種 part 都以 JSON 存在 `message_parts`（`data`），AgentsView 收到的是一行文字（名稱和狀態，從不含值）。
 

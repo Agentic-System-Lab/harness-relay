@@ -350,7 +350,29 @@ const LONG_COMMAND = [
   'EOF',
 ].join('\n');
 
+/** `e2e:secretscript`'s script: it reads its secrets as a fixed command's script does. */
+const SECRETS_SCRIPT = '#!/bin/sh\ncat "$RELAY_SECRETS_FILE"\n';
+
+/**
+ * The answer to Harness Relay asking once more for the cards a reply left out (`handoffRepairPrompt()`):
+ * a fixed command for each script it names, with the token it reads, and each secret it names; the pass
+ * token when it names none.
+ */
+function repairReply(prompt) {
+  const scripts = [...prompt.matchAll(/^- The file ("(?:[^"\\]|\\.)*"), which you wrote in this turn, reads \$RELAY_SECRETS_FILE/gm)].map(
+    (m) => JSON.parse(m[1]),
+  );
+  const secrets = [...prompt.matchAll(/names the secret (\w+), which is not kept/g)].map((m) => m[1]);
+  if (!scripts.length && !secrets.length) return '[PASS]';
+  const names = [...new Set([...(scripts.length ? ['E2E_TOKEN'] : []), ...secrets])];
+  return [
+    ...names.map((n) => `<secret name="${n}" label="E2E token">The fake needs it for the e2e check.</secret>`),
+    ...scripts.map((path, i) => `<command name="e2e-fetch${i ? `-${i + 1}` : ''}" secrets="E2E_TOKEN">sh ${path}</command>`),
+  ].join('\n');
+}
+
 function plan(prompt, turn) {
+  if (prompt.includes('Harness Relay checked your reply before the user answers it')) return [{ type: 'text', text: repairReply(prompt) }];
   if (prompt.includes(MODEL_CHECK_PROMPT)) {
     const fails = process.env.E2E_FAIL_MODEL_CHECK_CLIS?.split(',').includes(self.cli());
     return [{ type: 'text', text: fails ? 'Model unavailable' : 'RELAY_MODEL_OK' }];
@@ -426,6 +448,9 @@ function plan(prompt, turn) {
   const content = `Written by ${me} (${self.label()}).\n`;
   if (typeof d.write === 'string') steps.push({ type: 'write', path: d.write, content });
   if (typeof d.writeother === 'string') steps.push({ type: 'write', path: d.writeother, other: true, content });
+  // A script for a fixed command, which the reply then tells of in words only, with no card.
+  const secretScript = d.secretscript ? (typeof d.secretscript === 'string' ? d.secretscript : 'fetch.sh') : undefined;
+  if (secretScript) steps.push({ type: 'write', path: secretScript, content: SECRETS_SCRIPT });
   const answered = /You asked the user a question and their reply is among the messages above/.test(prompt);
   let text = answered ? `Thanks, ${me} got your answer: “${said}”.` : `Hello from ${me} (${self.label()}). You said: “${said}”.`;
   if (turn.images) text += ` I got ${turn.images} image${turn.images === 1 ? '' : 's'}.`;
@@ -473,6 +498,7 @@ function plan(prompt, turn) {
     const publishes = d.publishes ? ' publishes="yes"' : '';
     text += `\n\n<command name="${name}" secrets="E2E_TOKEN"${publishes} input="hello from the agent">cat "$RELAY_SECRETS_FILE"; printf 'input: %s\\n' "$(cat)"</command>`;
   }
+  if (secretScript) text += `\n\nI wrote ${secretScript}: give the token on its card, then save and try the command.`;
   if (d.commandrun) {
     const name = typeof d.commandrun === 'string' ? d.commandrun : 'e2e-check';
     text += `\n\n<command-run name="${name}">hello from the outbox</command-run>`;

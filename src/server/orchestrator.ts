@@ -113,6 +113,7 @@ import {
   type PinEntry,
 } from './fixedCommands';
 import type { CommandPin } from './handoffs';
+import { handoffGaps, secretsScripts, type HandoffGap } from './handoffGaps';
 import { defaultInteractiveDeps, InteractiveRun, workdirConfigFiles, workdirDigest, type InteractiveDeps } from './interactive';
 import { splitSchedule } from '../shared/scheduleProposal';
 import type { Hub } from './hub';
@@ -157,6 +158,7 @@ import {
   buildBriefing,
   buildSteerPrompt,
   buildTurnPrompt,
+  handoffRepairPrompt,
   handoffsNow,
   scheduleNow,
   notesForAgent,
@@ -837,6 +839,17 @@ function takeHandoffBlocks(msg: ChatMessage): HandoffBlock[] {
   return blocks;
 }
 
+/** What two runs of one turn spent together (a reply's turn and the run that asked it for its missing cards). */
+function addUsage(a: RunResult, b: RunResult): RunResult {
+  const sum = (x?: number, y?: number) => (x === undefined && y === undefined ? undefined : (x ?? 0) + (y ?? 0));
+  return {
+    ...a,
+    costUsd: sum(a.costUsd, b.costUsd),
+    inputTokens: sum(a.inputTokens, b.inputTokens),
+    outputTokens: sum(a.outputTokens, b.outputTokens),
+  };
+}
+
 /** An interactive command's run from its card, by its conversation and card (a branch copies a card's id). */
 const interactiveKey = (convId: string, partId: string) => `${convId}\u0000${partId}`;
 
@@ -1334,19 +1347,32 @@ export class Orchestrator {
   /**
    * Takes a finished reply's hand-off blocks out of its text and records them: the secrets it asks for
    * and the fixed commands it proposes become cards that wait for the user (returns whether there is
-   * one); a run of a saved fixed command goes to the outbox, for the user to send.
+   * one); a run of a saved fixed command goes to the outbox, for the user to send. `again`: a second
+   * take-out for the same reply (the run that asked for the cards it left out), where what the reply has
+   * already counts against each limit, and a secret it asks for or a command it proposes already gets
+   * no second card.
    */
-  private takeHandoffs(conv: Conversation, msg: ChatMessage, agent: AgentConfig, o: { automation?: boolean } = {}): boolean {
+  private takeHandoffs(
+    conv: Conversation,
+    msg: ChatMessage,
+    agent: AgentConfig,
+    o: { automation?: boolean; again?: boolean } = {},
+  ): boolean {
     const blocks = takeHandoffBlocks(msg);
     if (!blocks.length) return false;
     const folder = this.handoffFolder(conv);
     const store = this.settings.handoffs;
+    const had = {
+      secrets: new Set(o.again ? msg.parts.flatMap((p) => (p.type === 'secrets' ? p.asks.map((a) => a.name) : [])) : []),
+      commands: new Set(o.again ? msg.parts.flatMap((p) => (p.type === 'command' ? [p.proposal.name] : [])) : []),
+      interactive: o.again ? msg.parts.filter((p) => p.type === 'interactive').length : 0,
+    };
     const asks: SecretAsk[] = [];
     // The blocks past a reply's limits: the user and, on its next turn, the agent are told which.
     const left = { secrets: [] as string[], commands: [] as string[], interactive: 0 };
     for (const b of blocks) {
-      if (b.kind !== 'secret' || asks.some((a) => a.name === b.name)) continue;
-      if (asks.length >= HANDOFF_LIMITS.secretsPerReply) {
+      if (b.kind !== 'secret' || asks.some((a) => a.name === b.name) || had.secrets.has(b.name)) continue;
+      if (had.secrets.size + asks.length >= HANDOFF_LIMITS.secretsPerReply) {
         if (!left.secrets.includes(b.name)) left.secrets.push(b.name);
         continue;
       }
@@ -1362,9 +1388,25 @@ export class Orchestrator {
     if (asks.length) msg.parts.push({ type: 'secrets', id: randomUUID(), folder, asks });
     let proposed = 0;
     const renewed = new Set<string>();
+    let replaced = false;
     for (const b of blocks) {
       if (b.kind !== 'command') continue;
-      if (proposed >= HANDOFF_LIMITS.commandsPerReply) {
+      if (had.commands.has(b.name)) {
+        // Proposed again by the run that asked for left-out cards (its secrets named, say): it replaces the
+        // reply's own card of that name, while the user has not decided it.
+        const card = msg.parts.find(
+          (p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command' && p.proposal.name === b.name,
+        );
+        if (card?.status === 'proposed') {
+          const { kind: _kind, input, ...proposal } = b;
+          card.proposal = proposal;
+          if (input) card.input = input;
+          else delete card.input;
+          replaced = true;
+        }
+        continue;
+      }
+      if (had.commands.size + proposed >= HANDOFF_LIMITS.commandsPerReply) {
         if (!left.commands.includes(b.name)) left.commands.push(b.name);
         continue;
       }
@@ -1395,7 +1437,7 @@ export class Orchestrator {
     const blocked = this.interactiveDeps.platform === 'win32' ? 'windows' : o.automation ? 'automation' : undefined;
     for (const b of blocks) {
       if (b.kind !== 'interactive') continue;
-      if (interactive >= INTERACTIVE_LIMITS.perReply) {
+      if (had.interactive + interactive >= INTERACTIVE_LIMITS.perReply) {
         left.interactive++;
         continue;
       }
@@ -1454,7 +1496,98 @@ export class Orchestrator {
           command: { id: cmd.id },
         });
     }
-    return asks.length > 0 || proposed > 0 || interactive > 0;
+    return asks.length > 0 || proposed > 0 || interactive > 0 || replaced;
+  }
+
+  /**
+   * The cards a finished reply leaves the user without (`handoffGaps()`): a script its turn wrote that
+   * reads $RELAY_SECRETS_FILE in a reply that proposes no command and with none to run it (not on native
+   * Windows, where no fixed command runs), and a secret a command it proposes names that is neither kept
+   * nor asked for on a card, while the reply has room for one; and a command it proposes that runs such
+   * a script but names no secret. None for a reply that passed. `worktrees`: a parallel turn's, whose
+   * files are read there. `scripts`: those found already (a second check reads no file again). None
+   * when they cannot be told (a working directory gone): the reply stands as it is.
+   */
+  private async replyGaps(
+    conv: Conversation,
+    msg: ChatMessage,
+    o: { worktrees?: readonly AgentWorktree[]; scripts?: string[] } = {},
+  ): Promise<{ gaps: HandoffGap[]; scripts: string[] }> {
+    try {
+      return await this.gapsOf(conv, msg, o);
+    } catch (err) {
+      console.warn('[orchestrator] could not check the cards a reply needs:', (err as Error).message);
+      return { gaps: [], scripts: [] };
+    }
+  }
+
+  private async gapsOf(
+    conv: Conversation,
+    msg: ChatMessage,
+    o: { worktrees?: readonly AgentWorktree[]; scripts?: string[] },
+  ): Promise<{ gaps: HandoffGap[]; scripts: string[] }> {
+    if (isPass(textOf(msg))) return { gaps: [], scripts: [] };
+    const folder = this.handoffFolder(conv);
+    const proposed = msg.parts.flatMap((p) => (p.type === 'command' ? [p.proposal] : []));
+    // Read only where they would count: no command proposed, or one that names no secret.
+    const count = !proposed.length || proposed.some((c) => !c.secrets.length);
+    const scripts =
+      o.scripts ??
+      (this.fixedCommandDeps.platform === 'win32' || !count
+        ? []
+        : await secretsScripts(msg.changes, folder, (root) => o.worktrees?.find((w) => w.root === root)?.path));
+    const room = HANDOFF_LIMITS.secretsPerReply - msg.parts.reduce((n, p) => n + (p.type === 'secrets' ? p.asks.length : 0), 0);
+    if (!scripts.length && !(room > 0 && proposed.some((c) => c.secrets.length))) return { gaps: [], scripts };
+    const store = this.settings.handoffs;
+    const parts = [...conv.messages.filter((m) => m !== msg), msg].flatMap((m) => m.parts);
+    const gaps = handoffGaps({
+      scripts,
+      commands: [
+        ...store.commands(folder),
+        ...parts.flatMap((p) => (p.type === 'command' && p.folder === folder && p.status === 'proposed' ? [p.proposal] : [])),
+      ],
+      proposed,
+      asked: new Set([
+        ...store.secretNames(folder).map((s) => s.name),
+        ...parts.flatMap((p) =>
+          p.type === 'secrets' && p.folder === folder ? p.asks.filter((a) => a.status !== 'saved').map((a) => a.name) : [],
+        ),
+      ]),
+    });
+    // The secrets past the reply's limit could get no card, neither from the agent nor from Harness Relay.
+    let secrets = 0;
+    return { gaps: gaps.filter((g) => g.kind !== 'secret' || secrets++ < room), scripts };
+  }
+
+  /**
+   * What a reply still leaves the user without once its agent was asked for it, or could not be: a card
+   * of Harness Relay's own for the secrets its proposed commands name, and a note of each script no
+   * command runs, for the user and, at its next turn, the agent. Returns whether it asks the user.
+   */
+  private fillGaps(conv: Conversation, msg: ChatMessage, agent: AgentConfig, gaps: readonly HandoffGap[]): boolean {
+    const asks: SecretAsk[] = gaps.flatMap((g) =>
+      g.kind === 'secret' ? [{ name: g.name, reason: t().handoffs.secretForCommand(g.command), status: 'waiting' as const }] : [],
+    );
+    if (asks.length) msg.parts.push({ type: 'secrets', id: randomUUID(), folder: this.handoffFolder(conv), asks, byRelay: true });
+    for (const g of gaps) {
+      if (g.kind !== 'unnamed') continue;
+      msg.parts.push({
+        type: 'notice',
+        text: t().handoffs.commandWithoutSecrets(agent.name, g.command, g.path),
+        forAgent: `The fixed command "${g.command}" your last reply proposed runs the file ${JSON.stringify(g.path)}, which reads $RELAY_SECRETS_FILE, but names no secret, so a run of it gets none. If it needs secrets, propose it again with secrets="…" naming them, and a <secret> block for each not kept yet.`,
+      });
+    }
+    const scripts = gaps.flatMap((g) => (g.kind === 'script' ? [g.path] : []));
+    if (scripts.length) {
+      const one = scripts.length === 1;
+      const named = scripts.map((p) => JSON.stringify(p)).join(', ');
+      msg.parts.push({
+        type: 'notice',
+        text: t().handoffs.scriptWithoutCommand(agent.name, scripts),
+        forAgent: `The file${one ? '' : 's'} ${named}, which your last reply wrote, ${one ? 'reads' : 'read'} $RELAY_SECRETS_FILE, but no fixed command runs ${one ? 'it' : 'them'}, so the user got no card to save and try ${one ? 'it' : 'them'} with. If ${one ? 'it is' : 'they are'} meant to run as a fixed command, propose ${one ? 'it' : 'them'} with a <command> block, and a <secret> block for each secret not kept yet.`,
+      });
+    }
+    return asks.length > 0;
   }
 
   /**
@@ -1524,9 +1657,12 @@ export class Orchestrator {
    * Refuses, as `send()` would, the user's answer on a card while it could not be posted (the conversation
    * held for a moment, its queue full): asked before the card is decided, so that it can be answered again.
    */
-  private cardAnswerable(convId: string): void {
+  private cardAnswerable(convId: string, msg?: ChatMessage): void {
     const conv = this.store.get(convId);
     if (!conv) throw new HttpError(404, t().conversationNotFound);
+    // Its reply still being written (its agent asked once more for the cards it left out): the answer
+    // would wait behind the question that reply ends with, so it waits for the reply instead.
+    if (msg?.status === 'streaming') throw new HttpError(409, t().handoffs.replyWriting);
     if (this.queues(conv)) {
       if ((conv.queue?.length ?? 0) >= MAX_QUEUE) throw new HttpError(409, t().queueFull(MAX_QUEUE));
       return;
@@ -1548,7 +1684,7 @@ export class Orchestrator {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'secrets');
     const waiting = part.asks.filter((a) => a.status === 'waiting');
     if (!waiting.length) throw new HttpError(409, t().handoffs.cardDecided);
-    this.cardAnswerable(convId);
+    this.cardAnswerable(convId, msg);
     let saved: string[] = [];
     if (!answer.decline) {
       const values = Object.fromEntries(
@@ -1703,7 +1839,7 @@ export class Orchestrator {
   async dismissCommand(convId: string, messageId: string, partId: string): Promise<void> {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
-    this.cardAnswerable(convId);
+    this.cardAnswerable(convId, msg);
     part.status = 'dismissed';
     this.saveCard(conv, msg);
     await this.answerCard(convId, t().handoffs.commandDismissed(part.proposal.name));
@@ -1716,7 +1852,7 @@ export class Orchestrator {
   async answerCommand(convId: string, messageId: string, partId: string, share: boolean): Promise<void> {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'command');
     if (part.status !== 'saved') throw new HttpError(409, t().handoffs.cardDecided);
-    this.cardAnswerable(convId);
+    this.cardAnswerable(convId, msg);
     const run = share && part.run && part.run.status !== 'running' ? part.run : undefined;
     // Sent as the answer: the chat has it, so the agent's next turn does not tell it again (`commandRunNotes()`).
     // Marked before it is sent (the turn it starts reads it), and not, should it go nowhere.
@@ -2234,7 +2370,7 @@ export class Orchestrator {
     if (!session || this.interactive.has(interactiveKey(convId, part.id)) || session.state === 'running')
       throw new HttpError(409, t().handoffs.interactiveNotEnded);
     if (session.sent) throw new HttpError(409, t().handoffs.cardDecided);
-    this.cardAnswerable(convId);
+    this.cardAnswerable(convId, msg);
     const values = Object.values(this.settings.handoffs.values(part.folder));
     const output = maskValues(session.output, values);
     part.session = { ...session, output, sent: true };
@@ -2246,7 +2382,7 @@ export class Orchestrator {
   async dismissInteractive(convId: string, messageId: string, partId: string): Promise<void> {
     const { conv, msg, part } = this.handoffCard(convId, messageId, partId, 'interactive');
     if (part.status !== 'proposed') throw new HttpError(409, t().handoffs.cardDecided);
-    this.cardAnswerable(convId);
+    this.cardAnswerable(convId, msg);
     part.status = 'dismissed';
     this.saveCard(conv, msg);
     await this.answerCard(convId, t().handoffs.interactiveDismissed(part.run));
@@ -6531,6 +6667,24 @@ export class Orchestrator {
     }
 
     let textOpen = false;
+    /** The turn's file changes are in `msg.changes` as they are now (a run since may change more). */
+    let changesKept = false;
+    const recordChanges = async () => {
+      if (!before) return;
+      const earlier = msg.changes;
+      try {
+        msg.changes = await this.captureChanges(conv.id, before, run.ws.isolated ? wts : undefined, agent);
+        if (msg.changes?.some((c) => !c.isolated && c.files.length)) this.markChecksStale(conv);
+        // Recorded again (the run that asked for left-out cards changed files too): the first snapshot is not kept.
+        for (const c of earlier ?? []) {
+          if (c.head !== c.base && msg.changes?.find((n) => n.root === c.root)?.head !== c.head)
+            await forgetCommits(c.root, conv.id, [c.head]);
+        }
+      } catch (err) {
+        console.warn('[orchestrator] could not record changes:', (err as Error).message);
+      }
+      changesKept = true;
+    };
     /** What this agent had seen before the current attempt (what a crash mid-turn should keep). */
     let committedSeen = state.seen;
     /** Approval requests of this turn still waiting for the user (expired when the turn ends). */
@@ -6791,7 +6945,9 @@ export class Orchestrator {
 
     // The tokens RLM's sub-model spent on this turn's questions (`llm_query()`), over both attempts.
     const subModel: SubModelTokens = { inputTokens: 0, outputTokens: 0 };
-    const attempt = async (fresh: boolean): Promise<RunResult> => {
+    // `repair`: the turn's reply left out cards it needs (`handoffGaps()`), and this one more run of the same
+    // session asks for them, in the same reply: its prompt alone, nothing of the chat delivered nor seen.
+    const attempt = async (fresh: boolean, repair?: string): Promise<RunResult> => {
       if (fresh) {
         state.sessionId = undefined;
         state.seen = [];
@@ -6799,61 +6955,64 @@ export class Orchestrator {
         textOpen = false;
         this.hub.emit(conv.id, { type: 'message', message: msg });
       }
-      const seen = new Set(state.seen);
-      // Everything this agent hasn't been shown yet, including its own earlier replies when starting fresh.
-      // Messages still streaming (parallel peers) stay unseen and are delivered next turn.
-      // Of the team checks' results, only the latest: one that later checks replaced is not the team's to fix.
-      // The one the user asked this member to fix is shown again, also when it was seen.
-      const latest = latestChecks(conv.messages)?.id;
-      const delta = conv.messages.filter(
-        (m) => m.id !== msg.id && isForwardable(m) && (!m.checks || m.id === latest) && (!seen.has(m.id) || m.id === run.fixChecks),
-      );
-      // Long-term memory's notes that match what was said, once per session (kept in `seen` with the messages).
-      const recalled = this.memory.recall(conv, delta, seen);
-      // What Harness Relay noted about its last reply (cards left out of it), told once.
-      const noted = notesForAgent(conv, agent.id, msg.id, seen);
-      // How what it put in the outbox ended (sent, failed, discarded), and the runs the user tried from the
-      // cards of the commands it proposed, told once.
-      const outcomes = outboxNotes(conv, agent.id, seen);
-      const tried = commandRunNotes(conv, agent.id, seen);
-      // The working directory's secrets and fixed commands, told when they changed since this session
-      // last heard them (kept in `seen` as `handoffs:<digest>`), never in the briefing (`handoffsNow()`).
-      const handoffs = this.handoffsNow(conv, seen);
-      // This chat's automation, told when it changed since this session last heard it (`schedule:<digest>`).
-      const scheduled = this.scheduleNow(conv, seen);
-      const prompt = buildTurnPrompt(
-        conv,
-        agent,
-        delta,
-        !state.sessionId,
-        {
-          ...info,
-          notes: [...noted.notes, ...outcomes.notes, ...tried.notes],
-          ...(handoffs ? { handoffs: handoffs.text } : {}),
-          ...(scheduled ? { schedule: scheduled.text } : {}),
-        },
-        recalled,
-      );
-      const files = delta.flatMap((m) =>
-        m.author.kind === 'user' ? m.parts.filter((p): p is AttachmentPart => p.type === 'attachment') : [],
-      );
       const seenBefore = state.seen;
       committedSeen = seenBefore;
-      state.seen = [
-        ...state.seen.filter((k) => !(handoffs && k.startsWith(HANDOFFS_SEEN)) && !(scheduled && k.startsWith(SCHEDULE_SEEN))),
-        ...delta.map((m) => m.id).filter((id) => !seen.has(id)),
-        ...recalled.map((n) => memorySeenKey(n.id)),
-        ...(noted.id ? [`notice:${noted.id}`] : []),
-        ...outcomes.ids.map((id) => `outbox:${id}`),
-        ...tried.keys,
-        ...(handoffs ? [handoffs.key] : []),
-        ...(scheduled ? [scheduled.key] : []),
-      ];
+      let prompt: string;
+      let files: AttachmentPart[] = [];
+      if (repair !== undefined) prompt = repair;
+      else {
+        const seen = new Set(state.seen);
+        // Everything this agent hasn't been shown yet, including its own earlier replies when starting fresh.
+        // Messages still streaming (parallel peers) stay unseen and are delivered next turn.
+        // Of the team checks' results, only the latest: one that later checks replaced is not the team's to fix.
+        // The one the user asked this member to fix is shown again, also when it was seen.
+        const latest = latestChecks(conv.messages)?.id;
+        const delta = conv.messages.filter(
+          (m) => m.id !== msg.id && isForwardable(m) && (!m.checks || m.id === latest) && (!seen.has(m.id) || m.id === run.fixChecks),
+        );
+        // Long-term memory's notes that match what was said, once per session (kept in `seen` with the messages).
+        const recalled = this.memory.recall(conv, delta, seen);
+        // What Harness Relay noted about its last reply (cards left out of it), told once.
+        const noted = notesForAgent(conv, agent.id, msg.id, seen);
+        // How what it put in the outbox ended (sent, failed, discarded), and the runs the user tried from the
+        // cards of the commands it proposed, told once.
+        const outcomes = outboxNotes(conv, agent.id, seen);
+        const tried = commandRunNotes(conv, agent.id, seen);
+        // The working directory's secrets and fixed commands, told when they changed since this session
+        // last heard them (kept in `seen` as `handoffs:<digest>`), never in the briefing (`handoffsNow()`).
+        const handoffs = this.handoffsNow(conv, seen);
+        // This chat's automation, told when it changed since this session last heard it (`schedule:<digest>`).
+        const scheduled = this.scheduleNow(conv, seen);
+        prompt = buildTurnPrompt(
+          conv,
+          agent,
+          delta,
+          !state.sessionId,
+          {
+            ...info,
+            notes: [...noted.notes, ...outcomes.notes, ...tried.notes],
+            ...(handoffs ? { handoffs: handoffs.text } : {}),
+            ...(scheduled ? { schedule: scheduled.text } : {}),
+          },
+          recalled,
+        );
+        files = delta.flatMap((m) => (m.author.kind === 'user' ? m.parts.filter((p): p is AttachmentPart => p.type === 'attachment') : []));
+        state.seen = [
+          ...state.seen.filter((k) => !(handoffs && k.startsWith(HANDOFFS_SEEN)) && !(scheduled && k.startsWith(SCHEDULE_SEEN))),
+          ...delta.map((m) => m.id).filter((id) => !seen.has(id)),
+          ...recalled.map((n) => memorySeenKey(n.id)),
+          ...(noted.id ? [`notice:${noted.id}`] : []),
+          ...outcomes.ids.map((id) => `outbox:${id}`),
+          ...tried.keys,
+          ...(handoffs ? [handoffs.key] : []),
+          ...(scheduled ? [scheduled.key] : []),
+        ];
+      }
       // Read on every turn, so library changes reach agents at their next turn. Its MCP servers that
       // signed in themselves get an access token each, good for a while yet; one whose sign-in needs
       // renewing is left out, with a note the agent (its briefing) and the user (the reply) see.
       const tools = await this.settings.mcpOAuth.forTurn(this.settings.tools.forAgent(agent));
-      if (tools.leftOut?.length) {
+      if (tools.leftOut?.length && repair === undefined) {
         for (const l of tools.leftOut) msg.parts.push({ type: 'notice', text: l.note });
         this.hub.emit(conv.id, { type: 'message', message: msg });
         this.store.saveMessage(conv.id, msg, true);
@@ -6881,13 +7040,17 @@ export class Orchestrator {
       const turnEnd = new AbortController();
       // Steering: while the CLI can take a message into this turn, one the user sends may go in
       // (`steerInto`, when the conversation steers: read as each message is sent).
-      steered = [];
-      const onSteer = STEER_PROVIDERS.includes(agent.provider)
-        ? (steer: SteerTurn | undefined) => {
-            if (steer && !turnEnd.signal.aborted) (run.steers ??= new Map()).set(agent.id, { steer, took });
-            else run.steers?.delete(agent.id);
-          }
-        : undefined;
+      // (A repair's run goes on with what the turn's own took.)
+      if (repair === undefined) steered = [];
+      // Never into the run that asks for left-out cards, told to write nothing else: a message the user
+      // sends meanwhile (a card's answer too) waits in the queue for the next turn.
+      const onSteer =
+        STEER_PROVIDERS.includes(agent.provider) && repair === undefined
+          ? (steer: SteerTurn | undefined) => {
+              if (steer && !turnEnd.signal.aborted) (run.steers ??= new Map()).set(agent.id, { steer, took });
+              else run.steers?.delete(agent.id);
+            }
+          : undefined;
       const turnSignal = AbortSignal.any([run.abort.signal, turnEnd.signal]);
       const hooks = this.turnHooksOf(conv, agent, [cwd, ...addDirs], workspace, turnSignal, notice);
       const relay =
@@ -7010,9 +7173,71 @@ export class Orchestrator {
       let asks = takeAsk(msg) || handedOff;
       // Steps for the user to take ask them too, before or after an ask marker (which adds nothing then).
       if (takeSteps(msg)) asks = takeAsk(msg) || true;
-      if (asks) msg.asked = true;
       if (tracked) progress ??= takeProgress(msg);
       if (tracked && progress) this.recordProgress(tracked, conv, msg, progress);
+      // A card the reply needs but left out (a script written for a fixed command with none proposed, a
+      // command that runs one and names no secret, a secret its command names that nobody asks for): asked
+      // for once more, in the same reply, where someone may answer it; what is still missing then,
+      // Harness Relay asks for itself or says.
+      await recordChanges();
+      const worktrees = run.ws.isolated ? wts : undefined;
+      let { gaps, scripts } = await this.replyGaps(conv, msg, { worktrees });
+      if (gaps.length && !run.unattended && state.sessionId && !run.abort.signal.aborted) {
+        const asking: MessagePart = { type: 'notice', text: t().handoffs.askedAgain(agent.name) };
+        textOpen = false;
+        msg.parts.push(asking);
+        const from = msg.parts.length;
+        this.hub.emit(conv.id, { type: 'message', message: msg });
+        this.store.saveMessage(conv.id, msg, true);
+        let failed = false;
+        try {
+          result = addUsage(result, await attempt(false, handoffRepairPrompt(gaps)));
+        } catch (err) {
+          // Stopped, or its CLI failed: the reply stands as it was, what that run wrote of the hand-off
+          // and steps blocks taken out unacted (as from a reply that failed), what it spent added, and
+          // what is still missing filled below.
+          failed = true;
+          if (!(err instanceof AgentRunError && err.aborted))
+            console.warn(`[orchestrator] @${agent.name} gave no missing cards:`, (err as Error).message);
+          if (err instanceof AgentRunError && err.usage) result = addUsage(result, err.usage);
+        }
+        // Its notes and a schedule it proposed are kept, as from any reply, finished or not.
+        this.takeMemory(conv, msg, agent);
+        takeSchedule(msg);
+        if (!failed) {
+          if (this.takeHandoffs(conv, msg, agent, { again: true })) asks = true;
+          if (takeAsk(msg)) asks = true;
+        } else {
+          for (let i = msg.parts.length - 1; i >= from; i--) {
+            const part = msg.parts[i]!;
+            if (part.type !== 'text') continue;
+            const text = splitAsk(withoutStepsTail(splitSteps(withoutHandoffBlocks(part.text, { partial: false })).text)).text;
+            if (text === part.text) continue;
+            if (text.trim()) part.text = text;
+            else msg.parts.splice(i, 1);
+          }
+        }
+        // The pass token alone, once the blocks are out: no script there was meant for a fixed command,
+        // reads a secret, or goes without a command that runs it.
+        let passedOn = false;
+        for (let i = msg.parts.length - 1; i >= from; i--) {
+          const part = msg.parts[i]!;
+          if (part.type === 'text' && isPass(part.text)) {
+            msg.parts.splice(i, 1);
+            passedOn = true;
+          }
+        }
+        // Its run changed files after all (it was told not to): recorded again once the turn ends.
+        if (msg.parts.slice(from).some((p) => p.type === 'tool')) changesKept = false;
+        ({ gaps } = await this.replyGaps(conv, msg, { worktrees, scripts }));
+        if (passedOn) gaps = gaps.filter((g) => g.kind === 'secret');
+        // Nothing was missing after all, and the run that asked said nothing else: the note that it was asked goes.
+        if (passedOn && !gaps.length && !msg.parts.slice(from).some((p) => p.type === 'text' || p.type === 'tool')) {
+          msg.parts.splice(msg.parts.indexOf(asking), 1);
+        }
+      }
+      if (this.fillGaps(conv, msg, agent, gaps)) asks = true;
+      if (asks) msg.asked = true;
       const text = textOf(msg);
       // A reply that only reported on the goal, only asked to send something or only gave steps said something.
       msg.passed =
@@ -7087,14 +7312,7 @@ export class Orchestrator {
       }
       turnHandovers.clear();
       // Record file changes even when the turn failed or was stopped: the files changed anyway.
-      if (before) {
-        try {
-          msg.changes = await this.captureChanges(conv.id, before, run.ws.isolated ? wts : undefined, agent);
-          if (msg.changes?.some((c) => !c.isolated && c.files.length)) this.markChecksStale(conv);
-        } catch (err) {
-          console.warn('[orchestrator] could not record changes:', (err as Error).message);
-        }
-      }
+      if (!changesKept) await recordChanges();
       run.active.delete(agent.id);
       run.turns.delete(msg.id);
       conv.updatedAt = Date.now();

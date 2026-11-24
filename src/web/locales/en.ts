@@ -1168,6 +1168,8 @@ export const en: Messages = {
   handoffs: {
     secrets: {
       label: (agent) => `Secrets @${agent} asks for`,
+      labelRelay: (agent) => `Secrets @${agent}'s fixed command needs`,
+      byRelay: 'Harness Relay asks for these: a fixed command this reply proposed needs them, and the agent did not ask.',
       title: 'Secrets needed',
       hint: "The values are kept in this computer's credential store, for this working directory: never in the chat, never given to an agent; only the fixed commands that name them get them. Harness Relay never needs the passwords of your own accounts.",
       folder: (folder) => `Working directory: ${folder}`,

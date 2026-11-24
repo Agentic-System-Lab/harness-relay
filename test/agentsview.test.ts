@@ -127,6 +127,8 @@ describe('the thread transcript', () => {
           { name: 'APP_SECRET', status: 'declined' },
         ],
       },
+      // One Harness Relay asked with itself, for a command the reply proposed.
+      { type: 'secrets', id: 's2', folder: '/w', asks: [{ name: 'KEY', status: 'waiting' }], byRelay: true },
       {
         type: 'command',
         id: 'c1',
@@ -153,6 +155,7 @@ describe('the thread transcript', () => {
     });
     const text = JSON.stringify(records(memberTranscript(member, 'g'))[1]!.message.content);
     expect(text).toContain('[Asked the user for secrets: TOKEN (saved), APP_SECRET (declined)]');
+    expect(text).toContain('[Harness Relay asked the user for secrets a proposed command needs: KEY (waiting)]');
     expect(text).toContain('[Proposed the fixed command \\"post\\": `python3 post.py` — saved, last run passed]');
     expect(text).toContain('[Handed the browser to the user (in the chat): Sign in — handed back: \\"Done\\"]');
     expect(text).toContain('[Asked the user to run `gcloud auth login` themselves — started, exited]');

@@ -437,6 +437,23 @@ export async function diffFiles(root: string, base: string, head: string): Promi
 }
 
 /**
+ * Of `paths` (the repository's, as git names them), those added or changed between two commits whose
+ * added or removed lines hold `word` (git's `-G`; a binary file has no such lines), in one git command:
+ * the scripts a turn changed where they read a variable, say. `word` is letters, digits and `_` only;
+ * each path is taken literally, never as a pattern.
+ */
+export async function changedWithWord(root: string, base: string, head: string, word: string, paths: readonly string[]): Promise<string[]> {
+  if (!/^\w+$/.test(word)) throw new Error(`Not a word: ${word}`);
+  if (!paths.length) return [];
+  const r = await git(
+    root,
+    ['diff', '--no-renames', '-z', '--name-only', '--diff-filter=AM', `-G${word}`, base, head, '--', ...paths.map((p) => `:(literal)${p}`)],
+    { maxCapture: MAX_OUTPUT_BYTES },
+  );
+  return r.stdout.split('\0').filter(Boolean);
+}
+
+/**
  * `git diff --no-renames -z --raw --numstat`'s output: first each file's raw entry,
  * ":<mode> <mode> <object> <object> <status>\0<path>\0", then each one's counts,
  * "<added>\t<deleted>\t<path>\0" ("-" for a binary file).

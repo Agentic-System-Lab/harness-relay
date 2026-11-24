@@ -915,8 +915,11 @@ describe('Store (SQLite)', () => {
       ...agentMsg,
       id: 'r1',
       parts: [
-        // What Harness Relay noted about the turn, kept with the reply as well.
+        // What Harness Relay noted about the turn, kept with the reply as well, and what the agent is told of it.
         { type: 'notice', text: 'The MCP server "linear" was left out of this turn' },
+        { type: 'notice', text: 'A card was left out', forAgent: 'Your last reply left out a card.' },
+        // A secrets card Harness Relay asks with itself, for a command the reply proposed.
+        { type: 'secrets', id: 's1', folder: '/work', asks: [{ name: 'TOKEN', status: 'waiting' }], byRelay: true },
         { type: 'text', text: 'ok' },
         { type: 'progress', status: 'done', text: 'green' },
         // A schedule it proposed, and what the user did with it.
