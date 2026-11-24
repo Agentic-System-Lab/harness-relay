@@ -3528,10 +3528,22 @@ export interface SearchResult {
 
 /** Events pushed to the browser over SSE for one conversation. */
 export type ServerEvent =
-  | { type: 'snapshot'; conversation: Conversation; running: boolean; activeAgentIds: string[] }
+  /**
+   * `commandRunning`: a fixed command's run whose cards this conversation follows holds its folder (the
+   * chat's Stop stops it). `folderHeld`: a fixed or interactive command holds its folder and no run goes,
+   * so nothing can be sent there until it ends (the composer says so, and sends nothing).
+   */
+  | {
+      type: 'snapshot';
+      conversation: Conversation;
+      running: boolean;
+      activeAgentIds: string[];
+      commandRunning?: boolean;
+      folderHeld?: boolean;
+    }
   | { type: 'message'; message: ChatMessage }
   | { type: 'delta'; messageId: string; partIndex: number; text: string }
-  | { type: 'status'; running: boolean; activeAgentIds: string[] }
+  | { type: 'status'; running: boolean; activeAgentIds: string[]; commandRunning?: boolean; folderHeld?: boolean }
   | { type: 'queue'; queue: ChatMessage[] }
   | {
       type: 'conversation';

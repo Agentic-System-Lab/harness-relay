@@ -1172,7 +1172,11 @@ export class RelaySandboxRun {
     }
     this.attached = true;
     this.channelEnd = channel;
-    createInterface({ input: channel, crlfDelay: Infinity }).on('line', (line) => withLang(this.lang, () => this.onLine(line)));
+    // readline passes its input's errors on as its own: one the channel gets (ECONNRESET on Linux, when the
+    // host is stopped before it read its rules, a Stop as a run starts) would otherwise end the server.
+    createInterface({ input: channel, crlfDelay: Infinity })
+      .on('line', (line) => withLang(this.lang, () => this.onLine(line)))
+      .on('error', () => undefined);
     channel.on('error', () => undefined);
     this.send({ t: 'config', ...this.config });
   };

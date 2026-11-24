@@ -100,6 +100,32 @@ const partOf = <K extends MessagePart['type']>(convId: string, type: K) => {
   return { msg, part: msg.parts.find((p): p is Extract<MessagePart, { type: K }> => p.type === type)! };
 };
 
+/** A fixed command's process that runs until it is stopped, as `sleep 600` would: `aborted` says when it was. */
+const hang = () => {
+  const h = { aborted: false };
+  // Stopped before it started too (Stop while its pin is checked), as runProcess() is.
+  const runProcess = (async (p: { signal?: AbortSignal }) =>
+    new Promise((done) => {
+      const end = () => {
+        h.aborted = true;
+        done({
+          code: null,
+          signal: 'SIGTERM',
+          stdout: '',
+          stdoutBytes: Buffer.alloc(0),
+          stdoutTruncated: false,
+          stdoutSize: 0,
+          stderr: '',
+          aborted: true,
+          timedOut: false,
+        });
+      };
+      if (p.signal!.aborted) end();
+      else p.signal!.addEventListener('abort', end, { once: true });
+    })) as never;
+  return Object.assign(h, { runProcess });
+};
+
 /** Saves a proposed command as the user does: having looked at the code it runs (`commandCode()`), whose digest Save sends. */
 const saveSeen = async (convId: string, messageId: string, partId: string, edits?: Partial<CommandProposal>) => {
   const { digest } = await orchestrator.commandCode(convId, messageId, partId, edits);
@@ -409,8 +435,8 @@ describe('fixed command cards', () => {
         ...(await (deps.sandboxCommand as unknown as (...a: unknown[]) => Promise<object>)(bin, args, env, spec)),
         run: { refusedHosts: refused },
       })) as never,
-      runProcess: (async (p: { signal?: AbortSignal; onLine?: (line: string) => void }) => {
-        p.onLine!('Uploading submission.csv');
+      runProcess: (async (p: { signal?: AbortSignal; onStdout?: (chunk: Buffer) => void }) => {
+        p.onStdout!(Buffer.from('Uploading submission.csv\n'));
         refused.push('www.googleapis.com');
         return new Promise((done) =>
           p.signal!.addEventListener('abort', () => {
@@ -450,7 +476,6 @@ describe('fixed command cards', () => {
       await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('error'));
       expect(aborted).toBe(true);
       expect(partOf(conv.id, 'command').part.run).toMatchObject({
-        reason: t().stoppedNote,
         stopped: true,
         output: 'Uploading submission.csv',
         refusedHosts: ['www.googleapis.com'],
@@ -497,6 +522,129 @@ describe('fixed command cards', () => {
       await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('running'));
       await orchestrator.deleteConversation(conv.id);
       await vi.waitFor(() => expect(aborted).toBe(true));
+    } finally {
+      orchestrator.fixedCommandDeps = deps;
+    }
+  });
+
+  it("stops from the chat's Stop too, which the chat offers while it runs; and stops once its command is removed in Settings", async () => {
+    const { conv, msg, part } = await propose();
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
+    const deps = orchestrator.fixedCommandDeps;
+    const h = hang();
+    orchestrator.fixedCommandDeps = { ...deps, runProcess: h.runProcess };
+    const hub = (orchestrator as unknown as { hub: { subscribe: (id: string, f: (e: { type: string }) => void) => () => void } }).hub;
+    const offered: boolean[] = [];
+    const held: boolean[] = [];
+    const off = hub.subscribe(conv.id, (e) => {
+      if (e.type !== 'status') return;
+      offered.push(Boolean((e as { commandRunning?: boolean }).commandRunning));
+      held.push(Boolean((e as { folderHeld?: boolean }).folderHeld));
+    });
+    try {
+      expect(orchestrator.commandRunning(conv.id)).toBe(false);
+      await orchestrator.tryCommand(conv.id, id);
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('running'));
+      // The chat's status says so (its composer offers Stop and sends nothing meanwhile), and its Stop stops it.
+      expect(orchestrator.commandRunning(conv.id)).toBe(true);
+      expect(orchestrator.folderHeld(conv.id)).toBe(true);
+      expect(offered).toContain(true);
+      expect(held).toContain(true);
+      orchestrator.stop(conv.id);
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run).toMatchObject({ status: 'error', stopped: true }));
+      expect(h.aborted).toBe(true);
+      expect(orchestrator.commandRunning(conv.id)).toBe(false);
+      expect(orchestrator.folderHeld(conv.id)).toBe(false);
+      expect(offered.at(-1)).toBe(false);
+      expect(held.at(-1)).toBe(false);
+
+      // Removed in Settings while it runs (the route calls forgetCommand()): its run stops.
+      h.aborted = false;
+      await orchestrator.tryCommand(conv.id, id);
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('running'));
+      settings.handoffs.deleteCommand(id);
+      // Its card's Stop finds the run, though the command is gone.
+      orchestrator.stopCommand(conv.id, id);
+      await vi.waitFor(() => expect(h.aborted).toBe(true));
+    } finally {
+      off();
+      orchestrator.fixedCommandDeps = deps;
+    }
+  });
+
+  it("leaves it to its card while the team's run goes, which the chat's Stop stops alone; counts it as work an update waits for; sends nothing only when a message would not queue", async () => {
+    const { conv, msg, part } = await propose();
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
+    const deps = orchestrator.fixedCommandDeps;
+    const h = hang();
+    orchestrator.fixedCommandDeps = { ...deps, runProcess: h.runProcess };
+    const inner = orchestrator as unknown as { runs: Map<string, { abort: AbortController }>; checking: Map<string, AbortController> };
+    try {
+      const idle = orchestrator.busy();
+      await orchestrator.tryCommand(conv.id, id);
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('running'));
+      // An update waits for it, as for agents at work.
+      expect(orchestrator.busy()).toBe(idle + 1);
+      expect(orchestrator.folderHeld(conv.id)).toBe(true);
+      // Team checks running by themselves: a message would queue, so the composer may send it.
+      inner.checking.set(conv.id, new AbortController());
+      expect(orchestrator.folderHeld(conv.id)).toBe(false);
+      inner.checking.delete(conv.id);
+      // A team's run going (an outbox Send or a Try it during a read-only turn): Stop is meant for it, not the command.
+      const team = { abort: new AbortController() };
+      inner.runs.set(conv.id, team);
+      try {
+        orchestrator.stop(conv.id);
+        expect(team.abort.signal.aborted).toBe(true);
+        await new Promise((r) => setTimeout(r, 20));
+        expect(h.aborted).toBe(false);
+      } finally {
+        inner.runs.delete(conv.id);
+      }
+      orchestrator.stop(conv.id);
+      await vi.waitFor(() => expect(h.aborted).toBe(true));
+      await vi.waitFor(() => expect(orchestrator.busy()).toBe(idle));
+    } finally {
+      orchestrator.fixedCommandDeps = deps;
+    }
+  });
+
+  it('stops a run of a command removed in Settings', async () => {
+    const { conv, msg, part } = await propose();
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
+    const deps = orchestrator.fixedCommandDeps;
+    const h = hang();
+    orchestrator.fixedCommandDeps = { ...deps, runProcess: h.runProcess };
+    try {
+      await orchestrator.tryCommand(conv.id, id);
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run?.status).toBe('running'));
+      orchestrator.forgetCommand(id);
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run).toMatchObject({ status: 'error', stopped: true }));
+    } finally {
+      orchestrator.fixedCommandDeps = deps;
+    }
+  });
+
+  it('gives a branch made while it runs its card stopped, with no time limit, and lets the run go on in its own chat', async () => {
+    const { conv, msg, part } = await propose();
+    const { id } = await saveSeen(conv.id, msg.id, part.id);
+    const deps = orchestrator.fixedCommandDeps;
+    const h = hang();
+    orchestrator.fixedCommandDeps = { ...deps, progressMs: 5, runProcess: h.runProcess };
+    try {
+      await orchestrator.tryCommand(conv.id, id);
+      await vi.waitFor(() => expect(partOf(conv.id, 'command').part.run).toMatchObject({ status: 'running', endsAt: expect.any(Number) }));
+      const branch = await orchestrator.branch(conv.id, msg.id);
+      const copy = branch.messages
+        .flatMap((m) => m.parts)
+        .find((p): p is Extract<MessagePart, { type: 'command' }> => p.type === 'command')!;
+      expect(copy.run).toMatchObject({ status: 'error', stopped: true });
+      expect(copy.run?.endsAt).toBeUndefined();
+      expect(copy.run?.reason).toBeUndefined();
+      expect(h.aborted).toBe(false);
+      expect(partOf(conv.id, 'command').part.run?.status).toBe('running');
+      orchestrator.stopCommand(conv.id, id);
+      await vi.waitFor(() => expect(h.aborted).toBe(true));
     } finally {
       orchestrator.fixedCommandDeps = deps;
     }
@@ -941,6 +1089,42 @@ describe('a schedule that runs a fixed command first', () => {
     }
   });
 
+  it('skips its time, sending nothing, when its run is stopped; and notes a run that passed although the sandbox refused it hosts', async () => {
+    const { conv, id } = await scheduled();
+    const deps = orchestrator.fixedCommandDeps;
+    const h = hang();
+    orchestrator.fixedCommandDeps = { ...deps, runProcess: h.runProcess };
+    try {
+      const pending = withLang('en', () => orchestrator.sendScheduled(conv.id));
+      await vi.waitFor(() => expect(orchestrator.commandRunning(conv.id)).toBe(true));
+      orchestrator.stopCommand(conv.id, id);
+      expect(await pending).toEqual({ result: 'skipped', reason: 'the fixed command "check" was stopped before it ended' });
+      expect(calls).toHaveLength(0);
+      expect(store.get(conv.id)!.messages.some((m) => m.author.kind === 'user')).toBe(false);
+    } finally {
+      orchestrator.fixedCommandDeps = deps;
+    }
+    orchestrator.fixedCommandDeps = {
+      ...deps,
+      sandboxCommand: (async (bin: string, args: string[], env: NodeJS.ProcessEnv, spec: never) => ({
+        ...(await (deps.sandboxCommand as unknown as (...a: unknown[]) => Promise<object>)(bin, args, env, spec)),
+        run: { refusedHosts: ['www.googleapis.com'] },
+      })) as never,
+    };
+    try {
+      play = () => ({ code: 0, stdout: 'Submitted' });
+      // Exit 0 sends nothing to the team, as ever; the chat's note names the hosts.
+      expect(await withLang('en', () => orchestrator.sendScheduled(conv.id))).toEqual({ result: 'ran' });
+      expect(calls).toHaveLength(0);
+      const note = store.get(conv.id)!.messages.at(-1)!;
+      expect(note.author.kind).toBe('system');
+      expect(textOf(note)).toContain('The sandbox refused the hosts it tried to reach');
+      expect(textOf(note)).toContain('www.googleapis.com');
+    } finally {
+      orchestrator.fixedCommandDeps = deps;
+    }
+  });
+
   it('does not run, nor send, once its code changed; and fails for a command that is gone', async () => {
     const { conv, id } = await scheduled();
     writeFileSync(join(project, 'check.py'), 'print("changed")\n');
@@ -1159,6 +1343,23 @@ describe('a schedule that only runs its fixed command (commandOnly)', () => {
       const note = store.get(conv.id)!.messages.at(-1)!;
       expect(note.author.kind).toBe('system');
       expect(textOf(note)).toContain('沙箱擋下了它要連的主機：www.googleapis.com');
+      expect(calls).toHaveLength(0);
+    } finally {
+      orchestrator.fixedCommandDeps = deps;
+    }
+  });
+
+  it('skips its time when its run is stopped, writing no note of its own (the scheduler notes a skipped time)', async () => {
+    const { conv, id } = await commandOnly();
+    const deps = orchestrator.fixedCommandDeps;
+    const h = hang();
+    orchestrator.fixedCommandDeps = { ...deps, runProcess: h.runProcess };
+    try {
+      const pending = withLang('en', () => orchestrator.sendScheduled(conv.id));
+      await vi.waitFor(() => expect(orchestrator.commandRunning(conv.id)).toBe(true));
+      orchestrator.stop(conv.id);
+      expect(await pending).toEqual({ result: 'skipped', reason: 'the fixed command "post" was stopped before it ended' });
+      expect(store.get(conv.id)!.messages).toHaveLength(0);
       expect(calls).toHaveLength(0);
     } finally {
       orchestrator.fixedCommandDeps = deps;

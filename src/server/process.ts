@@ -52,8 +52,10 @@ export interface SpawnOptions {
   onSpawn?: (child: ChildProcess) => void;
   signal?: AbortSignal;
   timeoutMs?: number;
-  /** Called for every stdout line (without the trailing newline). */
+  /** Called for every stdout line (without the trailing newline). A line is held whole until it ends: not for output that may have no line breaks. */
   onLine?: (line: string) => void;
+  /** Called with each chunk of stdout as it comes, raw (nothing held: a line may be split across chunks, a character too). */
+  onStdout?: (chunk: Buffer) => void;
   /** Max bytes of stdout kept in the result (the oldest output is dropped first, unless `keepStart`). */
   maxCapture?: number;
   /** Keep the first `maxCapture` bytes of stdout instead of the last. */
@@ -450,18 +452,34 @@ function supervise(
         }, o.timeoutMs)
       : undefined;
 
+    // A pipe's error (ECONNRESET on Linux, where pipes are socket pairs) ends the stream, and the child's
+    // close says how it ended; unheard, it would end the server.
+    child.stdout!.on('error', () => undefined);
+    child.stderr!.on('error', () => undefined);
     // Raw bytes: decoding and re-joining lines would corrupt non-UTF-8 bytes and `\r`.
-    child.stdout!.on('data', (chunk: Buffer) => stdout.add(chunk));
+    child.stdout!.on('data', (chunk: Buffer) => {
+      stdout.add(chunk);
+      if (o.onStdout) {
+        try {
+          o.onStdout(chunk);
+        } catch (err) {
+          console.error('[process] stdout handler failed:', err);
+        }
+      }
+    });
     child.stderr!.on('data', (chunk: Buffer) => stderr.add(chunk));
     if (o.onLine) {
       const onLine = o.onLine;
-      createInterface({ input: child.stdout!, crlfDelay: Infinity }).on('line', (line) => {
-        try {
-          onLine(line);
-        } catch (err) {
-          console.error('[process] line handler failed:', err);
-        }
-      });
+      // readline passes its input's errors on as its own: heard here, as stdout's are above.
+      createInterface({ input: child.stdout!, crlfDelay: Infinity })
+        .on('line', (line) => {
+          try {
+            onLine(line);
+          } catch (err) {
+            console.error('[process] line handler failed:', err);
+          }
+        })
+        .on('error', () => undefined);
     }
 
     if (o.stdin !== undefined && !o.keepStdinOpen) {

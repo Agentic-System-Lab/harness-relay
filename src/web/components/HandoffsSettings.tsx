@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { FolderHandoffs } from '../../shared/types';
+import { refusedHostsToTell } from '../../shared/handoffs';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import { sectionId } from '../route';
@@ -168,8 +169,15 @@ export function HandoffsCard() {
                             cmd.hosts.length ? cmd.hosts.join(', ') : t.handoffs.command.noHosts,
                             cmd.secrets.length ? cmd.secrets.join(', ') : '',
                             cmd.lastRun
-                              ? c.lastRun(t.handoffs.command.result[cmd.lastRun.status], relativeTime(cmd.lastRun.at, t))
+                              ? c.lastRun(
+                                  cmd.lastRun.stopped ? t.handoffs.command.stopped : t.handoffs.command.result[cmd.lastRun.status],
+                                  relativeTime(cmd.lastRun.at, t),
+                                )
                               : c.never,
+                            // Hosts the sandbox refused it, also on a run that passed: what needed them may not have been done.
+                            cmd.lastRun && refusedHostsToTell(cmd.lastRun).length
+                              ? c.lastRefused(refusedHostsToTell(cmd.lastRun).join(', '))
+                              : '',
                           ]
                             .filter(Boolean)
                             .join(' · ')}

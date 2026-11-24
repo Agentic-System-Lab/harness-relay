@@ -436,6 +436,8 @@ export const en: Messages = {
     placeholderReviewing:
       'The lead agent is reviewing the replies; sending a message stops the review and sends it now (the next review reads these replies too)…',
     placeholderBusy: 'Add to the discussion… (delivered before the next turn)',
+    placeholderCommand: 'Send once the fixed command ends, or Stop it',
+    placeholderHeld: "Send once the command or Files change in this chat's folder ends",
     placeholderSteer: 'Add to the discussion… (goes into the running turn when it can)',
     placeholderAnswer: (names) => `Answer ${names}…`,
     asking: (names) => `Waiting for your answer: ${names}`,
@@ -1328,6 +1330,7 @@ export const en: Messages = {
       commands: 'Fixed commands',
       setAt: (when) => `set ${when}`,
       lastRun: (status, when) => `Last run: ${status} (${when})`,
+      lastRefused: (hosts) => `the sandbox refused: ${hosts}`,
       never: 'Not run yet',
       replace: 'Replace',
       newValue: 'New value',

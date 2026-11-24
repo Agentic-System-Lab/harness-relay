@@ -977,11 +977,7 @@ export class Store {
         const data = parseJson<{ run?: Partial<FixedCommandRun> } & Record<string, unknown>>(r.data, {});
         if (data.run?.status !== 'running') continue;
         const { endsAt: _endsAt, ...run } = data.run;
-        expire.run(
-          JSON.stringify({ ...data, run: { ...run, status: 'error', reason: t().stoppedNote, stopped: true } }),
-          r.message_id,
-          r.idx,
-        );
+        expire.run(JSON.stringify({ ...data, run: { ...run, status: 'error', stopped: true } }), r.message_id, r.idx);
       }
     });
   }

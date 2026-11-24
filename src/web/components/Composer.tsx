@@ -12,6 +12,14 @@ interface Props {
   agents: AgentConfig[];
   /** The team is replying: what is sent waits for the next turn, and Stop is offered. */
   running: boolean;
+  /** A fixed command's run of this chat holds its folder: Stop is offered. */
+  commandRunning?: boolean;
+  /**
+   * Something holds the chat's folder while no run goes (a fixed or interactive command, Files deleting):
+   * nothing is sent (Send, Enter and Continue), which the placeholder and the line under the box say (the
+   * placeholder is the reason given); what is typed stays for later.
+   */
+  held?: boolean;
   canContinue: boolean;
   /** The team is being designed or waits for confirmation: what is sent waits for it (no Continue, no interrupting). */
   locked?: boolean;
@@ -40,6 +48,8 @@ const TOKEN = /(^|[\s(（])@([\p{L}\p{N}_-]*)$/u;
 export function Composer({
   agents,
   running,
+  commandRunning = false,
+  held = false,
   canContinue,
   locked = false,
   reviewing = false,
@@ -119,7 +129,7 @@ export function Composer({
 
   // While the team replies (or its design waits), a message waits for the next turn: sending is always fine.
   // A dropped folder still being read is sent once it is: Send waits for it.
-  const canSend = (text.trim().length > 0 || files.length > 0) && !preparing && !files.some((f) => f.reading);
+  const canSend = (text.trim().length > 0 || files.length > 0) && !preparing && !files.some((f) => f.reading) && !held;
 
   /** Run one send (or Continue) at a time. */
   const once = async (fn: () => Promise<void>) => {
@@ -246,13 +256,14 @@ export function Composer({
           />
           <div className="composer-actions">
             <VoiceButton onText={insertVoice} onError={setNotice} />
-            {running ? (
+            {running || commandRunning ? (
               <button className="stop" onClick={onStop} aria-label={t.composer.stopLabel}>
                 {t.composer.stop}
               </button>
             ) : (
               canContinue &&
-              !locked && (
+              !locked &&
+              !held && (
                 <button
                   className="ghost"
                   disabled={preparing}
@@ -277,7 +288,8 @@ export function Composer({
           </div>
         </div>
       </div>
-      <p className="composer-hint muted small">{hint}</p>
+      {/* Held: why nothing can be sent stays in sight once something is typed (the placeholder is gone then), also on a phone. */}
+      <p className={`composer-hint muted small${held ? ' held' : ''}`}>{held ? placeholder : hint}</p>
     </div>
   );
 }

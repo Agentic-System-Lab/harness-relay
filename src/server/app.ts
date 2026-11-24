@@ -3139,6 +3139,8 @@ export function createApp({
         conversation: forClient(conv),
         running: orchestrator.isRunning(conv.id),
         activeAgentIds: orchestrator.activeAgentIds(conv.id),
+        commandRunning: orchestrator.commandRunning(conv.id),
+        folderHeld: orchestrator.folderHeld(conv.id),
       });
       while (queue.length) await send(queue.shift()!);
       ready = true;

@@ -275,10 +275,19 @@ test.describe('secrets and fixed commands', () => {
     await expect(log.locator('pre')).toContainText('E2E_TOKEN=••••');
     await expect(log.locator('pre')).toContainText('input: hello from the agent');
     await expect(log.locator('pre')).not.toContainText(VALUE);
-    // The chat waits for it, and says where to stop it.
+    // The chat waits for it: it offers its own Stop, and sends nothing meanwhile (Send off, Enter keeps
+    // the draft), its placeholder saying why; no error. The card takes no answer meanwhile either.
+    const chatStop = page.locator('.composer-actions button.stop');
+    await expect(chatStop).toBeVisible();
+    await expect(composer(page)).toHaveAttribute('placeholder', 'Send once the fixed command ends, or Stop it');
     await composer(page).fill('meanwhile');
+    await expect(page.locator('.composer-actions button.send')).toBeDisabled();
     await composer(page).press('Enter');
-    await expect(page.locator('.error-line[role="alert"]').filter({ hasText: 'stop it on its card' })).toBeVisible();
+    await expect(composer(page)).toHaveValue('meanwhile');
+    // With a draft the placeholder is gone: the line under the box says why instead of "Enter to send".
+    await expect(page.locator('.composer-hint')).toHaveText('Send once the fixed command ends, or Stop it');
+    await expect(page.locator('.error-line[role="alert"]')).toHaveCount(0);
+    await expect(card.getByRole('button', { name: 'Tell the team it is saved' })).toHaveCount(0);
     // Stop ends it: the card says so, keeps what it printed, and offers Try it again.
     await card.getByRole('button', { name: 'Stop', exact: true }).click();
     await expect(result.locator('strong')).toHaveText('Stopped', { timeout: 30_000 });
@@ -286,6 +295,21 @@ test.describe('secrets and fixed commands', () => {
     await expect(result).toContainText('input: hello from the agent');
     await expect(card.getByRole('button', { name: 'Try it' })).toBeVisible();
     await expect(card.locator('details.handoff-live-log')).toHaveCount(0);
+    await expect(chatStop).toHaveCount(0);
+    // The draft typed meanwhile is still there, and can be sent now.
+    await expect(composer(page)).toHaveValue('meanwhile');
+    await expect(page.locator('.composer-hint')).not.toHaveText('Send once the fixed command ends, or Stop it');
+    await expect(page.locator('.composer-actions button.send')).toBeEnabled();
+    await composer(page).fill('');
+    await settled(relay, id);
+
+    // Tried again and stopped with the chat's Stop as soon as it shows, maybe before its sandbox started the
+    // command: stopped all the same, never a failure of the sandbox.
+    await card.getByRole('button', { name: 'Try it' }).click();
+    await chatStop.click();
+    await expect(result.locator('strong')).toHaveText('Stopped', { timeout: 30_000 });
+    await expect(result).not.toContainText('control channel');
+    await expect(chatStop).toHaveCount(0);
     await settled(relay, id);
 
     // A host the sandbox refuses it, though it ends with 0 (as a client that gives up may): the card says

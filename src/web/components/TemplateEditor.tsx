@@ -70,18 +70,21 @@ export function TemplateEditor({ preset, providers, catalog, onSaved, onClose }:
   const unchanged = Boolean(preset) && !changed && moved.length === 0;
   // Opened before the CLIs' statuses came (the page had just loaded): once they do, and while the
   // user has changed nothing, the members are set as they would have been.
+  const [saving, setSaving] = useState(false);
+  const [drafting, setDrafting] = useState(false);
   const known = useRef(start.known);
+  // Once, when the statuses first come: the team opened as they say. Not while the lead agent writes it
+  // (asked before they came, as on a slow start): its answer is about the team as it was, and would be
+  // dropped as stale; once it is done, its team stands, or, when it changed nothing, the statuses' does.
   useEffect(() => {
-    if (known.current || !providers.length) return;
+    if (known.current || !providers.length || drafting) return;
     known.current = true;
     if (changed) return;
     const next = opening(preset, providers);
     setTeam(next.team);
     setMoved(next.moved);
     setOpened(keyOf(next.team.agents, next.team.settings));
-  }, [providers]); // once, when the statuses first come
-  const [saving, setSaving] = useState(false);
-  const [drafting, setDrafting] = useState(false);
+  }, [providers, drafting]);
   /** The lead agent writes the template's team checks (in the editor below): Save waits for it too. */
   const [checksDrafting, setChecksDrafting] = useState(false);
   const [error, setError] = useState('');

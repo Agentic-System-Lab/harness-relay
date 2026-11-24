@@ -458,6 +458,9 @@ export const zhTW = {
     // A message sent during the review stops it and goes at once (the next review reads these replies too).
     placeholderReviewing: '首席 agent 正在審閱回覆；現在送出訊息會停止審閱並立刻送出（下一次審閱會把這些回覆一起讀）…',
     placeholderBusy: '插話給團隊…（下一位發言前送達）',
+    // What to do first: a phone shows only the start of a placeholder.
+    placeholderCommand: '等固定指令結束，或按「停止」，才能送出',
+    placeholderHeld: '等資料夾裡的指令或檔案操作結束，才能送出',
     // Steering on: what is sent goes into the running turn when it can.
     placeholderSteer: '插話給團隊…（可以的話直接送進進行中的回合）',
     placeholderAnswer: (names: string) => `回答 ${names} 的問題…`,
@@ -1339,6 +1342,7 @@ export const zhTW = {
       commands: '固定指令',
       setAt: (when: string) => `${when} 設定`,
       lastRun: (status: string, when: string) => `上次執行：${status}（${when}）`,
+      lastRefused: (hosts: string) => `沙箱擋下了：${hosts}`,
       never: '還沒執行過',
       replace: '取代',
       newValue: '新的值',
