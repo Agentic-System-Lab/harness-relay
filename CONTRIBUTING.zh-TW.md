@@ -155,6 +155,8 @@ pull request 範本會請你填寫這些。請在說明中寫出：
 
 每個 pull request 都會經過維護者審查。可能會有提問或修改要求，目的是讓這個修改融入專案，不是針對你。
 
+你的 commit 合併進來之後，README 的[貢獻者](README.zh-TW.md#貢獻者)名單會自動加上你（Contributors workflow，`scripts/contributors.ts`）。以其他方式幫忙的人（測試、想法、審查）則依帳號加在 [`.github/contributors.json`](.github/contributors.json)。
+
 ## 搭配 coding agent
 
 歡迎用 Claude Code、Codex、Grok 或其他 agent 來寫你的修改，也可以直接在 Harness Relay 裡進行。[AGENTS.md](AGENTS.md) 提供它們需要的指令、專案結構與規則，[CLAUDE.md](CLAUDE.md) 則替 Claude Code 匯入這份文件。成果仍由你負責：請讀過 diff、跑過檢查，並確認說明中的每一句都是事實。

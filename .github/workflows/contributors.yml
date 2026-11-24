@@ -1,0 +1,80 @@
+name: Contributors
+
+# The READMEs' contributors (scripts/contributors.ts): GitHub's contributors of the repository and the
+# people .github/contributors.json adds, in README.md and README.zh-TW.md. main takes changes only
+# through a pull request, so what changed goes on the branch contributors/update and in one pull
+# request, opened once and updated by later runs. Opening it needs the repository's setting
+# "Allow GitHub Actions to create and approve pull requests" (Settings → Actions → General); without
+# it the run fails and says where to open it by hand. A pull request this workflow opens runs no
+# checks (GitHub starts no workflow for its token's events): close and reopen it to run them, or
+# merge it with the maintainers' bypass.
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Mondays, 11:17 in Taiwan.
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+# Each job asks for what it needs; none by default.
+permissions: {}
+
+# One run at a time, on the one branch.
+concurrency:
+  group: contributors
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update the READMEs' contributors
+    # Not in a fork: its contributors are not the project's.
+    if: github.repository == 'Agentic-System-Lab/harness-relay'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # main's newest commit, whatever pushed it: the branch is made from it.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      # Node runs the script itself (it imports only node: modules), so nothing is installed.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Read the contributors
+        run: node scripts/contributors.ts
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Open or update the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: contributors/update
+          BODY: >-
+            The contributors GitHub counts for this repository, and those in `.github/contributors.json`,
+            as `scripts/contributors.ts` lists them in both READMEs. Opened by the Contributors workflow,
+            so no checks run: close and reopen it to run them.
+        run: |
+          if git diff --quiet -- README.md README.zh-TW.md; then
+            echo 'The READMEs list the contributors already.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -C "$BRANCH"
+          git commit -q -m 'Update the contributors in the READMEs' -- README.md README.zh-TW.md
+          git push -q --force origin "$BRANCH"
+          if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            echo 'Updated the open pull request.'
+            exit 0
+          fi
+          if ! gh pr create --base main --head "$BRANCH" --title 'Update the contributors in the READMEs' --body "$BODY"; then
+            {
+              echo '### The pull request could not be opened'
+              echo
+              echo 'Turn on "Allow GitHub Actions to create and approve pull requests" (Settings → Actions → General), or open it by hand:'
+              echo "https://github.com/${GITHUB_REPOSITORY}/compare/main...${BRANCH}?expand=1"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

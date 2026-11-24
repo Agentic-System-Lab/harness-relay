@@ -29,6 +29,7 @@ For each question, a lead agent picks the team from your templates (or adapts on
 - [Documentation](#documentation)
 - [Discussions](#discussions)
 - [Contributing](#contributing)
+- [Contributors](#contributors)
 - [License](#license)
 
 ## Use cases
@@ -164,6 +165,19 @@ Questions, ideas and what you made with Harness Relay are welcome in [GitHub Dis
 ## Contributing
 
 Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to report a problem, set up the project and prepare a change; every change to user-facing text or docs comes in both English and 繁體中文. You can also [report a problem](docs/user-guide.md#reporting-a-problem) from the app. Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md). Found a security problem? Report it privately, as [SECURITY.md](SECURITY.md#reporting-a-vulnerability) explains.
+
+## Contributors
+
+Thanks to everyone who has helped make Harness Relay. A workflow keeps this list up to date from the repository's commits; people who helped in other ways (testing, ideas, reviews) are added in [`.github/contributors.json`](.github/contributors.json).
+
+<!-- contributors:start -->
+<table>
+  <tr>
+    <td align="center" valign="top" width="120"><a href="https://github.com/cyyeh"><img src="https://avatars.githubusercontent.com/u/11023068?v=4&amp;s=128" width="64" height="64" alt=""><br><sub><b>Chih-Yu Yeh</b></sub></a></td>
+    <td align="center" valign="top" width="120"><a href="https://github.com/davidho27941"><img src="https://avatars.githubusercontent.com/u/49113240?v=4&amp;s=128" width="64" height="64" alt=""><br><sub><b>Ta Wei (David) Ho</b></sub></a></td>
+  </tr>
+</table>
+<!-- contributors:end -->
 
 ## License
 
