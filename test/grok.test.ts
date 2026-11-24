@@ -1365,6 +1365,78 @@ rl.on('line', (line) => {
   });
 });
 
+describe.skipIf(process.platform === 'win32')('a Grok request about a call it already reported ended (stand-in grok)', () => {
+  it('is refused once without asking, never as the user’s refusal', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-grok-ended-')));
+    // A stand-in for `grok agent stdio`: in its turn, a push it reports failed just before it asks about it
+    // (as OpenCode does with a call it refused); the answer it gets goes to its log.
+    const bin = join(dir, 'grok');
+    const log = join(dir, 'log.jsonl');
+    writeFileSync(
+      bin,
+      `#!/usr/bin/env node
+const fs = require('node:fs');
+const out = (o) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...o }) + '\\n');
+const update = (sessionId, u) => out({ method: 'session/update', params: { sessionId, update: u } });
+let prompt;
+const rl = require('node:readline').createInterface({ input: process.stdin });
+rl.on('close', () => process.exit(0));
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  const reply = (id, result) => out({ id, result });
+  if (m.id === 'r-1' && !m.method) {
+    fs.appendFileSync(process.env.FAKE_GROK_LOG, JSON.stringify({ permission: m.result ?? m.error }) + '\\n');
+    update('s-1', { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Not pushed.' } });
+    return reply(prompt, { stopReason: 'end_turn' });
+  }
+  if (m.method === 'initialize') return reply(m.id, { protocolVersion: 1, agentCapabilities: {} });
+  if (m.method === 'session/new') return reply(m.id, { sessionId: 's-1', configOptions: [] });
+  if (m.method !== 'session/prompt') return;
+  prompt = m.id;
+  const call = { toolCallId: 'p-1', title: 'git push', kind: 'execute', rawInput: { command: 'git push' } };
+  update('s-1', { sessionUpdate: 'tool_call', status: 'pending', ...call });
+  update('s-1', { sessionUpdate: 'tool_call_update', toolCallId: 'p-1', status: 'failed' });
+  out({ id: 'r-1', method: 'session/request_permission', params: { sessionId: 's-1', toolCall: { ...call, status: 'pending' },
+    options: [{ optionId: 'allow-once', kind: 'allow_once' }, { optionId: 'reject-once', kind: 'reject_once' }] } });
+});
+`,
+      { mode: 0o755 },
+    );
+    const home = join(dir, 'home');
+    mkdirSync(home);
+    writeFileSync(join(home, 'config.toml'), '');
+    try {
+      const events: AgentEvent[] = [];
+      const asked: unknown[] = [];
+      await withLang('en', () =>
+        grokRunner.run({
+          bin,
+          env: { ...process.env, GROK_HOME: home, FAKE_GROK_LOG: log },
+          prompt: 'push it',
+          systemPrompt: 'briefing',
+          cwd: dir,
+          permission: 'edit',
+          signal: new AbortController().signal,
+          onEvent: (e) => void events.push(e),
+          requestApproval: async (req) => {
+            asked.push(req);
+            return { allow: true };
+          },
+        }),
+      );
+      expect(asked).toEqual([]);
+      const lines = readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as { permission: unknown });
+      expect(lines).toEqual([{ permission: { outcome: { outcome: 'selected', optionId: 'reject-once' } } }]);
+      expect(JSON.stringify(events.filter((e) => e.type === 'tool_end'))).not.toMatch(/declined|publishes outside/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("Grok's own folder in its sandbox", () => {
   it('denies its programs, the folder of the one Harness Relay starts too', () => {
     const home = mkdtempSync(join(tmpdir(), 'relay-grok-programs-'));
