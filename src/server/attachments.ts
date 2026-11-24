@@ -41,23 +41,19 @@ export function safeFileName(name: string): string {
 
 /**
  * The name an attached file or folder is kept under (`AttachmentPart.name`): `safeFileName`'s, without
- * the dots and spaces (any whitespace) a name ends in, at most 255 bytes in UTF-8 (`cutName`, its
- * extension kept), never a Windows device name, and one `safeFileName` leaves as it is, so that what
+ * the dots and whitespace (of any kind) it starts or ends with, at most 255 bytes in UTF-8 (`cutName`,
+ * its extension kept), never a Windows device name, and one `safeFileName` leaves as it is, so that what
  * `attachmentPath` puts on disk is this very name (`safeFileName` itself stays as it was: names kept
- * before stay where they are). Each step can only take characters away (or put `_` before a device
- * name once), so a few rounds settle it.
+ * before stay where they are). A round only takes characters away (or puts `_` before a device name,
+ * once), so it settles in a few.
  */
 function uploadName(name: string): string {
   const step = (n: string) => {
-    const safe = safeFileName(n).replace(/[\s.]+$/u, '') || 'file';
+    const safe = safeFileName(n).replace(/^[\s.]+|[\s.]+$/gu, '') || 'file';
     return cutName(isWindowsDevice(safe) ? `_${safe}` : safe);
   };
   let current = step(name);
-  for (let round = 0; round < 10; round++) {
-    const next = step(current);
-    if (next === current) break;
-    current = next;
-  }
+  for (let next = step(current); next !== current; next = step(current)) current = next;
   return current;
 }
 
@@ -79,9 +75,14 @@ function safeSegment(name: string): string {
   return isWindowsDevice(safe) ? fit(`_${safe}`) : safe;
 }
 
-/** Whether a name is git's own folder, in any letter case, without the whitespace around it or the dots after it. */
+/**
+ * Whether a name is git's own folder, in any letter case, without the whitespace around it or the dots
+ * after it, and without format characters (zero-width ones, a BOM), which an HFS+ volume leaves out of
+ * a name.
+ */
 const isGitName = (name: string) =>
   name
+    .replace(/\p{Cf}/gu, '')
     .trim()
     .replace(/[\s.]+$/u, '')
     .toLowerCase() === '.git';
@@ -195,7 +196,7 @@ function writeFolder(root: string, folder: string, files: FolderFileData[]): voi
   } catch (err) {
     // The folder's own name, too long for this disk where it goes.
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENAMETOOLONG' || code === 'EINVAL') throw new HttpError(400, t().folderBadName(folder, folder));
+    if (code === 'ENAMETOOLONG' || code === 'EINVAL' || code === 'EILSEQ') throw new HttpError(400, t().folderBadName(folder, folder));
     throw err;
   }
   for (const f of files) {
@@ -212,7 +213,9 @@ function writeFolder(root: string, folder: string, files: FolderFileData[]): voi
       // Two names this disk takes for one (a letter case or Unicode form the check did not see as one).
       if (code === 'EEXIST' || code === 'ENOTDIR' || code === 'EISDIR') throw new HttpError(400, t().folderSameName(folder, path));
       // A name or path this file system does not take.
-      if (code === 'ENAMETOOLONG' || code === 'EINVAL') throw new HttpError(400, t().folderBadName(folder, path));
+      if (code === 'ENAMETOOLONG' || code === 'EINVAL' || code === 'EILSEQ' || code === 'ENOENT') {
+        throw new HttpError(400, t().folderBadName(folder, path));
+      }
       throw err;
     }
   }

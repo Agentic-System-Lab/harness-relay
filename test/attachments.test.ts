@@ -90,36 +90,26 @@ describe('attached folders', () => {
   });
 
   it('makes a path and a name safe once and for all: made safe again, they stay as they are, and none is .git', () => {
-    // Names built from the characters that move: whitespace of every kind, dots, separators, `.git`, device names.
-    const bits = [
-      '.git',
-      '.GIT',
-      'git',
-      '.',
-      '..',
-      ' ',
-      '\u00a0',
-      '\ufeff',
-      '\u3000',
-      '\u2009',
-      ':',
-      '?',
-      'con',
-      'nul',
-      'a',
-      '長',
-      '/',
-      '\\',
-    ];
+    // Names built from the characters that move: every whitespace `trim()` takes, dots, separators, `.git`, device names.
+    const spaces =
+      ' \t\n\v\f\r\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff';
+    const bits = ['.git', '.GIT', 'git', '.', '..', '. ', ':', '?', 'con', 'nul', 'a', '長', '/', '\\', ...spaces];
+    // mulberry32: a 32-bit generator that does not fall into a short cycle.
     let seed = 7;
-    const pick = () => bits[(seed = (seed * 1103515245 + 12345) % 2147483648) % bits.length]!;
+    const random = () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+      return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    };
+    const pick = () => bits[Math.floor(random() * bits.length)]!;
     const gitOnDisk = (seg: string) =>
       seg
         .trim()
         .replace(/[\s.]+$/u, '')
         .toLowerCase() === '.git';
     for (let i = 0; i < 5000; i++) {
-      const raw = Array.from({ length: 1 + (i % 9) }, pick).join('');
+      const raw = Array.from({ length: 1 + (i % 30) }, pick).join('');
       const path = folderFilePath(raw);
       if (path !== undefined) expect(folderFilePath(path), JSON.stringify(raw)).toBe(path);
       let dir: ReturnType<typeof decodeAttachments>[number] | undefined;
@@ -151,6 +141,10 @@ describe('attached folders', () => {
       '.git\u3000./config',
       '.GIT\u2009../config',
       'sub/.git\u00a0./hooks/x',
+      // Format characters, which an HFS+ volume leaves out of a name.
+      '.\ufeffgit/config',
+      '.g\u200cit/config',
+      '\u206d.Git/config',
     ]) {
       const [dir] = decodeAttachments(
         folder([
@@ -163,9 +157,15 @@ describe('attached folders', () => {
         JSON.stringify(raw),
       ).toEqual(['a.md']);
     }
-    // A folder named so that its dots and spaces fall away to `.git`.
+    // A folder or a file named so that its dots and spaces fall away to `.git`, however many there are.
     const [named] = decodeAttachments(folder([{ path: 'HEAD', data: b64('ref') }], ' . . .git'));
     expect(named!.name).toBe('git');
+    for (const runs of [10, 11, 12, 30]) {
+      const name = `${'. '.repeat(runs)}.git`;
+      const [dir, file] = decodeAttachments([...folder([{ path: 'HEAD', data: b64('ref') }], name), { name, data: b64('x') }]);
+      expect(dir!.name, name).toBe('git');
+      expect(file!.name, name).toBe('git');
+    }
     const [part] = writeAttachments('conv-dotgit', [named!]);
     expect(attachmentPath('conv-dotgit', part!).endsWith(`${part!.id}${sep}git`)).toBe(true);
   });

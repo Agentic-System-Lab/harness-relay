@@ -76,6 +76,7 @@ describe('a picked folder', () => {
       picked('odd/.git\u00a0./config'),
       picked('odd/ .GIT/HEAD'),
       picked('odd/Node_Modules\ufeff/x.js'),
+      picked('odd/.g\u200cit/HEAD'),
       picked('odd/keep.md'),
     ]);
     expect(odd!.files.map((f) => f.path)).toEqual(['keep.md']);

@@ -15,10 +15,12 @@ export const LEFT_OUT = ['.git', '.hg', '.svn', 'node_modules', '.DS_Store', 'Th
 
 /**
  * The name of `LEFT_OUT` a name is, as a disk would name it (in any letter case, without the spaces
- * around it or the dots after it, which the server takes off too), or undefined.
+ * around it or the dots after it, which the server takes off too, nor format characters, which an HFS+
+ * volume leaves out), or undefined.
  */
 const leftOutAs = (name: string) => {
   const key = name
+    .replace(/\p{Cf}/gu, '')
     .trim()
     .replace(/[\s.]+$/u, '')
     .toLowerCase();
