@@ -14,7 +14,7 @@
 
 A local task assistant: the real **Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code** CLIs, and five open-source coding agents (**OpenCode, Goose, Cline, OpenHands and Pi**) on the model backends you choose, make up your team. Give each a role, choose how they take turns, and they work on your code, or any question, and answer each other.
 
-For each question, a lead agent picks the team from your templates (or adapts one, or designs a new one), and you confirm it. Harness Relay then runs the CLIs with your own sign-ins and tools, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
+For each question, a lead agent picks the team from your templates (or adapts one, or designs a new one), which starts at once or once you confirm it. Harness Relay then runs the CLIs with your own sign-ins and tools, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
 
 ## Contents
 
@@ -52,7 +52,7 @@ These twelve examples are just a starting point. Bring your curiosity and a task
 ## Features
 
 - **Twelve coding agents, one task assistant**: the CLIs you already have, with their own tools, sessions and sign-ins, and the open-source ones on your API keys or your own OpenAI-compatible server; mix them in one team. ([Signing in](docs/user-guide.md#2-sign-in-to-each-agent--settings--sign-in), [API keys and endpoints](docs/user-guide.md#model-connections))
-- **A team for every question**: the lead agent picks or designs the team (roles, models, reasoning effort, turn order) from your templates, you confirm it, and once the team has answered it reviews the replies and marks what needs your attention. ([Auto team](docs/user-guide.md#auto-team), [templates](docs/user-guide.md#templates), [lead review](docs/user-guide.md#lead-review))
+- **A team for every question**: the lead agent picks or designs the team (roles, models, reasoning effort, turn order) from your templates, which starts at once or once you confirm it, and when you ask, it reviews the replies once the team has answered and marks what needs your attention. ([Auto team](docs/user-guide.md#auto-team), [templates](docs/user-guide.md#templates), [lead review](docs/user-guide.md#lead-review))
 - **Team checks**: set protected paths, a commit format, commands such as `npm test` and that the app opens in the preview for your whole team in Edit and Full access chats. Harness Relay checks the work itself, can send what fails back to the team, and runs hooks around supported tool calls. ([Team checks](docs/user-guide.md#team-checks))
 - **The lead agent writes it for you**: say in a sentence what you want, and it writes a template, the team checks (reading the project first) or an automation for you to review and save; it also names new chats and suggests how to organize your groups, and agents propose an automation as a card when you ask for something to be done later or again. ([Lead agent](docs/user-guide.md#lead-agent), [proposed automations](docs/user-guide.md#automations))
 - **Agents talk to each other**: roundtable, parallel or relay, and `@mentions` to address one of them. ([Conversation rules](docs/user-guide.md#conversation-rules))

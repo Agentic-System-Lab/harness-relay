@@ -384,6 +384,8 @@ test.describe('schedules', () => {
     await expect(withHook).not.toBeChecked();
     await withHook.check();
     await expect(page.getByText("the automation's drawer opens with the webhook's address and token")).toBeVisible();
+    // Its team waits to be confirmed (a first one is taken without asking).
+    await page.getByRole('radio', { name: en.newChat.waitForMe }).check();
     await page.getByRole('button', { name: 'Create automation' }).click();
     await page.waitForURL(/#\/c\//);
 

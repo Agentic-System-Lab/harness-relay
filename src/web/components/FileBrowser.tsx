@@ -315,7 +315,6 @@ export function FileBrowser({
                             {e.name}
                             {e.link && <span className="muted"> ↗</span>}
                           </span>
-                          <span className="file-meta">{e.kind === 'dir' ? <ChevronIcon size={14} /> : formatBytes(e.size)}</span>
                         </button>
                         {e.kind === 'dir' && (
                           <button
@@ -339,6 +338,8 @@ export function FileBrowser({
                             <TrashIcon size={14} />
                           </button>
                         )}
+                        {/* At the row's end, after its buttons; a press on it opens the row, as anywhere on it. */}
+                        <span className="file-meta">{e.kind === 'dir' ? <ChevronIcon size={14} /> : formatBytes(e.size)}</span>
                       </li>
                     );
                   })}

@@ -25,7 +25,10 @@ import { CreationPage } from './CreationPage';
 import { CreationOptions, CreationTeamOptions } from './CreationOptions';
 import { teamProblems, type Team } from './TeamEditor';
 
-/** Whether the last new chat used the lead agent's teams without asking ("1"), so the next one starts the same way. */
+/**
+ * Whether the last new chat used the lead agent's teams without asking ("1") or waited for the user's
+ * confirmation ("0"), so the next one starts the same way; without either, it uses them without asking.
+ */
 const AUTO_CONFIRM_KEY = 'relay:autoConfirm';
 
 function read(key: string): string {
@@ -45,16 +48,16 @@ function write(key: string, value: string): void {
   }
 }
 
-/** Whether the last new chat (or schedule) used the lead agent's teams without asking. */
-export const lastAutoConfirm = () => read(AUTO_CONFIRM_KEY) === '1';
+/** Whether the next new chat (or schedule) uses the lead agent's teams without asking: as the last one did, else yes. */
+export const lastAutoConfirm = () => read(AUTO_CONFIRM_KEY) !== '0';
 
 /** Remember whether this one did, so the next one starts the same way. */
-export const rememberAutoConfirm = (on: boolean | undefined) => write(AUTO_CONFIRM_KEY, on ? '1' : '');
+export const rememberAutoConfirm = (on: boolean | undefined) => write(AUTO_CONFIRM_KEY, on ? '1' : '0');
 
 /**
  * A new conversation: the lead agent designs the team for each question, so only the settings are
  * chosen here. It starts in the default working directories (`cwds`, the first where agents start),
- * with lead review on (the box ticked each time: only the user turns it off, here or later in the chat),
+ * with lead review off (the box unticked each time: only the user turns it on, here or later in the chat),
  * and with Settings' default team checks (`checksDefault`), there to change or remove.
  */
 export function autoTeam(cwds: string[], autoConfirm: boolean, checksDefault?: CheckList): Team {
@@ -69,7 +72,6 @@ export function autoTeam(cwds: string[], autoConfirm: boolean, checksDefault?: C
       ...cwdSettings(cwds),
       autoTeam: true,
       ...(autoConfirm ? { autoConfirm } : {}),
-      leadReview: true,
       ...(checks ? { checks } : {}),
     },
   };

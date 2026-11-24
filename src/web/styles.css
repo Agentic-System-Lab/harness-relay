@@ -8837,25 +8837,58 @@ summary + .checks-editor-body {
   font-size: 13.5px;
 }
 
-.file-item:hover {
-  background: var(--surface);
-}
-
-/* A folder's row: the folder, and a button to download it as a ZIP file (shown on hover where there is one). */
+/*
+ * A row: the file or folder (its button covers the whole row, so a press anywhere on it opens it), the
+ * buttons to download a folder as a ZIP file and to delete it (shown on hover where there is one, above
+ * the row's button), then its size or the arrow into the folder, at the row's end.
+ */
 .file-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 2px;
+  border-radius: 8px;
+}
+
+.file-row:hover {
+  background: var(--surface);
+}
+
+.file-row:has(.file-item.selected) {
+  background: var(--surface-2);
 }
 
 .file-row .file-item {
   flex: 1;
   min-width: 0;
+  background: transparent;
+}
+
+.file-row .file-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+}
+
+.file-row .file-item:focus-visible {
+  outline: none;
+}
+
+.file-row .file-item:focus-visible::after {
+  outline: 2px solid color-mix(in srgb, var(--text) 35%, transparent);
+  outline-offset: -2px;
 }
 
 .file-row-zip {
+  position: relative;
+  z-index: 1;
   flex: none;
   color: var(--muted);
+}
+
+.file-row > .file-meta {
+  padding: 0 8px 0 4px;
 }
 
 @media (hover: hover) {
@@ -8875,7 +8908,6 @@ summary + .checks-editor-body {
 }
 
 .file-item.selected {
-  background: var(--surface-2);
   font-weight: 600;
 }
 
