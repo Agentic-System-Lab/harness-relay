@@ -15,7 +15,8 @@ import {
  * - `blocked`: why it cannot be installed here (a program its install needs, or this system);
  * - `running`: its install under way, with Cancel and the installer's output so far;
  * - `ours`: Harness Relay installed it, with Remove (`inUse`: the CLI's executable path is that program;
- *   `update`: that program is older than Harness Relay supports, `tooOld`, and Update installs it anew).
+ *   `update`: that program is older than Harness Relay supports, `tooOld`, and Update installs it anew,
+ *   unless it could not be installed here now, `blocked`: Update would remove it and install nothing).
  *
  * A CLI that is too old is not `installed` (nothing runs on it): an Install button is offered, which
  * installs a current one in Harness Relay's own folder and leaves the user's own copy as it is.
@@ -30,7 +31,8 @@ export type CliInstallShown =
 export function cliInstallShown(status: ProviderStatus | undefined, view: CliInstallView | undefined): CliInstallShown {
   if (!status || !view) return { kind: 'none' };
   if (view.job?.state === 'running') return { kind: 'running' };
-  if (view.installed) return { kind: 'ours', inUse: view.installed.inUse, update: view.installed.inUse && Boolean(status.tooOld) };
+  if (view.installed)
+    return { kind: 'ours', inUse: view.installed.inUse, update: view.installed.inUse && Boolean(status.tooOld) && !view.blocked };
   if (status.installed) return { kind: 'none' };
   if (view.blocked) return { kind: 'blocked', block: view.blocked };
   const ended = view.job?.state;

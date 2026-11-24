@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -71,6 +71,20 @@ describe('a CLI older than Harness Relay supports', () => {
     expect(status.accounts).toEqual([{ id: '', label: '', auth: { loggedIn: null }, usingStoredApiKey: false }]);
     // Not even `login status`.
     expect(started()).toEqual(['--version']);
+  });
+
+  posixIt('reads its version again at each status check, also when the program changed but kept its size and time', async () => {
+    const { service, started } = setup('too-old-updated');
+    const bin = join(root, 'too-old-updated', 'codex');
+    expect((await service.status('codex', true)).tooOld).toBeDefined();
+    // Updated in place behind a shim that stays the same file (its size and time): as `npm update` leaves `codex.cmd`.
+    const { atime, mtime } = statSync(bin);
+    writeFileSync(bin, readFileSync(bin, 'utf8').replace('codex-cli 0.27.0', 'codex-cli 9.27.0'));
+    utimesSync(bin, atime, mtime);
+    const status = await service.status('codex', true);
+    expect(status).toMatchObject({ installed: true, version: '9.27.0' });
+    expect(status.tooOld).toBeUndefined();
+    expect(started().filter((s) => s === '--version')).toHaveLength(2);
   });
 
   posixIt('is not installed, saying why, when it is killed as it starts (Codex 0.47 to 0.130 on macOS)', async () => {

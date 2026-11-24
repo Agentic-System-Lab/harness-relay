@@ -471,11 +471,14 @@ export async function discoverModels(
   backends: ConfiguredBackends = { configured: [], endpoints: [] },
 ): Promise<DiscoveredModels> {
   // Older than Harness Relay supports: not asked (it might take the question for a prompt), and the
-  // models it would offer are its built-in ones, with why.
-  const old = await tooOld(p, bin, isOpenProvider(p) ? openHomeEnv(openAgents[p].process, env) : env);
+  // models it would offer are its built-in ones, with why (also when it is killed as it starts).
+  const refuseOld = async () => {
+    const old = await tooOld(p, bin, isOpenProvider(p) ? openHomeEnv(openAgents[p].process, env) : env);
+    if (old) throw new CliTooOldError(p, old);
+  };
   if (isOpenProvider(p)) {
     try {
-      if (old) throw new CliTooOldError(p, old);
+      await refuseOld();
       return await discoverOpenModels(p, bin, env, backends);
     } catch (err) {
       return { provider: p, models: [], efforts: openAgents[p].efforts, source: 'builtin', error: (err as Error).message };
@@ -483,7 +486,7 @@ export async function discoverModels(
   }
   let own: DiscoveredModels;
   try {
-    if (old) throw new CliTooOldError(p, old);
+    await refuseOld();
     if (p === 'claude') own = discoverClaude(env);
     else if (p === 'codex') own = await discoverCodex(bin, env);
     else if (p === 'cursor') own = await discoverCursor(bin, env);

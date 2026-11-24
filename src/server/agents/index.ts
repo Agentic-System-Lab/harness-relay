@@ -1,5 +1,5 @@
 import { isOpenProvider, type OpenProvider, type Provider } from '../../shared/types';
-import { CliTooOldError, tooOld } from '../cliVersion';
+import { CliKilledError, CliTooOldError, tooOld } from '../cliVersion';
 import { antigravityRunner } from './antigravity';
 import { claudeRunner } from './claude';
 import { clineAgent } from './cline';
@@ -39,7 +39,10 @@ export function newEnoughOnly(provider: Provider, runner: () => AgentRunner): Ag
   return {
     provider,
     run: async (o) => {
-      const old = await tooOld(provider, o.bin, versionEnv(provider, o.env));
+      const old = await tooOld(provider, o.bin, versionEnv(provider, o.env)).catch((err: unknown) => {
+        // Killed as it starts (macOS, a revoked signature): the turn says so, as the CLI's card does.
+        throw err instanceof CliKilledError ? new AgentRunError(err.message) : err;
+      });
       if (old) throw new AgentRunError(new CliTooOldError(provider, old).message);
       return runner().run(o);
     },

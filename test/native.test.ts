@@ -631,6 +631,18 @@ printf '{"cwd": "%s", "skills": [{"name": "run-%s", "description": ""}]}' "$PWD"
 `;
   const posixIt = process.platform === 'win32' ? it.skip : it;
 
+  posixIt('does not ask a CLI too old what it loads: its version only, and why in its problems', async () => {
+    const { MIN_VERSIONS } = await import('../src/shared/cliVersions');
+    const { t } = await import('../src/server/i18n');
+    const bin = join(root, 'too-old-codex');
+    writeFileSync(bin, `#!/bin/sh\necho "$*" >> "${bin}.starts"\n[ "$1" = "--version" ] && echo "codex-cli 0.27.0"\nexit 0\n`, {
+      mode: 0o755,
+    });
+    const probe = await new NativeSetupService({ bin: () => bin, env: () => ({ ...process.env }) }).get('codex', root);
+    expect(probe.problems).toEqual([{ kind: 'failed', detail: t().cliTooOld('Codex', '0.27.0', MIN_VERSIONS.codex!) }]);
+    expect(readFileSync(`${bin}.starts`, 'utf8').trim().split('\n')).toEqual(['--version']);
+  });
+
   posixIt(
     'gives the lead the last answer at once and asks again in the background once it is old; each account in its own home, with what it leaves out',
     async () => {

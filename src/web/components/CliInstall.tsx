@@ -45,6 +45,23 @@ export function CliInstall({
     }
   };
 
+  // Too old and ours: removed, then installed again, current, in the same folder. Each answer is shown as
+  // it comes, and the status asked again whatever happened: an install refused after the removal (its
+  // program gone since, say) leaves the card true to what is there, with Install.
+  const update = async () => {
+    setBusy(true);
+    setNote({ text: '' });
+    try {
+      onView(await api.removeCli(provider));
+      onView(await api.installCli(provider));
+    } catch (e) {
+      setNote({ text: (e as Error).message, error: true });
+    } finally {
+      setBusy(false);
+      await onChanged();
+    }
+  };
+
   if (shown.kind === 'none' || !view) return note.text ? <p className="muted small">{note.text}</p> : null;
   const job = view.job;
 
@@ -55,22 +72,8 @@ export function CliInstall({
           {i.installedHere(view.dir)}
           {!shown.inUse && i.notInUse}
         </span>
-        {/* Too old (`tooOld`): removed, then installed again, current, in the same folder. */}
         {shown.update && (
-          <button
-            className="primary small-button"
-            disabled={busy}
-            onClick={() =>
-              void act(
-                async () => {
-                  await api.removeCli(provider);
-                  return api.installCli(provider);
-                },
-                undefined,
-                true,
-              )
-            }
-          >
+          <button className="primary small-button" disabled={busy} onClick={() => void update()}>
             {i.update(label)}
           </button>
         )}

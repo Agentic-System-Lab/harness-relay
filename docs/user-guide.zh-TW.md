@@ -62,7 +62,7 @@ Muse Code 在 macOS 與 Linux 上用 `curl -fsSL https://dev.meta.ai/install.sh 
 
 #### 版本太舊的 CLI
 
-Harness Relay 啟動 CLI 時不給它終端機，而太舊的 CLI 會把它不認得的子指令當成 prompt：例如 Codex 0.27 沒有 `app-server`，會改開它的終端畫面，並以「Device not configured (os error 6)」失敗；Claude Code 2.1.40 以前的版本則會把 `auth status` 送給模型。所以比上面列出的最低版本還舊的 CLI，除了 `--version` 之外 Harness Relay 什麼都不會啟動：側邊欄與它的卡片顯示**版本太舊**、它的版本與需要的版本，不會登入、查用量或執行它，在它上面的回合也會在啟動前就失敗，並說明需要哪個版本。
+Harness Relay 啟動 CLI 時不給它終端機，而太舊的 CLI 會把它不認得的子指令當成 prompt：例如 Codex 0.27 沒有 `app-server`，會改開它的終端畫面，並以「Device not configured (os error 6)」失敗；Claude Code 2.1.39 及更舊的版本則會把 `auth status` 送給模型。所以比上面列出的最低版本還舊的 CLI，除了 `--version` 之外 Harness Relay 什麼都不會啟動：側邊欄與它的卡片顯示**版本太舊**、它的版本與需要的版本，不會登入、查用量或執行它，在它上面的回合也會在啟動前就失敗，並說明需要哪個版本。
 
 請在你安裝它的地方更新它（Homebrew、npm、它自己的更新程式），然後在設定頁按**重新檢查狀態**；或直接按它卡片上的**安裝 <CLI>**，在 Harness Relay 自己的資料夾另裝一份新版（[從設定頁安裝 CLI](#從設定頁安裝-cli)）：之後 Harness Relay 就用這一份，你自己安裝的那份維持原樣，在終端機照常使用，它的登入與設定也照舊。太舊的若正是 Harness Relay 自己安裝的那份，卡片上會有**更新**，它會移除那份，再在同一個資料夾裝上新版。
 

@@ -647,7 +647,9 @@ async function askCursor(bin: string, env: NodeJS.ProcessEnv, signal?: AbortSign
 export async function askUsage(p: Provider, bin: string, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<UsageAnswer> {
   // Older than Harness Relay supports: not asked, as it might take the question for a prompt (Codex
   // 0.27 has no `app-server`, opens its terminal UI and fails with "Device not configured").
-  if (await tooOld(p, bin, env)) return trouble('cliTooOld');
+  const old = await tooOld(p, bin, env).catch((err: Error) => err);
+  if (old instanceof Error) return failed(old.message);
+  if (old) return trouble('cliTooOld');
   const apiKey = (BILLED_KEY_ENV[p] ?? []).some((k) => env[k]);
   switch (p) {
     case 'claude':

@@ -22,7 +22,7 @@ import { backendLabel } from './backends';
 import { HttpError } from './errors';
 import { discoverModels, type DiscoveredModels } from './models';
 import { CliLogin } from './login';
-import { cliVersion, parseVersion, tooOld, tooOldText } from './cliVersion';
+import { CliKilledError, cliVersion, parseVersion, tooOld, tooOldText } from './cliVersion';
 import { CommandNotFoundError, capture, stripAnsi, tail } from './process';
 import { CREDENTIAL_ENV, CURSOR_SHARED_SIGN_IN, type SettingsStore } from './settings';
 import { t } from './i18n';
@@ -392,7 +392,9 @@ export class ProviderService {
    * it does not know would be taken for a prompt.
    */
   async assertNewEnough(p: Provider, account = ''): Promise<void> {
-    const old = await tooOld(p, this.settings.bin(p), versionEnv(p, this.settings.env(p, account)));
+    const old = await tooOld(p, this.settings.bin(p), versionEnv(p, this.settings.env(p, account))).catch((err: unknown) => {
+      throw err instanceof CliKilledError ? new HttpError(409, err.message) : err;
+    });
     if (old) throw new HttpError(409, tooOldText(p, old));
   }
 

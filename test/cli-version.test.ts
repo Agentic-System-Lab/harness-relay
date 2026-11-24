@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { removeTree } from '../src/server/fsRemove';
+import { slow } from './timeouts';
 import { CHECKED_VERSIONS, MIN_VERSIONS, tooOldFor, versionBefore } from '../src/shared/cliVersions';
-import { PROVIDERS, type Provider } from '../src/shared/types';
+import { PROVIDER_LABEL, PROVIDERS, isOpenProvider, type Provider } from '../src/shared/types';
 
 const root = mkdtempSync(join(tmpdir(), 'relay-cli-version-'));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -168,8 +169,8 @@ posix("a CLI's version, read from its program", () => {
     const err = await cliVersion(bin, process.env).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(CliKilledError);
     expect((err as Error).message).toBe(t().cliKilledAtStart('SIGKILL'));
-    // Not called too old (its version is not known), and not kept: the status says why it cannot run.
-    expect(await tooOld('codex', bin, process.env)).toBeUndefined();
+    // Refused as it is (its version is not known), and not kept: asked again next time.
+    await expect(tooOld('codex', bin, process.env)).rejects.toBeInstanceOf(CliKilledError);
     expect(starts(bin)).toEqual(['--version', '--version']);
   });
 
@@ -180,12 +181,87 @@ posix("a CLI's version, read from its program", () => {
     expect(await cliVersion(bin, process.env)).toBe('0.27.0');
   });
 
-  describe('a run on a CLI that is too old', () => {
-    const options = (bin: string) =>
-      ({ bin, env: process.env, prompt: 'hi', systemPrompt: '', cwd: root, permission: 'read' }) as unknown as Parameters<
-        ReturnType<typeof newEnoughOnly>['run']
-      >[0];
+  /** What a run is started with: only the program and its environment matter here. */
+  const options = (bin: string) =>
+    ({ bin, env: process.env, prompt: 'hi', systemPrompt: '', cwd: root, permission: 'read' }) as unknown as Parameters<
+      ReturnType<typeof newEnoughOnly>['run']
+    >[0];
 
+  describe('every runner Harness Relay starts runs through', () => {
+    /** A stand-in that says `version` and logs each start's arguments and environment to `<bin>.log`. */
+    const logging = (name: string, version: string) => {
+      const bin = join(root, name);
+      writeFileSync(
+        bin,
+        `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(`${bin}.log`)}, JSON.stringify({ args: process.argv.slice(2), env: process.env }) + '\\n');\n` +
+          `if (process.argv[2] === '--version') console.log(${JSON.stringify(version)});\nelse process.exit(3);\n`,
+        { mode: 0o755 },
+      );
+      return bin;
+    };
+    const logged = (bin: string): { args: string[]; env: NodeJS.ProcessEnv }[] => {
+      try {
+        return readFileSync(`${bin}.log`, 'utf8')
+          .trim()
+          .split('\n')
+          .map((l) => JSON.parse(l));
+      } catch {
+        return [];
+      }
+    };
+    const run = async (p: Provider, bin: string, env: NodeJS.ProcessEnv) => {
+      const { runners } = await import('../src/server/agents/index');
+      return runners[p].run({ ...options(bin), env }).catch((e: unknown) => e);
+    };
+
+    it(
+      'refuses a run on each CLI too old before it starts, an open agent asked its version in its own home',
+      async () => {
+        const { openAgents } = await import('../src/server/agents/index');
+        const { openHomeEnv } = await import('../src/server/agents/open');
+        const { OPEN_AGENT_HOME_ENV } = await import('../src/server/settings');
+        for (const p of PROVIDERS) {
+          const min = MIN_VERSIONS[p];
+          if (!min) continue;
+          const bin = logging(`runner-${p}`, '0.0.1');
+          // Antigravity's own key: without one it is never started (below).
+          const env: NodeJS.ProcessEnv = { ...process.env, [OPEN_AGENT_HOME_ENV]: join(root, 'open-homes', p), GEMINI_API_KEY: 'test-key' };
+          const err = await run(p, bin, env);
+          expect(err, p).toBeInstanceOf(AgentRunError);
+          expect((err as Error).message, p).toBe(t().cliTooOld(PROVIDER_LABEL[p], '0.0.1', min));
+          const starts = logged(bin);
+          expect(
+            starts.map((s) => s.args),
+            p,
+          ).toEqual([['--version']]);
+          if (isOpenProvider(p)) {
+            // Not in the user's own home: the variables its home sets, as its status asks it.
+            const own = openHomeEnv(openAgents[p].process, env);
+            for (const [k, v] of Object.entries(own)) if (env[k] !== v) expect(starts[0]!.env[k], `${p}: ${k}`).toBe(v);
+          }
+        }
+      },
+      slow(30_000),
+    );
+
+    it('never starts Antigravity without its Gemini API key, not even for its version', async () => {
+      const bin = logging('runner-agy-keyless', '0.0.1');
+      const err = await run('antigravity', bin, { ...process.env, GEMINI_API_KEY: '' });
+      // Whatever its runner says of a run without a key (this one has no more than a program), not that it is too old.
+      expect((err as Error).message).not.toBe(t().cliTooOld('Antigravity', '0.0.1', MIN_VERSIONS.antigravity!));
+      expect(logged(bin)).toEqual([]);
+    });
+
+    it('refuses a run on a program killed as it starts, saying so', async () => {
+      const bin = join(root, 'runner-codex-killed');
+      writeFileSync(bin, '#!/bin/sh\nkill -9 $$\n', { mode: 0o755 });
+      const err = await run('codex', bin, process.env);
+      expect(err).toBeInstanceOf(AgentRunError);
+      expect((err as Error).message).toBe(t().cliKilledAtStart('SIGKILL'));
+    });
+  });
+
+  describe('a run on a CLI that is too old', () => {
     it('is refused before it starts, saying which version it needs', async () => {
       // As Codex 0.27 does without a terminal, given `app-server`.
       const bin = fake('codex-run-old', 'codex-cli 0.27.0', 'echo "Error: Device not configured (os error 6)" >&2; exit 1');

@@ -1,6 +1,7 @@
 import { realpathSync, statSync } from 'node:fs';
 import { MIN_VERSIONS, tooOldFor } from '../shared/cliVersions';
 import { PROVIDER_LABEL, type Provider } from '../shared/types';
+import { antigravityHasKey } from './agents/antigravity';
 import { findOnPath } from './executable';
 import { t } from './i18n';
 import { capture, stripAnsi } from './process';
@@ -83,14 +84,17 @@ export interface TooOld {
 /**
  * Whether a CLI is older than Harness Relay supports, as its program says. A CLI whose version cannot
  * be read (not there, or no version in its answer) is not called too old: starting it says what is wrong.
+ * Throws `CliKilledError` for a program killed as it starts: nothing it is started for would run either.
  */
 export async function tooOld(p: Provider, bin: string, env: NodeJS.ProcessEnv): Promise<TooOld | undefined> {
-  // A CLI without a minimum is not asked its version at all.
-  if (!MIN_VERSIONS[p]) return undefined;
+  // A CLI without a minimum is not asked its version at all; nor is Antigravity without its Gemini API
+  // key, which is never started then (it would answer on a Google sign-in it keeps): its own refusal says why.
+  if (!MIN_VERSIONS[p] || (p === 'antigravity' && !antigravityHasKey(env))) return undefined;
   let version: string | undefined;
   try {
     version = await cliVersion(bin, env);
-  } catch {
+  } catch (err) {
+    if (err instanceof CliKilledError) throw err;
     return undefined;
   }
   const min = tooOldFor(p, version);

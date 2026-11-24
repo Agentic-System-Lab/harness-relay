@@ -651,16 +651,29 @@ function statusPill(
  * Harness Relay installed); or its program could not start (it cannot be run, or it was killed as it
  * started), in the server's words. A CLI that is simply not found says nothing here (`CliInstall`).
  */
-function CliProblemLine({ provider, status, install }: { provider: Provider; status?: ProviderStatus; install?: CliInstallView }) {
+function CliProblemLine({
+  provider,
+  status,
+  install,
+  checking,
+}: {
+  provider: Provider;
+  status?: ProviderStatus;
+  install?: CliInstallView;
+  /** Just installed, its status being checked again (`statusBeforeInstall`): what it said before is old. */
+  checking: boolean;
+}) {
   const t = useT();
+  if (checking) return null;
   if (status && !status.installed && !status.tooOld && status.auth.detail) return <p className="warn-line">{status.auth.detail}</p>;
   if (!status?.tooOld) return null;
   const label = PROVIDER_LABEL[provider];
   return (
     <p className="warn-line">
       {t.settings.tooOld(label, status.version ?? '?', status.tooOld)}
-      {/* Install is offered only while Harness Relay has no copy of its own (with one, Update or Remove). */}
-      {!install?.installed && <> {t.settings.tooOldUpdate}</>}
+      {/* Install is offered only while Harness Relay has no copy of its own (with one, Update or Remove),
+          and can install it here (else the card says why not). */}
+      {!install?.installed && !install?.blocked && <> {t.settings.tooOldUpdate}</>}
     </p>
   );
 }
@@ -764,7 +777,7 @@ function ProviderCard({
         {(status?.installed || status?.tooOld) && status.version && <span className="muted small">v{status.version}</span>}
       </header>
 
-      <CliProblemLine provider={provider} status={status} install={install} />
+      <CliProblemLine provider={provider} status={status} install={install} checking={checking} />
       <CliInstall provider={provider} status={status} view={install} onView={onInstallView} onChanged={onCliChanged} />
 
       {/* Once for the CLI: every account's members can run on the user's own endpoints. */}
@@ -1277,7 +1290,7 @@ function OpenAgentCard({
         </span>
       </header>
 
-      <CliProblemLine provider={provider} status={status} install={install} />
+      <CliProblemLine provider={provider} status={status} install={install} checking={checking} />
       <CliInstall provider={provider} status={status} view={install} onView={onInstallView} onChanged={onCliChanged} />
 
       <p className="muted small">
