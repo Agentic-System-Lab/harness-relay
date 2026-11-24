@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { JsonRpcConnection, RpcError } from '../src/server/agents/acp';
+import { AcpEndedCalls, endedAnswer, JsonRpcConnection, RpcError } from '../src/server/agents/acp';
 import {
   createGrokUpdateHandler,
   describeGrokCancel,
@@ -598,6 +598,90 @@ describe('JSON-RPC connection', () => {
     expect(conn.withdraw(9)).toBe(false);
     await new Promise((r) => setTimeout(r, 0));
     expect(sent).toHaveLength(2);
+  });
+});
+
+describe('the tool calls an ACP agent reports ended, against its permission requests', () => {
+  const update = (toolCallId: string, status?: string, sessionUpdate = 'tool_call_update') => ({
+    sessionUpdate,
+    toolCallId,
+    ...(status ? { status } : {}),
+  });
+
+  it('withdraws a request whose call the agent reports ended while it waits, and only that one', () => {
+    const calls = new AcpEndedCalls();
+    calls.note('s1', update('c1', 'pending', 'tool_call'));
+    calls.note('s1', update('c2', 'pending', 'tool_call'));
+    const one = calls.watch('s1', 'c1');
+    const two = calls.watch('s1', 'c2');
+    calls.note('s1', update('c1', 'in_progress'));
+    expect(one.signal.aborted).toBe(false);
+    calls.note('s1', update('c1', 'failed'));
+    expect(one.signal.aborted).toBe(true);
+    expect(two.signal.aborted).toBe(false);
+    for (const status of ['completed', 'cancelled', 'rejected']) {
+      calls.note('s1', update(`x-${status}`, 'pending', 'tool_call'));
+      const w = calls.watch('s1', `x-${status}`);
+      calls.note('s1', update(`x-${status}`, status));
+      expect(w.signal.aborted).toBe(true);
+    }
+    // Answered first: done, nothing left to withdraw.
+    two.done();
+    calls.note('s1', update('c2', 'completed'));
+    expect(two.signal.aborted).toBe(false);
+  });
+
+  it('asks nothing about a call that already ended, unless it was announced again (an id given once more)', () => {
+    const calls = new AcpEndedCalls();
+    calls.note('s1', update('c1', 'pending', 'tool_call'));
+    calls.note('s1', update('c1', 'failed'));
+    expect(calls.watch('s1', 'c1').signal.aborted).toBe(true);
+    // A new call with the same id, under way: a request about it is asked as usual.
+    calls.note('s1', update('c1', 'pending', 'tool_call'));
+    expect(calls.watch('s1', 'c1').signal.aborted).toBe(false);
+    // Under way again by an update with a status of its own.
+    calls.note('s1', update('c1', 'completed'));
+    calls.note('s1', update('c1', 'in_progress'));
+    expect(calls.watch('s1', 'c1').signal.aborted).toBe(false);
+  });
+
+  it('knows a call by the session that announced it, also when a subagent asks under its parent session', () => {
+    const calls = new AcpEndedCalls();
+    calls.note('child', update('c1', 'pending', 'tool_call'));
+    calls.note('main', update('c9', 'pending', 'tool_call'));
+    const sub = calls.watch('main', 'c1');
+    const main = calls.watch('main', 'c9');
+    // The same id ending in another session than the one that announced it is another call.
+    calls.note('main', update('c1', 'failed'));
+    expect(sub.signal.aborted).toBe(false);
+    calls.note('child', update('c1', 'failed'));
+    expect(sub.signal.aborted).toBe(true);
+    expect(main.signal.aborted).toBe(false);
+  });
+
+  it('passes the agent’s own withdrawal through, and leaves a request that names no call to it alone', () => {
+    const calls = new AcpEndedCalls();
+    const agent = new AbortController();
+    const w = calls.watch('s1', 'c1', agent.signal);
+    agent.abort();
+    expect(w.signal.aborted).toBe(true);
+    const none = calls.watch('s1', undefined, agent.signal);
+    expect(none.signal).toBe(agent.signal);
+    expect(calls.watch('s1', '').signal.aborted).toBe(false);
+    // Neither other updates nor a call without an id count.
+    calls.note('s1', { sessionUpdate: 'agent_message_chunk', status: 'failed', toolCallId: 'c2' });
+    calls.note('s1', { sessionUpdate: 'tool_call_update', status: 'failed' });
+    expect(calls.watch('s1', 'c2').signal.aborted).toBe(false);
+  });
+
+  it('answers a request about an ended call refused once, never always, with nothing for the model', () => {
+    const options = [
+      { optionId: 'a', kind: 'allow_once' },
+      { optionId: 'ra', kind: 'reject_always' },
+      { optionId: 'r', kind: 'reject_once' },
+    ];
+    expect(endedAnswer(options)).toEqual({ outcome: { outcome: 'selected', optionId: 'r' } });
+    expect(endedAnswer(options.slice(0, 2))).toEqual({ outcome: { outcome: 'cancelled' } });
   });
 });
 

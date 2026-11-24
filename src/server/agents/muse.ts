@@ -35,7 +35,17 @@ import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
 import { patternPath, agentProtectedReads, realPath } from '../protect';
 import { DATA_DIR, MUSE_HOME_ENV, MUSE_KEY_ONLY_ENV } from '../settings';
-import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, answerPermission, type AcpDecision } from './acp';
+import {
+  JsonRpcConnection,
+  RpcError,
+  acpContentText,
+  acpMcpServers,
+  acpPrompt,
+  answerPermission,
+  type AcpDecision,
+  AcpEndedCalls,
+  endedAnswer,
+} from './acp';
 import { agentConfigPath } from './antigravity';
 import {
   AgentRunError,
@@ -1154,9 +1164,12 @@ async function museTurn(o: RunOptions, runDir: string, protectedPaths: readonly 
   const stopSoon = (ms: number) => setTimeout(() => stop.abort(), ms).unref();
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
+  // The calls it reports ended: a request about one is withdrawn, or not asked at all.
+  const endedCalls = new AcpEndedCalls();
   const updates = createMuseUpdateHandler(o.onEvent);
   conn.onNotification = (method, params) => {
     if (method !== 'session/update' || opening) return;
+    endedCalls.note(params?.sessionId, params?.update);
     if (!sessionId || params?.sessionId !== sessionId) return;
     updates.handle(params?.update);
   };
@@ -1183,9 +1196,21 @@ async function museTurn(o: RunOptions, runDir: string, protectedPaths: readonly 
       decision = { allow: false, reason: verdict.reason };
       label = verdict.reason;
     } else if (o.requestApproval) {
-      const answer = await o.requestApproval(museApprovalRequest(o.permission, call, o.cwd, o.addDirs), withdrawn);
-      // Withdrawn by the CLI meanwhile: no answer goes, and its call is not the user's refusal.
+      const watched = endedCalls.watch(params?.sessionId, id, withdrawn);
+      // A call it already reported ended: nobody is asked.
+      if (watched.signal.aborted && !withdrawn?.aborted) {
+        watched.done();
+        return endedAnswer(options.filter(once));
+      }
+      let answer: Awaited<ReturnType<NonNullable<typeof o.requestApproval>>>;
+      try {
+        answer = await o.requestApproval(museApprovalRequest(o.permission, call, o.cwd, o.addDirs), watched.signal);
+      } finally {
+        watched.done();
+      }
+      // Withdrawn by the CLI meanwhile (no answer goes), or its call ended: not the user's refusal.
       if (withdrawn?.aborted) return null;
+      if (watched.signal.aborted) return endedAnswer(options.filter(once));
       decision = answer.allow ? { allow: true } : { allow: false, reason: answer.note ?? '' };
       label = answer.note ? `${t().approvalDeclined} ${answer.note}` : t().approvalDeclined;
     } else decision = { allow: false, reason: 'Not covered by the permission' };

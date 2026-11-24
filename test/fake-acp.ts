@@ -17,6 +17,9 @@ import { writeFileSync } from 'node:fs';
  *     reports the call completed when allowed and failed when not (the announced one too, with
  *     `FAKE_ACP_END_ANNOUNCED`), and says the outcome it got in its reply; with `FAKE_ACP_WITHDRAW` it
  *     withdraws the request itself after 100 ms (`$/cancel_request`), as an agent whose own rule decided;
+ *     with `FAKE_ACP_END=during` it reports the call failed 100 ms after asking, without withdrawing the
+ *     request (as an agent that stops waiting without saying so), and with `=before` just before asking
+ *     (as OpenCode hands over a request for a call it already refused);
  *   - `client`: asks the client to write a file, read one and start a terminal (as some agents do although
  *     `initialize` said the client does none of these), and says what it got back;
  *   - `hang`: starts a tool call and says something, then waits; a `session/cancel` ends the prompt with
@@ -69,6 +72,9 @@ async function prompt(id, p) {
   if (scenario === 'permission') {
     const call = env.FAKE_ACP_CALL ? JSON.parse(env.FAKE_ACP_CALL) : { toolCallId: 'e1', title: 'Edit a.txt', kind: 'edit', rawInput: { path: 'a.txt' } };
     update(s, { sessionUpdate: 'tool_call', status: 'pending', ...(env.FAKE_ACP_ANNOUNCE ? JSON.parse(env.FAKE_ACP_ANNOUNCE) : call) });
+    const ended = () => update(s, { sessionUpdate: 'tool_call_update', toolCallId: call.toolCallId, status: 'failed' });
+    if (env.FAKE_ACP_END === 'before') ended();
+    if (env.FAKE_ACP_END === 'during') setTimeout(ended, 100);
     const answer = await ask('session/request_permission', {
       sessionId: s,
       toolCall: call,

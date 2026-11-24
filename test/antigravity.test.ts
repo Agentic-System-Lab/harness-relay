@@ -558,6 +558,14 @@ describe('the briefing, in its system prompt', () => {
     expect(ANTIGRAVITY_NOTES).toMatch(/ends your turn/);
     expect(ANTIGRAVITY_NOTES).toMatch(/ask_question/);
   });
+
+  it('tells the model to make the calls that need approval itself, never in a subagent, which cannot ask (below full access)', () => {
+    expect(ANTIGRAVITY_NOTES).toMatch(
+      /Unless this conversation has full access, your subagents \(invoke_subagent, swarm workers\) cannot get/,
+    );
+    expect(ANTIGRAVITY_NOTES).toMatch(/make such calls yourself, never in a subagent/);
+    expect(antigravityBriefing('Be @Ada.')).toContain(ANTIGRAVITY_NOTES);
+  });
 });
 
 describe("Antigravity's models and what it loads by itself", () => {

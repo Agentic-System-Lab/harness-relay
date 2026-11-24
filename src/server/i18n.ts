@@ -492,7 +492,8 @@ const zhTW = {
     `沙箱要用的程式「${path}」在這次執行可以寫入的資料夾裡，可能被 agent 換掉後在沙箱外執行，所以沒有執行。`,
   relaySandboxNoChannel:
     'Harness Relay 自己的沙箱沒有拿到它的控制通道（這是 Harness Relay 的錯誤：啟動它時沒有傳入 channel），所以沒有執行。',
-  relaySandboxHost: '沙箱中的程式想連到這個主機。允許後，這次執行就能連到它（之後的執行也會，若你選了一律允許）。',
+  relaySandboxHost:
+    '沙箱中的程式想連到這個主機。允許後，這次執行就能連到它（之後的執行也會，若你選了一律允許）；就算那個程式等不及、已經放棄這次連線，它之後再試也會連上。',
   grokRejectedModel: (value: string, err: string) => `Grok 不接受模型「${value}」：${err}`,
   grokRejectedEffort: (value: string, err: string) => `Grok 不接受推理強度「${value}」：${err}`,
   cursorRefused: '超出這個對話的權限，已拒絕',
@@ -1943,7 +1944,7 @@ const en: ServerMessages = {
   relaySandboxNoChannel:
     "Harness Relay's own sandbox did not get its control channel (a bug in Harness Relay: it was started without its channel), so the agent did not run.",
   relaySandboxHost:
-    'A program in the sandbox wants to connect to this host. Allowing it lets this run reach it (and later runs too, if you allow it always).',
+    'A program in the sandbox wants to connect to this host. Allowing it lets this run reach it (and later runs too, if you allow it always): even if that program gave up on this connection meanwhile, its next try gets through.',
   grokRejectedModel: (value, err) => `Grok does not accept the model "${value}": ${err}`,
   grokRejectedEffort: (value, err) => `Grok does not accept the reasoning effort "${value}": ${err}`,
   cursorRefused: "Refused: not covered by this conversation's permission",

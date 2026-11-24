@@ -8,7 +8,17 @@ import { t } from '../i18n';
 import { runProcess, tail } from '../process';
 import { cursorEffortOption, cursorOptionValues } from '../models';
 import { patternPath, agentProtectedReads, realPath, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
-import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, answerPermission, type AcpDecision } from './acp';
+import {
+  JsonRpcConnection,
+  RpcError,
+  acpContentText,
+  acpMcpServers,
+  acpPrompt,
+  answerPermission,
+  type AcpDecision,
+  AcpEndedCalls,
+  endedAnswer,
+} from './acp';
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
@@ -722,9 +732,12 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
   const stopSoon = (ms: number) => setTimeout(() => stop.abort(), ms).unref();
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
+  // The calls it reports ended: a request about one is withdrawn, or not asked at all.
+  const endedCalls = new AcpEndedCalls();
   const updates = createCursorUpdateHandler(o.onEvent, o.permission === 'read-only');
   conn.onNotification = (method, params) => {
     if (method !== 'session/update' || replaying) return;
+    endedCalls.note(params?.sessionId, params?.update);
     if (!sessionId) return;
     // Another session: a subagent's (the handler knows those of this turn), or not this turn's.
     if (params?.sessionId !== sessionId) return void updates.child(String(params?.sessionId), params?.update);
@@ -751,9 +764,21 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
     let decision = cursorPermissionDecision(o.permission, call, o.cwd, o.addDirs);
     let label = t().cursorRefused;
     if (!decision.allow && o.requestApproval) {
-      const answer = await o.requestApproval(cursorApprovalRequest(call, o.cwd, o.addDirs), withdrawn);
-      // Withdrawn by the CLI meanwhile: no answer goes, and its call is not the user's refusal.
+      const watched = endedCalls.watch(params?.sessionId, call.toolCallId, withdrawn);
+      // A call it already reported ended: nobody is asked.
+      if (watched.signal.aborted && !withdrawn?.aborted) {
+        watched.done();
+        return endedAnswer(options);
+      }
+      let answer: Awaited<ReturnType<NonNullable<typeof o.requestApproval>>>;
+      try {
+        answer = await o.requestApproval(cursorApprovalRequest(call, o.cwd, o.addDirs), watched.signal);
+      } finally {
+        watched.done();
+      }
+      // Withdrawn by the CLI meanwhile (no answer goes), or its call ended: not the user's refusal.
       if (withdrawn?.aborted) return null;
+      if (watched.signal.aborted) return endedAnswer(options);
       decision = answer.allow ? { allow: true } : { allow: false, reason: answer.note ?? '' };
       label = declinedLabel(answer.note);
     }

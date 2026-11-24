@@ -7,7 +7,7 @@ import { commandLine, isPublishCommand } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
 import { RELAY_ROOT } from '../protect';
-import { acpTokens, JsonRpcConnection, RpcError } from './acp';
+import { AcpEndedCalls, acpTokens, endedAnswer, JsonRpcConnection, RpcError } from './acp';
 import { defaultOpenDeps, startOpenProcess, type OpenAgentProcess, type OpenProcessDeps, type OpenRunContext } from './open';
 import {
   AgentRunError,
@@ -760,6 +760,8 @@ async function acpSession(
   const stopSoon = (ms: number) => setTimeout(() => stop.abort(), ms).unref();
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
+  // The calls it reports ended: a request about one is withdrawn, or not asked at all.
+  const endedCalls = new AcpEndedCalls();
   const updates = createAcpUpdateHandler(o.onEvent, {
     ...spec,
     ...(ctx.sandboxed
@@ -770,6 +772,7 @@ async function acpSession(
   conn.onNotification = (method, params) => {
     if (!updateMethods.has(method)) return;
     if (replaying) return; // the history `session/load` replays
+    endedCalls.note(params?.sessionId, params?.update);
     if (!sessionId || params?.sessionId !== sessionId) {
       updates.note(params?.update); // a subagent's: not shown, but its permission requests come here
       return;
@@ -800,10 +803,23 @@ async function acpSession(
     let decision = own ?? acpPermissionDecision(o.permission, info, cli);
     // Not covered by the permission: the user decides, when the conversation asks.
     if (!decision.allow && (!own || ('ask' in own && own.ask)) && o.requestApproval) {
-      const answer = await o.requestApproval(acpApprovalRequest(info, o.permission), withdrawn);
+      const options = Array.isArray(params?.options) ? params.options : [];
+      const watched = endedCalls.watch(params?.sessionId, call.toolCallId, withdrawn);
+      // A call it already reported ended (refused along with another, say): nobody is asked.
+      if (watched.signal.aborted && !withdrawn?.aborted) {
+        watched.done();
+        return endedAnswer(options);
+      }
+      let answer: Awaited<ReturnType<NonNullable<typeof o.requestApproval>>>;
+      try {
+        answer = await o.requestApproval(acpApprovalRequest(info, o.permission), watched.signal);
+      } finally {
+        watched.done();
+      }
       if (userAborted || o.signal.aborted) return cancelled;
-      // Withdrawn by the agent meanwhile: no answer goes, and its call is not the user's refusal.
+      // Withdrawn by the agent meanwhile (no answer goes), or its call ended: not the user's refusal.
       if (withdrawn?.aborted) return cancelled;
+      if (watched.signal.aborted) return endedAnswer(options);
       decision = answer.allow ? { allow: true } : acpDeclined(info, answer.note);
     }
     if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, decision.label);

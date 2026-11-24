@@ -25,7 +25,16 @@ import { endpointKeyEnv, endpointRunModel, ENDPOINT_KEY_ENV } from '../backends'
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
 import { commandPaths, patternPath, agentProtectedReads, realPath, relayTmpDir } from '../protect';
-import { JsonRpcConnection, RpcError, acpContentText as contentText, acpMcpServers, acpPrompt, answerPermission } from './acp';
+import {
+  JsonRpcConnection,
+  RpcError,
+  acpContentText as contentText,
+  acpMcpServers,
+  acpPrompt,
+  answerPermission,
+  AcpEndedCalls,
+  endedAnswer,
+} from './acp';
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
@@ -1524,11 +1533,14 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
   const stopSoon = (ms: number) => setTimeout(() => stop.abort(), ms).unref();
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
+  // The calls it reports ended: a request about one is withdrawn, or not asked at all.
+  const endedCalls = new AcpEndedCalls();
   const updates = createGrokUpdateHandler(o.onEvent);
   /** Messages sent into the running turn (steering), once the prompt is out. */
   let interjections: GrokInterjections | undefined;
   conn.onNotification = (method, params) => {
     if (interjections?.handle(method, params)) return;
+    if (method === 'session/update' || method === '_x.ai/session_notification') endedCalls.note(params?.sessionId, params?.update);
     // Background tasks have methods of their own besides the session notification (Grok 1.0.92).
     const own = /^_?x\.ai\/task_(backgrounded|completed)$/.test(method);
     if (method !== 'session/update' && method !== '_x.ai/session_notification' && !own) return;
@@ -1543,9 +1555,21 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
     let decision = grokPermissionDecision(o.permission, call);
     // Not covered by the permission: the user decides, when the conversation asks.
     if (!decision.allow && o.requestApproval) {
-      const answer = await o.requestApproval(grokApprovalRequest(call), withdrawn);
-      // Withdrawn by the CLI meanwhile: no answer goes, and its call is not the user's refusal.
+      const watched = endedCalls.watch(params?.sessionId, call.toolCallId, withdrawn);
+      // A call it already reported ended: nobody is asked.
+      if (watched.signal.aborted && !withdrawn?.aborted) {
+        watched.done();
+        return endedAnswer(Array.isArray(params?.options) ? params.options : []);
+      }
+      let answer: Awaited<ReturnType<NonNullable<typeof o.requestApproval>>>;
+      try {
+        answer = await o.requestApproval(grokApprovalRequest(call), watched.signal);
+      } finally {
+        watched.done();
+      }
+      // Withdrawn by the CLI meanwhile (no answer goes), or its call ended: not the user's refusal.
       if (withdrawn?.aborted) return null;
+      if (watched.signal.aborted) return endedAnswer(Array.isArray(params?.options) ? params.options : []);
       decision = answer.allow ? { allow: true } : declined(call, answer.note);
     }
     if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, decision.label);

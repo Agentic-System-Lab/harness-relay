@@ -304,6 +304,33 @@ describe('the generic ACP turn', () => {
   );
 
   it.skipIf(process.platform === 'win32')(
+    'withdraws a request whose call the agent reports ended while it waits, and asks nothing about a call already ended',
+    async () => {
+      // Ended while it waits (OpenCode refusing it along with another): the card is withdrawn, the request refused once.
+      const during = run({ FAKE_ACP_SCENARIO: 'permission', FAKE_ACP_END: 'during' }, { permission: 'read-only' });
+      let signal: AbortSignal | undefined;
+      during.o.requestApproval = (_req, withdrawn) => {
+        signal = withdrawn;
+        return new Promise((resolve) => withdrawn!.addEventListener('abort', () => resolve({ allow: false })));
+      };
+      await withLang('en', () =>
+        acpTurn(during.o, spec({ rejection: (reason) => ({ _meta: { followup_message: reason } }) }), deps(fakeSandbox([]))),
+      );
+      expect(signal!.aborted).toBe(true);
+      const answer = during.log().find((m) => m.id === 100 && !m.method)!;
+      // Refused once, with no reason for the model (the call is over), and never as the user's refusal.
+      expect(answer.result).toEqual({ outcome: { outcome: 'selected', optionId: 'no' } });
+      expect(JSON.stringify(during.events.filter((e) => e.type === 'tool_end'))).not.toMatch(/declined/i);
+
+      // Already ended (OpenCode handing over a request for a call it refused): nobody is asked.
+      const before = run({ FAKE_ACP_SCENARIO: 'permission', FAKE_ACP_END: 'before' }, { permission: 'read-only' }, () => ({ allow: true }));
+      await withLang('en', () => acpTurn(before.o, spec(), deps(fakeSandbox([]))));
+      expect(before.approvals).toEqual([]);
+      expect(before.log().find((m) => m.id === 100 && !m.method)!.result).toEqual({ outcome: { outcome: 'selected', optionId: 'no' } });
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
     'tells the model in the briefing what a refusal means when the agent cannot pass the reason on',
     async () => {
       const plain = run({ FAKE_ACP_SCENARIO: 'permission' }, { permission: 'read-only' });

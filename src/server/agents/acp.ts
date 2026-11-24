@@ -183,6 +183,98 @@ export function answerPermission(decision: AcpDecision, options: { optionId: str
   return { outcome: { outcome: 'cancelled' } };
 }
 
+/** The statuses with which an agent reports a tool call ended (ACP's `completed` and `failed`, and others' words for them). */
+const ENDED_CALL = new Set(['completed', 'failed', 'cancelled', 'canceled', 'rejected']);
+
+/** How many calls `AcpEndedCalls` keeps in mind, for a request that comes after its call ended. */
+const CALLS_KEPT = 2000;
+
+/** Adds to a set or map kept to `CALLS_KEPT` entries, the oldest going first. */
+function keep<K>(set: Set<K> | Map<K, unknown>, key: K, value?: unknown): void {
+  if (set instanceof Map) {
+    set.delete(key);
+    set.set(key, value);
+  } else {
+    set.delete(key);
+    set.add(key);
+  }
+  if (set.size > CALLS_KEPT) set.delete(set.keys().next().value as K);
+}
+
+/**
+ * The tool calls an agent reported ended, against its permission requests: an agent may refuse a call it
+ * still hands over (OpenCode 1.19.5 refuses every request of a session once one is declined, and hands
+ * one of them over a few milliseconds before or after it reports that call failed; left unanswered, it
+ * blocks every later request of the session), or stop waiting for an answer without saying so, and then
+ * report the call ended. A request whose call the agent reports ended while it
+ * waits is withdrawn (its card says so), and a request about a call whose latest word is that it ended
+ * is not asked at all; either is answered as refused (`endedAnswer()`), without a reason for the model.
+ * A call is known by its id in the session that announced it (a subagent may ask under its parent's
+ * session), and announced again it is a new call (an id a model gave once more).
+ */
+export class AcpEndedCalls {
+  /** The session each call was last announced in, by its id. */
+  private sessions = new Map<string, string>();
+  private waiting = new Map<string, Set<AbortController>>();
+  private ended = new Set<string>();
+
+  /** A `session/update` of any session, a subagent's too. */
+  note(sessionId: unknown, update: any): void {
+    const kind = update?.sessionUpdate;
+    if (kind !== 'tool_call_update' && kind !== 'tool_call') return;
+    const id = typeof update.toolCallId === 'string' ? update.toolCallId : '';
+    if (!id) return;
+    const session = typeof sessionId === 'string' ? sessionId : '';
+    if (kind === 'tool_call') keep(this.sessions, id, session);
+    const key = `${session}\u0000${id}`;
+    const status = typeof update.status === 'string' ? update.status : '';
+    if (!ENDED_CALL.has(status)) {
+      // Under way (again): a new call, or one an earlier word said nothing final about.
+      if (kind === 'tool_call' || status) this.ended.delete(key);
+      return;
+    }
+    keep(this.ended, key);
+    for (const c of this.waiting.get(key) ?? []) c.abort();
+    this.waiting.delete(key);
+  }
+
+  /**
+   * A permission request about `toolCallId`, asked in `sessionId`: a signal that aborts when the agent
+   * withdraws the request (`withdrawn`) or reports its call ended, aborted at once for a call that
+   * already ended. `done()` once it is answered.
+   */
+  watch(sessionId: unknown, toolCallId: unknown, withdrawn?: AbortSignal): { signal: AbortSignal; done: () => void } {
+    const id = typeof toolCallId === 'string' ? toolCallId : '';
+    if (!id) return { signal: withdrawn ?? new AbortController().signal, done: () => undefined };
+    const session = this.sessions.get(id) ?? (typeof sessionId === 'string' ? sessionId : '');
+    const key = `${session}\u0000${id}`;
+    const c = new AbortController();
+    if (this.ended.has(key)) c.abort();
+    else {
+      const set = this.waiting.get(key) ?? new Set();
+      set.add(c);
+      this.waiting.set(key, set);
+    }
+    return {
+      signal: withdrawn ? AbortSignal.any([withdrawn, c.signal]) : c.signal,
+      done: () => {
+        const set = this.waiting.get(key);
+        set?.delete(c);
+        if (set && !set.size) this.waiting.delete(key);
+      },
+    };
+  }
+}
+
+/**
+ * The answer to a request whose call already ended: refused once, with nothing for the model (the call is
+ * over), never "always" (an agent would keep it as a rule); cancelled when it offers no such option.
+ */
+export function endedAnswer(options: { optionId: string; kind: string }[]) {
+  const optionId = options.find((o) => o.kind === 'reject_once')?.optionId;
+  return optionId ? { outcome: { outcome: 'selected', optionId } } : { outcome: { outcome: 'cancelled' } };
+}
+
 /** Text of an ACP tool-call `content` array (e.g. the reason a call failed). */
 export function acpContentText(content: unknown): string | undefined {
   if (!Array.isArray(content)) return undefined;
