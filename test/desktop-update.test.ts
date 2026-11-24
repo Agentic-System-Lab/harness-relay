@@ -2553,6 +2553,42 @@ describe('downloading an update in parts', () => {
     expect(whole.asked).toEqual([`${CDN}1`]);
   });
 
+  it("asks again for the last part with bytes to come, also when its watch and the download's fall due together", async () => {
+    // The second part's first answer sends nothing, and the others are done in a few milliseconds: the
+    // download's own watch, set by their last byte, falls due just after the part's. The computer busy
+    // across both (as a loaded one is), they run in one turn of timers, the part's first, while the
+    // part asked for again sends its first KB 10 ms later.
+    let first = true;
+    const served = cdn(body, 4, {
+      pause: (a) => {
+        if (a.from !== quarter) return 0;
+        if (!first) return 10;
+        first = false;
+        return 60_000;
+      },
+    });
+    const busy = setTimeout(() => {
+      const end = Date.now() + 400;
+      while (Date.now() < end);
+    }, 200);
+    const to = join(dir, 'parts-last-stalled.dmg');
+    try {
+      await download({
+        fetch: single(body).fetch,
+        connections: served.connections,
+        locate: github().locate,
+        asset: copy,
+        to,
+        minPart,
+        stallMs: 300,
+      });
+    } finally {
+      clearTimeout(busy);
+    }
+    expect(readFileSync(to)).toEqual(body);
+    expect(served.asked.filter((a) => a.from === quarter)).toHaveLength(2);
+  });
+
   it('asks again for a part that goes without a byte, and gives up when none of them gets one', async () => {
     // The second part's first answer sends nothing; the others a KB every 10 ms.
     let first = true;
