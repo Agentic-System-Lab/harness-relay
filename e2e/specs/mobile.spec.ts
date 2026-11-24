@@ -666,7 +666,7 @@ test.describe('on a phone', () => {
     await expect(panel.getByTitle('queue.csv', { exact: true })).toBeVisible();
   });
 
-  test("a folder is attached from the paperclip's menu, whose items are a finger's size, and reaches the agent", async ({
+  test("a folder is attached from the paperclip's menu, whose items are a finger's size, and reaches the agent; New chat's offers it too", async ({
     page,
     relay,
   }, testInfo) => {
@@ -674,8 +674,13 @@ test.describe('on a phone', () => {
     mkdirSync(join(notes, 'trip'), { recursive: true });
     writeFileSync(join(notes, 'packing.md'), '- passport\n');
     writeFileSync(join(notes, 'trip', 'days.md'), '1. Taipei\n');
+    // Chrome for Android picks folders from version 132 on: New chat's paperclip offers files or a folder,
+    // its menu in view.
+    await page.getByRole('link', { name: en.home.start }).tap();
+    await page.getByRole('button', { name: en.composer.attachFilesOrFolder }).tap();
+    await expect(page.getByRole('menu', { name: en.composer.attachFilesOrFolder })).toBeInViewport({ ratio: 1 });
+    // So does the chat's.
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-    // Chrome for Android picks folders from version 132 on: the paperclip offers files or a folder.
     const clip = page.getByRole('button', { name: en.composer.attachFilesOrFolder });
     await clip.tap();
     const menu = page.getByRole('menu', { name: en.composer.attachFilesOrFolder });

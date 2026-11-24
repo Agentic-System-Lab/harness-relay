@@ -194,6 +194,7 @@ function browserPicksFolders(): boolean {
     userAgent: navigator.userAgent,
     maxTouchPoints: navigator.maxTouchPoints ?? 0,
     touchScreen: isTouchScreen(),
+    iteratorHelpers: typeof (globalThis as { Iterator?: { prototype?: { map?: unknown } } }).Iterator?.prototype?.map === 'function',
   });
 }
 

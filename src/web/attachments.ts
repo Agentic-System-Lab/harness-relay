@@ -122,6 +122,11 @@ export interface FolderPickerBrowser {
   maxTouchPoints: number;
   /** Touch is the main input and nothing hovers (`isTouchScreen()` in `chat.ts`). */
   touchScreen: boolean;
+  /**
+   * Whether `Iterator.prototype.map` is there, which WebKit has from Safari 18.4 on (MDN): the system's
+   * version on an iPad whose user agent gives none (its home-screen web app, a web view in an app).
+   */
+  iteratorHelpers: boolean;
 }
 
 /**
@@ -138,9 +143,9 @@ export const FOLDER_PICKER_SINCE = { ios: [18, 4], chrome: 132, firefox: 142 } a
 /**
  * Whether this browser can pick a folder. A computer's can wherever `webkitdirectory` is. A phone's or
  * a tablet's (an iPhone, an iPad, also one asking for desktop sites, anything on Android, anything else
- * with a touch screen and no mouse) only from the versions in `FOLDER_PICKER_SINCE` on, and never in an
- * app's Android WebView, where the app itself gives the picker, and may take files only. A browser it
- * cannot tell stays without one.
+ * with a touch screen and no mouse, such as a Windows tablet) only from the versions in
+ * `FOLDER_PICKER_SINCE` on, and never in an app's Android WebView, where the app itself gives the
+ * picker, and may take files only. A browser it cannot tell stays without one.
  */
 export function canPickFolders(b: FolderPickerBrowser): boolean {
   if (!b.attribute) return false;
@@ -150,14 +155,16 @@ export function canPickFolders(b: FolderPickerBrowser): boolean {
   if (iPhoneOrIPad || iPadAsMac) {
     // Safari's version is the system's, which the system's own token may put lower: from iOS 26 on Safari
     // gives it as 18.6 or later, and an iPad asking for desktop sites as a Mac's. Another browser there
-    // gives the system's only.
+    // gives the system's only, and an iPad's home-screen web app neither.
     const system = iPhoneOrIPad ? versionIn(/\bOS (\d+)_(\d+)/, ua) : undefined;
     const safari = versionIn(/\bVersion\/(\d+)\.(\d+)/, ua);
+    if (!system && !safari) return b.iteratorHelpers;
     return [system, safari].some((v) => v && atLeast(v, FOLDER_PICKER_SINCE.ios));
   }
   const android = /\bAndroid\b/.test(ua);
   if (!android && !b.touchScreen) return true;
-  if (android && /;\s*wv\)/.test(ua)) return false;
+  // A WebView says so (`wv`), or gives its `Version/4.0` beside Chrome's, which an app may keep alone.
+  if (android && (/;\s*wv\)/.test(ua) || /\bVersion\/4\.0\b/.test(ua))) return false;
   // Firefox's before Chrome's: Chrome's name is in every Chromium browser's (Edge, Samsung Internet, Opera).
   const firefox = versionIn(/\bFirefox\/(\d+)/, ua);
   if (firefox) return atLeast(firefox, [FOLDER_PICKER_SINCE.firefox, 0]);
