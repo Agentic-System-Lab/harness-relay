@@ -49,7 +49,7 @@ import {
   prepareCursorRun,
 } from '../src/server/agents/cursor';
 import { AgentRunError, type AgentEvent, type ApprovalRequest } from '../src/server/agents/types';
-import { withLang } from '../src/server/i18n';
+import { t as t_, withLang } from '../src/server/i18n';
 import { cursorEffortOption, discoverModels, parseCursorModels } from '../src/server/models';
 import { relayTmpDir } from '../src/server/protect';
 
@@ -801,6 +801,8 @@ rl.on('line', async (line) => {
       update(sid, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Thinking.' } });
       update(sid, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Running it.' } });
       update(sid, { sessionUpdate: 'tool_call', toolCallId: 'c1\\nfc1', title: '\`npm test\`', kind: 'execute', status: 'pending', rawInput: { command: 'npm test' } });
+      // FAKE_CURSOR_ENDED: the call reported failed before the request about it (as OpenCode does with a call it refused).
+      if (process.env.FAKE_CURSOR_ENDED) update(sid, { sessionUpdate: 'tool_call_update', toolCallId: 'c1\\nfc1', status: 'failed' });
       const answer = await ask('session/request_permission', {
         sessionId: sid,
         toolCall: { toolCallId: 'c1\\nfc1', title: '\`npm test\`', kind: 'execute', status: 'pending', content: [{ type: 'content', content: { type: 'text', text: 'Shell allowlist is empty' } }] },
@@ -947,6 +949,18 @@ rl.on('line', async (line) => {
         { type: 'text', text: 'Done.' },
         { type: 'text_end' },
       ]);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'asks nothing about a call Cursor already reported ended: refused once, never as the user’s refusal',
+    async () => {
+      const t = await turn({ log: 'ended.log', permission: 'edit', env: { FAKE_CURSOR_ENDED: '1' } });
+      expect(t.error).toBeUndefined();
+      expect(t.asked).toEqual([]);
+      expect(t.lines.find((l) => l.permission).permission).toEqual({ outcome: { outcome: 'selected', optionId: 'reject-once' } });
+      const declined = withLang('en', () => t_().approvalDeclined);
+      expect(JSON.stringify(t.events.filter((e) => e.type === 'tool_end'))).not.toContain(declined);
     },
   );
 

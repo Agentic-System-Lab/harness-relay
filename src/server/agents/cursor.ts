@@ -8,7 +8,18 @@ import { t } from '../i18n';
 import { runProcess, tail } from '../process';
 import { cursorEffortOption, cursorOptionValues } from '../models';
 import { patternPath, agentProtectedReads, realPath, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
-import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, answerPermission, type AcpDecision } from './acp';
+import {
+  JsonRpcConnection,
+  RpcError,
+  acpContentText,
+  acpMcpServers,
+  acpPrompt,
+  answerPermission,
+  type AcpDecision,
+  AcpEndedCalls,
+  askUnlessEnded,
+  endedAnswer,
+} from './acp';
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
@@ -722,15 +733,18 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
   const stopSoon = (ms: number) => setTimeout(() => stop.abort(), ms).unref();
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
+  // The calls it reports ended: a request about one is withdrawn, or not asked at all.
+  const endedCalls = new AcpEndedCalls();
   const updates = createCursorUpdateHandler(o.onEvent, o.permission === 'read-only');
   conn.onNotification = (method, params) => {
     if (method !== 'session/update' || replaying) return;
+    endedCalls.note(params?.sessionId, params?.update);
     if (!sessionId) return;
     // Another session: a subagent's (the handler knows those of this turn), or not this turn's.
     if (params?.sessionId !== sessionId) return void updates.child(String(params?.sessionId), params?.update);
     updates.handle(params.update);
   };
-  conn.onRequest = async (method, params) => {
+  conn.onRequest = async (method, params, withdrawn) => {
     // Its to-do list in agent mode, sent as a request it does not wait for (no session id in it).
     if (method === 'cursor/update_todos') {
       if (!replaying) updates.todos(params);
@@ -751,7 +765,13 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
     let decision = cursorPermissionDecision(o.permission, call, o.cwd, o.addDirs);
     let label = t().cursorRefused;
     if (!decision.allow && o.requestApproval) {
-      const answer = await o.requestApproval(cursorApprovalRequest(call, o.cwd, o.addDirs));
+      // Not asked, or withdrawn, when the CLI withdrew it (no answer goes) or reported its call ended:
+      // neither is the user's refusal.
+      const asked = await askUnlessEnded(endedCalls, params, withdrawn, (signal) =>
+        o.requestApproval!(cursorApprovalRequest(call, o.cwd, o.addDirs), signal),
+      );
+      if ('gone' in asked) return asked.gone === 'withdrawn' ? null : endedAnswer(options);
+      const answer = asked.answer;
       decision = answer.allow ? { allow: true } : { allow: false, reason: answer.note ?? '' };
       label = declinedLabel(answer.note);
     }

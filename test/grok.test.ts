@@ -13,8 +13,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { JsonRpcConnection, RpcError } from '../src/server/agents/acp';
+import { describe, expect, it, vi } from 'vitest';
+import { AcpEndedCalls, askUnlessEnded, endedAnswer, JsonRpcConnection, RpcError } from '../src/server/agents/acp';
 import {
   createGrokUpdateHandler,
   describeGrokCancel,
@@ -557,6 +557,221 @@ describe('JSON-RPC connection', () => {
     conn.close(new Error('grok exited'));
     await expect(pending).rejects.toThrow('grok exited');
     await expect(conn.request('initialize')).rejects.toThrow('grok exited');
+  });
+
+  it("tells a request's handler when the agent withdraws it, and sends no answer to it then", async () => {
+    const sent: any[] = [];
+    const conn = new JsonRpcConnection((line) => sent.push(JSON.parse(line)));
+    const signals = new Map<unknown, AbortSignal>();
+    const answers = new Map<unknown, (v: unknown) => void>();
+    conn.onRequest = (_method, params, withdrawn) => {
+      signals.set(params.n, withdrawn!);
+      return new Promise((resolve) => answers.set(params.n, resolve));
+    };
+    conn.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'session/request_permission', params: { n: 1 } }));
+    conn.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 'eight', method: 'session/request_permission', params: { n: 2 } }));
+    conn.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'session/request_permission', params: { n: 3 } }));
+    await vi.waitFor(() => expect(signals.size).toBe(3));
+
+    // JSON-RPC's `$/cancel_request`: the handler hears it, and the request is answered "cancelled", once.
+    conn.handleLine(JSON.stringify({ jsonrpc: '2.0', method: '$/cancel_request', params: { id: 7 } }));
+    expect(signals.get(1)!.aborted).toBe(true);
+    expect(sent).toEqual([{ jsonrpc: '2.0', id: 7, error: { code: -32800, message: 'Request cancelled' } }]);
+    answers.get(1)!({ outcome: { outcome: 'selected', optionId: 'allow-once' } });
+
+    // An adapter's own word for it (Codex's `serverRequest/resolved`): no answer at all; a string id too.
+    expect(conn.withdraw('eight')).toBe(true);
+    expect(signals.get(2)!.aborted).toBe(true);
+    answers.get(2)!({ outcome: { outcome: 'selected', optionId: 'allow-once' } });
+
+    // Nothing waits under an id answered, unknown or missing.
+    expect(conn.withdraw(7)).toBe(false);
+    expect(conn.withdraw(42)).toBe(false);
+    expect(conn.withdraw(undefined)).toBe(false);
+    conn.handleLine(JSON.stringify({ jsonrpc: '2.0', method: '$/cancel_request', params: { id: 42 } }));
+
+    // The one still waiting is answered as usual, and can no longer be withdrawn.
+    answers.get(3)!({ outcome: { outcome: 'selected', optionId: 'reject-once' } });
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(signals.get(3)!.aborted).toBe(false);
+    expect(sent[1]).toEqual({ jsonrpc: '2.0', id: 9, result: { outcome: { outcome: 'selected', optionId: 'reject-once' } } });
+    expect(conn.withdraw(9)).toBe(false);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toHaveLength(2);
+  });
+});
+
+describe('the tool calls an ACP agent reports ended, against its permission requests', () => {
+  const update = (toolCallId: string, status?: string, sessionUpdate = 'tool_call_update') => ({
+    sessionUpdate,
+    toolCallId,
+    ...(status ? { status } : {}),
+  });
+
+  it('withdraws a request whose call the agent reports ended while it waits, and only that one', () => {
+    const calls = new AcpEndedCalls();
+    calls.note('s1', update('c1', 'pending', 'tool_call'));
+    calls.note('s1', update('c2', 'pending', 'tool_call'));
+    const one = calls.watch('s1', 'c1');
+    const two = calls.watch('s1', 'c2');
+    calls.note('s1', update('c1', 'in_progress'));
+    expect(one.signal.aborted).toBe(false);
+    calls.note('s1', update('c1', 'failed'));
+    expect(one.signal.aborted).toBe(true);
+    expect(two.signal.aborted).toBe(false);
+    for (const status of ['completed', 'cancelled', 'rejected']) {
+      calls.note('s1', update(`x-${status}`, 'pending', 'tool_call'));
+      const w = calls.watch('s1', `x-${status}`);
+      calls.note('s1', update(`x-${status}`, status));
+      expect(w.signal.aborted).toBe(true);
+    }
+    // Answered first: done, nothing left to withdraw.
+    two.done();
+    calls.note('s1', update('c2', 'completed'));
+    expect(two.signal.aborted).toBe(false);
+  });
+
+  it('asks nothing about a call that already ended, unless it was announced again (an id given once more)', () => {
+    const calls = new AcpEndedCalls();
+    calls.note('s1', update('c1', 'pending', 'tool_call'));
+    calls.note('s1', update('c1', 'failed'));
+    expect(calls.watch('s1', 'c1').signal.aborted).toBe(true);
+    // A new call with the same id, under way: a request about it is asked as usual.
+    calls.note('s1', update('c1', 'pending', 'tool_call'));
+    expect(calls.watch('s1', 'c1').signal.aborted).toBe(false);
+    // Under way again by an update with a status of its own.
+    calls.note('s1', update('c1', 'completed'));
+    calls.note('s1', update('c1', 'in_progress'));
+    expect(calls.watch('s1', 'c1').signal.aborted).toBe(false);
+  });
+
+  it('knows a call by the session that announced it, also when a subagent asks under its parent session', () => {
+    const calls = new AcpEndedCalls();
+    calls.note('child', update('c1', 'pending', 'tool_call'));
+    calls.note('main', update('c9', 'pending', 'tool_call'));
+    const sub = calls.watch('main', 'c1');
+    const main = calls.watch('main', 'c9');
+    // The same id ending in another session than the one that announced it is another call.
+    calls.note('main', update('c1', 'failed'));
+    expect(sub.signal.aborted).toBe(false);
+    calls.note('child', update('c1', 'failed'));
+    expect(sub.signal.aborted).toBe(true);
+    expect(main.signal.aborted).toBe(false);
+  });
+
+  it('passes the agent’s own withdrawal through, and leaves a request that names no call to it alone', () => {
+    const calls = new AcpEndedCalls();
+    const agent = new AbortController();
+    const w = calls.watch('s1', 'c1', agent.signal);
+    agent.abort();
+    expect(w.signal.aborted).toBe(true);
+    const none = calls.watch('s1', undefined, agent.signal);
+    expect(none.signal).toBe(agent.signal);
+    expect(calls.watch('s1', '').signal.aborted).toBe(false);
+    // Neither other updates nor a call without an id count.
+    calls.note('s1', { sessionUpdate: 'agent_message_chunk', status: 'failed', toolCallId: 'c2' });
+    calls.note('s1', { sessionUpdate: 'tool_call_update', status: 'failed' });
+    expect(calls.watch('s1', 'c2').signal.aborted).toBe(false);
+  });
+
+  it('never takes a call of another session that ended for one still live (an id given in two sessions)', () => {
+    // The parent's call_1 is under way; a subagent's own call_1 completes: the parent's request is still asked.
+    const calls = new AcpEndedCalls();
+    calls.note('parent', update('call_1', 'in_progress', 'tool_call'));
+    calls.note('child', update('call_1', 'pending', 'tool_call'));
+    calls.note('child', update('call_1', 'completed'));
+    const parent = calls.watch('parent', 'call_1');
+    expect(parent.signal.aborted).toBe(false);
+    calls.note('child', update('call_1', 'failed'));
+    expect(parent.signal.aborted).toBe(false);
+    calls.note('parent', update('call_1', 'failed'));
+    expect(parent.signal.aborted).toBe(true);
+
+    // The other way round: the parent's own call_1 ended; a subagent's call_1, announced by an update
+    // alone (as Cline does), asks under the parent's session: asked, and withdrawn once that one ends.
+    const other = new AcpEndedCalls();
+    other.note('parent', update('call_1', 'pending', 'tool_call'));
+    other.note('parent', update('call_1', 'completed'));
+    other.note('child', update('call_1', 'in_progress'));
+    const sub = other.watch('parent', 'call_1');
+    expect(sub.signal.aborted).toBe(false);
+    other.note('child', update('call_1', 'completed'));
+    expect(sub.signal.aborted).toBe(true);
+  });
+
+  it('takes any update but a final one for a call going on, one with no status too (Muse Code’s network notes)', () => {
+    const calls = new AcpEndedCalls();
+    calls.note('s1', update('c1', 'pending', 'tool_call'));
+    calls.note('s1', update('c1', 'completed'));
+    expect(calls.watch('s1', 'c1').signal.aborted).toBe(true);
+    // Its process asks about a host after the call ended, a note with no status first: asked.
+    calls.note('s1', {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'c1',
+      content: [{ type: 'content', content: { type: 'text', text: 'network example.com' } }],
+    });
+    expect(calls.watch('s1', 'c1').signal.aborted).toBe(false);
+    // agy's order when a turn is cancelled: in progress, then failed, while its request waits.
+    const agy = new AcpEndedCalls();
+    agy.note('s1', update('a1', 'in_progress', 'tool_call'));
+    agy.note('s1', update('a1', 'pending'));
+    const waiting = agy.watch('s1', 'a1');
+    agy.note('s1', update('a1', 'in_progress'));
+    expect(waiting.signal.aborted).toBe(false);
+    agy.note('s1', update('a1', 'failed'));
+    expect(waiting.signal.aborted).toBe(true);
+  });
+
+  it('asks through askUnlessEnded only while the call is live, and says why it did not', async () => {
+    const params = (toolCallId: string) => ({ sessionId: 's1', toolCall: { toolCallId } });
+    const calls = new AcpEndedCalls();
+    // Asked and answered.
+    calls.note('s1', update('a', 'pending', 'tool_call'));
+    await expect(askUnlessEnded(calls, params('a'), undefined, async () => 'yes')).resolves.toEqual({ answer: 'yes' });
+    // Already ended: not asked.
+    calls.note('s1', update('b', 'pending', 'tool_call'));
+    calls.note('s1', update('b', 'failed'));
+    let asked = 0;
+    const count = async () => {
+      asked++;
+      return 'no';
+    };
+    await expect(askUnlessEnded(calls, params('b'), undefined, count)).resolves.toEqual({ gone: 'ended' });
+    expect(asked).toBe(0);
+    // Ended while it waits: what the ask then answers does not count.
+    calls.note('s1', update('c', 'pending', 'tool_call'));
+    const during = askUnlessEnded(
+      calls,
+      params('c'),
+      undefined,
+      (signal) => new Promise((r) => signal.addEventListener('abort', () => r('late'))),
+    );
+    calls.note('s1', update('c', 'completed'));
+    await expect(during).resolves.toEqual({ gone: 'ended' });
+    // Withdrawn by the agent itself: no answer to send.
+    const agent = new AbortController();
+    calls.note('s1', update('d', 'pending', 'tool_call'));
+    const pulled = askUnlessEnded(
+      calls,
+      params('d'),
+      agent.signal,
+      (signal) => new Promise((r) => signal.addEventListener('abort', () => r('late'))),
+    );
+    agent.abort();
+    await expect(pulled).resolves.toEqual({ gone: 'withdrawn' });
+    // Done with each: a call ending later touches nothing.
+    calls.note('s1', update('a', 'failed'));
+    await expect(askUnlessEnded(calls, params('e'), undefined, async () => 'asked')).resolves.toEqual({ answer: 'asked' });
+  });
+
+  it('answers a request about an ended call refused once, never always, with nothing for the model', () => {
+    const options = [
+      { optionId: 'a', kind: 'allow_once' },
+      { optionId: 'ra', kind: 'reject_always' },
+      { optionId: 'r', kind: 'reject_once' },
+    ];
+    expect(endedAnswer(options)).toEqual({ outcome: { outcome: 'selected', optionId: 'r' } });
+    expect(endedAnswer(options.slice(0, 2))).toEqual({ outcome: { outcome: 'cancelled' } });
   });
 });
 
@@ -1144,6 +1359,78 @@ rl.on('line', (line) => {
         { type: 'tool_end', id: 'c-1', ok: true },
         { type: 'tool_end', id: 'spawn-1', ok: true, output: 'Two callers.' },
       ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('a Grok request about a call it already reported ended (stand-in grok)', () => {
+  it('is refused once without asking, never as the user’s refusal', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-grok-ended-')));
+    // A stand-in for `grok agent stdio`: in its turn, a push it reports failed just before it asks about it
+    // (as OpenCode does with a call it refused); the answer it gets goes to its log.
+    const bin = join(dir, 'grok');
+    const log = join(dir, 'log.jsonl');
+    writeFileSync(
+      bin,
+      `#!/usr/bin/env node
+const fs = require('node:fs');
+const out = (o) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...o }) + '\\n');
+const update = (sessionId, u) => out({ method: 'session/update', params: { sessionId, update: u } });
+let prompt;
+const rl = require('node:readline').createInterface({ input: process.stdin });
+rl.on('close', () => process.exit(0));
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  const reply = (id, result) => out({ id, result });
+  if (m.id === 'r-1' && !m.method) {
+    fs.appendFileSync(process.env.FAKE_GROK_LOG, JSON.stringify({ permission: m.result ?? m.error }) + '\\n');
+    update('s-1', { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Not pushed.' } });
+    return reply(prompt, { stopReason: 'end_turn' });
+  }
+  if (m.method === 'initialize') return reply(m.id, { protocolVersion: 1, agentCapabilities: {} });
+  if (m.method === 'session/new') return reply(m.id, { sessionId: 's-1', configOptions: [] });
+  if (m.method !== 'session/prompt') return;
+  prompt = m.id;
+  const call = { toolCallId: 'p-1', title: 'git push', kind: 'execute', rawInput: { command: 'git push' } };
+  update('s-1', { sessionUpdate: 'tool_call', status: 'pending', ...call });
+  update('s-1', { sessionUpdate: 'tool_call_update', toolCallId: 'p-1', status: 'failed' });
+  out({ id: 'r-1', method: 'session/request_permission', params: { sessionId: 's-1', toolCall: { ...call, status: 'pending' },
+    options: [{ optionId: 'allow-once', kind: 'allow_once' }, { optionId: 'reject-once', kind: 'reject_once' }] } });
+});
+`,
+      { mode: 0o755 },
+    );
+    const home = join(dir, 'home');
+    mkdirSync(home);
+    writeFileSync(join(home, 'config.toml'), '');
+    try {
+      const events: AgentEvent[] = [];
+      const asked: unknown[] = [];
+      await withLang('en', () =>
+        grokRunner.run({
+          bin,
+          env: { ...process.env, GROK_HOME: home, FAKE_GROK_LOG: log },
+          prompt: 'push it',
+          systemPrompt: 'briefing',
+          cwd: dir,
+          permission: 'edit',
+          signal: new AbortController().signal,
+          onEvent: (e) => void events.push(e),
+          requestApproval: async (req) => {
+            asked.push(req);
+            return { allow: true };
+          },
+        }),
+      );
+      expect(asked).toEqual([]);
+      const lines = readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as { permission: unknown });
+      expect(lines).toEqual([{ permission: { outcome: { outcome: 'selected', optionId: 'reject-once' } } }]);
+      expect(JSON.stringify(events.filter((e) => e.type === 'tool_end'))).not.toMatch(/declined|publishes outside/i);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

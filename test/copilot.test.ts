@@ -81,6 +81,7 @@ import { discoverModels } from '../src/server/models';
 import { NativeSetupService, copilotAgents, copilotAsRun, copilotHooks, markLeftOut, parseCopilotProbe } from '../src/server/native';
 import { relayTmpDir } from '../src/server/protect';
 import type { ApprovalAnswer } from '../src/shared/types';
+import { endedAfterAsk } from './fake-acp';
 import { writeFakeCopilot } from './fake-copilot';
 
 /*
@@ -1694,6 +1695,22 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
       ok: false,
       error: `${withLang('en', () => t().approvalDeclined)} Not now${withLang('en', () => t().copilotEndsTurn)}`,
     });
+  });
+
+  it('refuses once a request whose call Copilot reports ended as it asks, never as the user’s refusal', async () => {
+    const r = run(undefined, { permission: 'read-only' }, undefined, { FAKE_COPILOT_OWN_POLICY: '1' });
+    // The call reported failed as it is asked about: not asked, or its card withdrawn, by when it is read.
+    r.o.env.FAKE_COPILOT_FIXTURE = endedAfterAsk(join(FIX, 'ro-deny.jsonl'), join(r.home, 'ended.jsonl'));
+    const signals: AbortSignal[] = [];
+    r.o.requestApproval = (_req, signal) => {
+      signals.push(signal!);
+      return new Promise((resolve) => signal!.addEventListener('abort', () => resolve({ allow: false })));
+    };
+    await withLang('en', () => copilotRunner.run(r.o));
+    expect(signals.every((s) => s.aborted)).toBe(true);
+    expect(r.log().find((l) => l.result?.outcome)?.result).toEqual({ outcome: { outcome: 'selected', optionId: 'reject_once' } });
+    const declined = withLang('en', () => t().approvalDeclined);
+    expect(JSON.stringify(r.events.filter((e) => e.type === 'tool_end'))).not.toContain(declined);
   });
 
   it('refuses by itself what the permission does not cover when the conversation refuses approvals', async () => {

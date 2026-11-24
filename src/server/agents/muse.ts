@@ -35,7 +35,18 @@ import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
 import { patternPath, agentProtectedReads, realPath } from '../protect';
 import { DATA_DIR, MUSE_HOME_ENV, MUSE_KEY_ONLY_ENV } from '../settings';
-import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, answerPermission, type AcpDecision } from './acp';
+import {
+  JsonRpcConnection,
+  RpcError,
+  acpContentText,
+  acpMcpServers,
+  acpPrompt,
+  answerPermission,
+  type AcpDecision,
+  AcpEndedCalls,
+  askUnlessEnded,
+  endedAnswer,
+} from './acp';
 import { agentConfigPath } from './antigravity';
 import {
   AgentRunError,
@@ -1154,15 +1165,18 @@ async function museTurn(o: RunOptions, runDir: string, protectedPaths: readonly 
   const stopSoon = (ms: number) => setTimeout(() => stop.abort(), ms).unref();
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
+  // The calls it reports ended: a request about one is withdrawn, or not asked at all.
+  const endedCalls = new AcpEndedCalls();
   const updates = createMuseUpdateHandler(o.onEvent);
   conn.onNotification = (method, params) => {
     if (method !== 'session/update' || opening) return;
+    endedCalls.note(params?.sessionId, params?.update);
     if (!sessionId || params?.sessionId !== sessionId) return;
     updates.handle(params?.update);
   };
   /** The answer each call got, for the same call asked about again. */
   const answered = new Map<string, AcpDecision>();
-  conn.onRequest = async (method, params) => {
+  conn.onRequest = async (method, params, withdrawn) => {
     if (method !== 'session/request_permission') throw new RpcError(-32601, `${method} is not supported`);
     const options: { optionId: string; kind: string }[] = Array.isArray(params?.options) ? params.options : [];
     const id = String(params?.toolCall?.toolCallId ?? '');
@@ -1183,7 +1197,13 @@ async function museTurn(o: RunOptions, runDir: string, protectedPaths: readonly 
       decision = { allow: false, reason: verdict.reason };
       label = verdict.reason;
     } else if (o.requestApproval) {
-      const answer = await o.requestApproval(museApprovalRequest(o.permission, call, o.cwd, o.addDirs));
+      // Not asked, or withdrawn, when the CLI withdrew it (no answer goes) or reported its call ended:
+      // neither is the user's refusal.
+      const asked = await askUnlessEnded(endedCalls, params, withdrawn, (signal) =>
+        o.requestApproval!(museApprovalRequest(o.permission, call, o.cwd, o.addDirs), signal),
+      );
+      if ('gone' in asked) return asked.gone === 'withdrawn' ? null : endedAnswer(options.filter(once));
+      const answer = asked.answer;
       decision = answer.allow ? { allow: true } : { allow: false, reason: answer.note ?? '' };
       label = answer.note ? `${t().approvalDeclined} ${answer.note}` : t().approvalDeclined;
     } else decision = { allow: false, reason: 'Not covered by the permission' };

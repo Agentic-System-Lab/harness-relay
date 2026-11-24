@@ -976,10 +976,12 @@ export function opencodeRefusalBridge(
   const original = conn.onRequest;
   if (!original) return;
   const st = stateOf(ctx as OpenRunContext);
-  conn.onRequest = async (method, params) => {
+  conn.onRequest = async (method, params, withdrawn) => {
     const call = (params as any)?.toolCall?.toolCallId;
     if (method === 'session/request_permission' && typeof call === 'string') (st.asked ??= new Set()).add(call);
-    const answer = await original(method, params);
+    const answer = await original(method, params, withdrawn);
+    // Withdrawn by OpenCode meanwhile: no answer goes out, and nothing more is said of it.
+    if (withdrawn?.aborted) return answer;
     if (method !== 'session/request_permission' || !answer || typeof answer !== 'object') return answer;
     const { _meta, ...rest } = answer as Record<string, any>;
     const reason = _meta?.[REASON_KEY];

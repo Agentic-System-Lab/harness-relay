@@ -7717,7 +7717,18 @@ summary + .checks-editor-body {
   color: var(--muted);
 }
 
-/* "Approve for me": the lead agent still reviews it (the user may answer meanwhile). */
+/* "Approve for me": the lead agent still reviews it (the user may answer meanwhile). Nothing waits for
+   the user yet, so the card is not the warning-coloured one that does: a plain panel, the logo turning. */
+.approval-card.reviewing {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--muted) 5%, var(--bg));
+}
+
+.approval-card.reviewing .approval-icon {
+  color: var(--muted);
+  display: inline-flex;
+}
+
 .approval-waiting.approval-reviewing {
   color: var(--muted);
 }

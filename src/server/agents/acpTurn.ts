@@ -7,7 +7,7 @@ import { commandLine, isPublishCommand } from '../commands';
 import { t } from '../i18n';
 import { runProcess, tail } from '../process';
 import { RELAY_ROOT } from '../protect';
-import { acpTokens, JsonRpcConnection, RpcError } from './acp';
+import { AcpEndedCalls, acpTokens, askUnlessEnded, endedAnswer, JsonRpcConnection, RpcError } from './acp';
 import { defaultOpenDeps, startOpenProcess, type OpenAgentProcess, type OpenProcessDeps, type OpenRunContext } from './open';
 import {
   AgentRunError,
@@ -760,6 +760,8 @@ async function acpSession(
   const stopSoon = (ms: number) => setTimeout(() => stop.abort(), ms).unref();
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
+  // The calls it reports ended: a request about one is withdrawn, or not asked at all.
+  const endedCalls = new AcpEndedCalls();
   const updates = createAcpUpdateHandler(o.onEvent, {
     ...spec,
     ...(ctx.sandboxed
@@ -770,6 +772,7 @@ async function acpSession(
   conn.onNotification = (method, params) => {
     if (!updateMethods.has(method)) return;
     if (replaying) return; // the history `session/load` replays
+    endedCalls.note(params?.sessionId, params?.update);
     if (!sessionId || params?.sessionId !== sessionId) {
       updates.note(params?.update); // a subagent's: not shown, but its permission requests come here
       return;
@@ -777,7 +780,7 @@ async function acpSession(
     const update = spec.filterUpdate ? spec.filterUpdate({ sessionId, update: params.update, _meta: params._meta }, ctx) : params.update;
     for (const u of Array.isArray(update) ? update : update ? [update] : []) updates.handle(u);
   };
-  conn.onRequest = async (method, params) => {
+  conn.onRequest = async (method, params, withdrawn) => {
     if (method !== 'session/request_permission') {
       // Never done for the agent (it would run outside the relay sandbox): answered as the spec says, or refused.
       const answer = spec.clientRequest?.(method, params);
@@ -800,8 +803,15 @@ async function acpSession(
     let decision = own ?? acpPermissionDecision(o.permission, info, cli);
     // Not covered by the permission: the user decides, when the conversation asks.
     if (!decision.allow && (!own || ('ask' in own && own.ask)) && o.requestApproval) {
-      const answer = await o.requestApproval(acpApprovalRequest(info, o.permission));
+      const options = Array.isArray(params?.options) ? params.options : [];
+      // Not asked, or withdrawn, when the agent withdrew it (no answer goes) or reported its call ended
+      // (refused along with another, say): neither is the user's refusal.
+      const asked = await askUnlessEnded(endedCalls, params, withdrawn, (signal) =>
+        o.requestApproval!(acpApprovalRequest(info, o.permission), signal),
+      );
       if (userAborted || o.signal.aborted) return cancelled;
+      if ('gone' in asked) return asked.gone === 'withdrawn' ? cancelled : endedAnswer(options);
+      const answer = asked.answer;
       decision = answer.allow ? { allow: true } : acpDeclined(info, answer.note);
     }
     if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, decision.label);

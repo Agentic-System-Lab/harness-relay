@@ -17,6 +17,9 @@ import {
   acpTokens,
   answerPermission,
   type AcpDecision,
+  AcpEndedCalls,
+  askUnlessEnded,
+  endedAnswer,
 } from './acp';
 import {
   AgentRunError,
@@ -424,12 +427,17 @@ const hashOf = (text: string) => createHash('sha256').update(text).digest('hex')
 
 /**
  * What the briefing adds for Antigravity: a refused tool call ends its turn at once (the model is told
- * nothing), and its own question tool ends the turn without Harness Relay knowing it asked.
+ * nothing), its own question tool ends the turn without Harness Relay knowing it asked, and its
+ * subagents cannot ask at all: agy 1.5.15 never hands a subagent's permission request to the client
+ * over ACP, but waits a minute for an answer nobody can give and then refuses it (its subagents have no
+ * switch to turn them off below full access).
  */
 export const ANTIGRAVITY_NOTES =
   "In this app, a tool call that is refused (by the user, or because the conversation's permission does not cover it) ends your turn at once, " +
   "and you are not told why. So before a call that may need the user's approval (a shell command, a write outside the working directories), " +
-  'first say in your reply what you are about to do and why. To ask the user something, ask as these instructions say, not with your ask_question tool.';
+  'first say in your reply what you are about to do and why. To ask the user something, ask as these instructions say, not with your ask_question tool. ' +
+  "Unless this conversation has full access, your subagents (invoke_subagent, swarm workers) cannot get the user's approval: " +
+  'a call of theirs that needs it waits a minute and is then refused. So make such calls yourself, never in a subagent.';
 
 /** The briefing as it is added to the system prompt: it replaces any earlier one the session was given. */
 export function antigravityBriefing(briefing: string): string {
@@ -974,6 +982,8 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
   const protectedPaths = o.permission === 'full' ? [] : (o.protectedPaths ?? agentProtectedReads());
 
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
+  // The calls it reports ended: a request about one is withdrawn, or not asked at all.
+  const endedCalls = new AcpEndedCalls();
   const updates = createAntigravityUpdateHandler(o.onEvent);
   // The process groups agy's commands run in, to end what they leave running (`endStrays`).
   const startedAt = Date.now();
@@ -984,6 +994,7 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
   conn.onNotification = (method, params) => {
     if (method !== 'session/update') return;
     const u = params?.update;
+    endedCalls.note(params?.sessionId, u);
     // A command running (or just backgrounded): its process group, while agy is still its parent.
     if ((u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update') && (u.kind === 'execute' || u.name === 'run_command'))
       noteGroups();
@@ -991,7 +1002,7 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
     if (!sessionId || params?.sessionId !== sessionId) return;
     updates.handle(u);
   };
-  conn.onRequest = async (method, params) => {
+  conn.onRequest = async (method, params, withdrawn) => {
     if (method !== 'session/request_permission') throw new RpcError(-32601, `${method} is not supported`);
     const options: { optionId: string; kind: string }[] = Array.isArray(params?.options) ? params.options : [];
     const call = (params?.toolCall ?? {}) as AntigravityToolCall;
@@ -1003,7 +1014,13 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
       decision = { allow: false, reason: verdict.reason };
       label = `${verdict.reason}${t().antigravityEndsTurn}`;
     } else if (o.requestApproval) {
-      const answer = await o.requestApproval(antigravityApprovalRequest(o.permission, call, o.cwd, o.addDirs));
+      // Not asked, or withdrawn, when the CLI withdrew it (no answer goes) or reported its call ended:
+      // neither is the user's refusal.
+      const asked = await askUnlessEnded(endedCalls, params, withdrawn, (signal) =>
+        o.requestApproval!(antigravityApprovalRequest(o.permission, call, o.cwd, o.addDirs), signal),
+      );
+      if ('gone' in asked) return asked.gone === 'withdrawn' ? null : endedAnswer(options);
+      const answer = asked.answer;
       decision = answer.allow ? { allow: true } : { allow: false, reason: answer.note ?? '' };
       label = declinedLabel(answer.note);
     } else decision = { allow: false, reason: 'Not covered by the permission' };
