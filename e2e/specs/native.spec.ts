@@ -60,6 +60,10 @@ test.describe('what each CLI loads by itself', () => {
     expect(turnSkills(relay, 'claude', 'Before leaving it out')).toEqual(['e2e-review']);
 
     const box = await askCli(page, 'claude');
+    await box.getByRole('tab', { name: 'Mods (1)' }).click();
+    await expect(box.locator('.native-list li')).toHaveText('cc-plugin-agents-md@builtin');
+    await expect(box.getByRole('checkbox')).toHaveCount(0);
+    await box.getByRole('tab', { name: /^Skills/ }).click();
     await expect(box.getByRole('tab', { name: /^Skills \(1\)/ })).toBeVisible();
     await expect(box.locator('.native-list')).toContainText('e2e-review');
     await expect(box.locator('.native-list')).toContainText('Review a change the e2e way');

@@ -2509,7 +2509,7 @@ export const en: Messages = {
     perAccount:
       'Each account has a CLI folder of its own: this lists what this account loads, and what is left out here applies to this account only.',
     offHint:
-      '"Leave out" applies only when Harness Relay starts this CLI: the CLI\'s own settings files are not changed, and using it in a terminal is not affected. The tool library\'s items are still provided. Each tab can leave out all of its kind, or, once the CLI has been asked, single items.',
+      '"Leave out" applies only when Harness Relay starts this CLI: the CLI\'s own settings files are not changed, and using it in a terminal is not affected. The tool library\'s items are still provided. Tabs show the available controls for leaving items out.',
     load: 'Ask',
     reload: 'Ask again',
     loading: 'Asking…',
@@ -2521,6 +2521,7 @@ export const en: Messages = {
       hooks: 'Hooks',
       agents: 'Subagents',
       plugins: 'Plugins',
+      mods: 'Mods',
       instructions: 'Instructions',
       memory: 'Memory',
     },
@@ -2554,6 +2555,7 @@ export const en: Messages = {
       'Claude Code: a ticked MCP server still starts; only its tools are kept from the agents. To keep the servers from starting, use "Leave all out".',
     codexMcp:
       'Codex: only the MCP servers in your config files are listed; plugins\' servers are set on the Plugins tab, and ChatGPT apps go with "Leave all out".',
+    claudeMods: 'Mods Claude Code loaded for this query. The part after @ identifies the source, such as @builtin for a built-in mod.',
     claudeTools:
       "Claude Code's built-in tools. Agents cannot use a tool left out; tools Harness Relay turns off for the permission (Edit and Write when read-only, say) stay off whatever is set here.",
     source: (s) => `from ${s}`,

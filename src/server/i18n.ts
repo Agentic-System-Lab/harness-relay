@@ -1447,12 +1447,11 @@ const zhTW = {
   grokTrustNotTaken: (dir: string) => `記錄信任 ${dir} 後，Grok 仍回報這個資料夾未受信任（可能被組織的設定限制），所以已還原這項變更。`,
   grokTrustFolderChanged: (dir: string) => `Grok 現在是依 ${dir} 決定信任，不是你確認的資料夾。請重新確認。`,
   nativeFailed: (cli: string, detail: string) => `${cli} 回報錯誤：${detail}`,
-  nativeNoAnswer: (cli: string, part: 'all' | 'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins') =>
+  nativeNoAnswer: (cli: string, part: 'all' | 'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins' | 'mods') =>
     part === 'all'
       ? `${cli} 沒有回應。`
-      : `${cli} 沒有回報它的${{ skills: ' skill', mcp: ' MCP 伺服器', tools: '內建工具', hooks: ' hook', agents: ' subagent', plugins: ' plugin' }[part]}。`,
-  nativeAsRunFailed: (cli: string, detail: string) =>
-    `依 Harness Relay 啟動 ${cli} 的方式再問一次時失敗，所以沒有標示哪些項目不載入：${detail}`,
+      : `${cli} 沒有回報它的${{ skills: ' skill', mcp: ' MCP 伺服器', tools: '內建工具', hooks: ' hook', agents: ' subagent', plugins: ' plugin', mods: ' mod' }[part]}。`,
+  nativeAsRunFailed: (cli: string, detail: string) => `依 Harness Relay 的啟動設定再次查詢 ${cli} 時，部分項目無法驗證。${detail}`,
   nativeAsRunPartial: (cli: string) => `依 Harness Relay 啟動 ${cli} 的方式再問一次時逾時：已回答的部分有標示不載入的項目，其餘沒有標示。`,
 
   // Files
@@ -2966,9 +2965,8 @@ const en: ServerMessages = {
   nativeNoAnswer: (cli, part) =>
     part === 'all'
       ? `${cli} did not answer.`
-      : `${cli} did not report its ${{ skills: 'skills', mcp: 'MCP servers', tools: 'built-in tools', hooks: 'hooks', agents: 'subagents', plugins: 'plugins' }[part]}.`,
-  nativeAsRunFailed: (cli, detail) =>
-    `Asking ${cli} again the way Harness Relay starts it failed, so what is left out is not marked: ${detail}`,
+      : `${cli} did not report its ${{ skills: 'skills', mcp: 'MCP servers', tools: 'built-in tools', hooks: 'hooks', agents: 'subagents', plugins: 'plugins', mods: 'mods' }[part]}.`,
+  nativeAsRunFailed: (cli, detail) => `Could not verify every item when querying ${cli} with Harness Relay's settings. ${detail}`,
   nativeAsRunPartial: (cli) =>
     `Asking ${cli} again the way Harness Relay starts it ran out of time: what it had answered is marked, the rest is not.`,
 

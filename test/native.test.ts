@@ -714,13 +714,13 @@ printf '{"cwd": "%s", "skills": [{"name": "run-%s", "description": ""}]}' "$PWD"
       'Codex did not answer in time.',
       'Codex did not report its MCP servers.',
       'Codex did not report its hooks.',
-      'Asking Codex again the way Harness Relay starts it failed, so what is left out is not marked: Codex reported an error: invalid transport',
+      "Could not verify every item when querying Codex with Harness Relay's settings. Codex reported an error: invalid transport",
     ]);
     expect(withLang('zh-TW', () => nativeForClient(probe).errors)).toEqual([
       'Codex 沒有在時間內回應。',
       'Codex 沒有回報它的 MCP 伺服器。',
       'Codex 沒有回報它的 hook。',
-      '依 Harness Relay 啟動 Codex 的方式再問一次時失敗，所以沒有標示哪些項目不載入：Codex 回報錯誤：invalid transport',
+      '依 Harness Relay 的啟動設定再次查詢 Codex 時，部分項目無法驗證。Codex 回報錯誤：invalid transport',
     ]);
     expect(nativeForClient(probe)).not.toHaveProperty('problems');
   });
@@ -856,6 +856,83 @@ describe('marking what Harness Relay leaves out', () => {
 // The stand-ins are scripts run by their `#!` line, which Windows cannot start.
 describe.skipIf(process.platform === 'win32')('asking again the way Harness Relay starts each CLI (stand-in CLIs)', () => {
   const env = (extra: Record<string, string> = {}) => ({ ...process.env, ...extra });
+
+  it.each(['2.1.286', '2.1.287'])('Claude Code %s: queries loaded mods only from a supported CLI', async (version) => {
+    const bin = writeFakeClaude(join(root, 'claude-mods-' + version));
+    const log = join(root, 'mods-asks-' + version);
+    const service = new NativeSetupService({
+      bin: () => bin,
+      env: () => env({ FAKE_CLAUDE_VERSION: version, FAKE_CLAUDE_LOG: log, CLAUDE_CODE_DEBUG_LOG_LEVEL: 'warn' }),
+      nativeItems: () => ({ plugins: ['deck@market'] }),
+    });
+    const probe = await service.get('claude', root);
+    expect(probe.problems).toEqual([]);
+    const asks = readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const diagnostics = asks.filter(({ args }) => args?.includes('--debug-to-stderr'));
+    if (version === '2.1.286') {
+      expect(probe.mods).toBeUndefined();
+      expect(diagnostics).toEqual([]);
+    } else {
+      expect(probe.mods).toEqual([{ name: 'cc-plugin-agents-md@builtin' }, { name: 'deck@market', leftOut: true }]);
+      expect(diagnostics).toHaveLength(2);
+      expect(JSON.stringify(probe)).not.toContain('private diagnostic detail');
+    }
+  });
+
+  it.each(['names', 'ambiguous', 'quiet-as-run', 'truncated-as-run', 'empty-as-run'])(
+    'Claude Code: interprets %s mod evidence',
+    async (format) => {
+      const bin = writeFakeClaude(join(root, 'claude-mods-' + format));
+      const service = new NativeSetupService({
+        bin: () => bin,
+        env: () => env({ FAKE_CLAUDE_VERSION: '2.1.331', FAKE_CLAUDE_MOD_FORMAT: format }),
+        nativeItems: () => ({ plugins: ['deck@market'] }),
+      });
+      const probe = await service.get('claude', root);
+      const builtin = { name: 'cc-plugin-agents-md@builtin' };
+      const deck = { name: 'deck@market' };
+      if (format === 'ambiguous') expect(probe.mods).toBeUndefined();
+      if (format === 'names') expect(probe.mods).toEqual([builtin, { ...deck, leftOut: true }]);
+      if (format === 'empty-as-run')
+        expect(probe.mods).toEqual([
+          { ...builtin, leftOut: true },
+          { ...deck, leftOut: true },
+        ]);
+      const unverified = format === 'quiet-as-run' || format === 'truncated-as-run';
+      if (unverified) expect(probe.mods).toEqual([builtin, deck]);
+      expect(probe.problems).toEqual(unverified ? [{ kind: 'as-run', cause: { kind: 'no-answer', part: 'mods' } }] : []);
+      expect(JSON.stringify(probe)).not.toContain('private diagnostic detail');
+    },
+  );
+
+  it('Claude Code: a failure before initialize neither repeats startup hooks nor exposes diagnostic stderr', async () => {
+    const bin = writeFakeClaude(join(root, 'claude-mods-early-exit'));
+    const log = join(root, 'mods-early-exit-asks');
+    const service = new NativeSetupService({
+      bin: () => bin,
+      env: () => env({ FAKE_CLAUDE_VERSION: '2.1.331', FAKE_CLAUDE_EARLY_EXIT: '1', FAKE_CLAUDE_LOG: log }),
+    });
+    const probe = await service.get('claude', root);
+    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([JSON.stringify({ earlyExit: true })]);
+    expect(probe.problems).toEqual([{ kind: 'no-answer', part: 'all' }]);
+    expect(probe.mods).toBeUndefined();
+  });
+
+  it('Claude Code: still lists skills and plugins when the CLI refuses the optional mod diagnostics', async () => {
+    const bin = writeFakeClaude(join(root, 'claude-no-mod-log'));
+    const service = new NativeSetupService({
+      bin: () => bin,
+      env: () => env({ FAKE_CLAUDE_VERSION: '2.1.331', FAKE_CLAUDE_REJECT: '--debug-to-stderr' }),
+    });
+    const probe = await service.get('claude', root);
+    expect(probe.mods).toBeUndefined();
+    expect(probe.problems).toEqual([]);
+    expect(probe.skills.some((s) => s.name === 'commit')).toBe(true);
+    expect(probe.plugins?.some((p) => p.name === 'deck@market')).toBe(true);
+  });
 
   it('Claude Code: marks the skills, MCP servers, hooks, subagents, plugins and files a run leaves out', async () => {
     const bin = writeFakeClaude(join(root, 'fake-claude-probe'));

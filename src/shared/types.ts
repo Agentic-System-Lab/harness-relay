@@ -1051,6 +1051,8 @@ export interface NativeSetup {
   hooks?: NativeHook[];
   agents?: NativeAgent[];
   plugins?: NativePlugin[];
+  /** Claude Code's loaded hook modules, when this version can report them. */
+  mods?: NativePlugin[];
   /** Its built-in tools (Claude Code). */
   builtinTools?: NativeTool[];
   /** The memory list comes from reading the files the CLI is known to read, not from the CLI. */

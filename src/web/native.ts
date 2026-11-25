@@ -14,14 +14,13 @@ import {
 
 /** NativeSetupPanel's logic, kept out of the component so it can be tested without a DOM. */
 
-export type NativeTab = 'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins' | 'instructions' | 'memory';
+export type NativeTab = 'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins' | 'mods' | 'instructions' | 'memory';
 
 /**
- * The tabs each CLI gets, before it is asked too: the kinds it lists or has a switch for. Codex has
- * no list of its subagents and no switch for them; only Claude Code lists its built-in tools.
+ * The kinds each CLI lists or has a switch for. Mods appear only after Claude Code reports a list.
  */
 const TABS: Record<Provider, NativeTab[]> = {
-  claude: ['skills', 'mcp', 'tools', 'hooks', 'agents', 'plugins', 'instructions', 'memory'],
+  claude: ['skills', 'mcp', 'tools', 'hooks', 'agents', 'plugins', 'mods', 'instructions', 'memory'],
   codex: ['skills', 'mcp', 'hooks', 'plugins', 'instructions', 'memory'],
   grok: ['skills', 'mcp', 'hooks', 'agents', 'plugins', 'instructions', 'memory'],
   cursor: ['skills', 'mcp', 'hooks', 'agents', 'instructions'],
@@ -45,18 +44,6 @@ const TABS: Record<Provider, NativeTab[]> = {
 /** Whether a CLI's card shows what it loads by itself (an open agent's only once its adapter asks it). */
 export const hasNativePanel = (provider: Provider): boolean => TABS[provider].length > 0;
 
-/** The part (the "leave all out" switch) of each tab. */
-export const TAB_PART: Record<NativeTab, NativePart> = {
-  skills: 'skills',
-  mcp: 'mcp',
-  tools: 'tools',
-  hooks: 'hooks',
-  agents: 'agents',
-  plugins: 'plugins',
-  instructions: 'instructions',
-  memory: 'memory',
-};
-
 /** The kinds of single items each tab lists. */
 export const TAB_KINDS: Record<NativeTab, NativeItemKind[]> = {
   skills: ['skills'],
@@ -65,6 +52,7 @@ export const TAB_KINDS: Record<NativeTab, NativeItemKind[]> = {
   hooks: ['hooks'],
   agents: ['agents'],
   plugins: ['plugins'],
+  mods: [],
   instructions: ['instructions'],
   memory: [],
 };
@@ -84,6 +72,8 @@ export function tabCount(setup: NativeSetup, tab: NativeTab): number | undefined
       return setup.agents?.length;
     case 'plugins':
       return setup.plugins?.length;
+    case 'mods':
+      return setup.mods?.length;
     case 'instructions':
     case 'memory':
       return setup.memory.filter((m) => m.kind === tab).length;
@@ -92,11 +82,13 @@ export function tabCount(setup: NativeSetup, tab: NativeTab): number | undefined
 
 /** A CLI's tabs, with their counts once it has answered. */
 export function nativeTabs(provider: Provider, setup?: NativeSetup | null): { tab: NativeTab; count?: number }[] {
-  return TABS[provider].map((tab) => ({ tab, ...(setup ? { count: tabCount(setup, tab) } : {}) }));
+  return TABS[provider]
+    .filter((tab) => tab !== 'mods' || setup?.mods !== undefined)
+    .map((tab) => ({ tab, ...(setup ? { count: tabCount(setup, tab) } : {}) }));
 }
 
 /** Whether a CLI can leave out all of a tab's kind at once. */
-export const canLeaveOutAll = (provider: Provider, tab: NativeTab) => NATIVE_OFF_SUPPORT[provider].includes(TAB_PART[tab]);
+export const canLeaveOutAll = (provider: Provider, tab: NativeTab) => tab !== 'mods' && NATIVE_OFF_SUPPORT[provider].includes(tab);
 
 /** Whether a CLI can leave out single items of a kind. */
 export const canPick = (provider: Provider, kind: NativeItemKind) => NATIVE_ITEM_SUPPORT[provider].includes(kind);
@@ -142,6 +134,7 @@ export function nativeLeftOutCount(setup: NativeSetup): number {
     setup.hooks ?? [],
     setup.agents ?? [],
     setup.plugins ?? [],
+    setup.mods ?? [],
   ]
     .flat()
     .filter((item) => (item as { leftOut?: boolean }).leftOut).length;
@@ -170,6 +163,7 @@ function listedIds(setup: NativeSetup, tab: NativeTab): Partial<Record<NativeIte
       return setup.plugins && { plugins: ids(setup.plugins) };
     case 'instructions':
       return { instructions: ids(setup.memory.filter((m) => m.kind === 'instructions')) };
+    case 'mods':
     case 'memory':
       return {};
   }

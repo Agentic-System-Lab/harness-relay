@@ -15,7 +15,6 @@ import { api } from '../api';
 import { isMarkdown, lineCount } from '../files';
 import { useT } from '../i18n';
 import {
-  TAB_PART,
   canLeaveOutAll,
   canPick,
   canPickIn,
@@ -133,8 +132,7 @@ export function NativeSetupPanel({
   const match = (...texts: (string | undefined)[]) => !q || texts.some((s) => s?.toLowerCase().includes(q));
   const tabs = nativeTabs(provider, setup);
   const shown = tabs.some((x) => x.tab === tab) ? tab : 'skills';
-  const part = TAB_PART[shown];
-  const partOff = off.includes(part);
+  const partOff = shown !== 'mods' && off.includes(shown);
   const picked = tabPicked(items, shown);
   // Whether this answer was given with what is left out now; if not, its marks may no longer hold.
   const current = Boolean(setup && account && sameNativeParts(setup.nativeOff, off) && sameNativeItems(setup.nativeItems ?? {}, items));
@@ -202,12 +200,12 @@ export function NativeSetupPanel({
         {stale ? (
           <p className="warn-line small">{t.native.asRunStale}</p>
         ) : (
-          setup?.asRun && <p className="muted small">{t.native.asRun(nativeLeftOutCount(setup))}</p>
+          setup?.asRun && !setup.errors.length && <p className="muted small">{t.native.asRun(nativeLeftOutCount(setup))}</p>
         )}
         <div className="segmented native-tabs" role="tablist">
           {tabs.map(({ tab: k, count }) => {
             const n = tabPicked(items, k);
-            const tabOff = off.includes(TAB_PART[k]);
+            const tabOff = k !== 'mods' && off.includes(k);
             return (
               <button key={k} role="tab" aria-selected={shown === k} className={shown === k ? 'on' : ''} onClick={() => setTab(k)}>
                 {t.native.tabs[k]}
@@ -217,20 +215,22 @@ export function NativeSetupPanel({
             );
           })}
         </div>
-        <div className="native-part">
-          {canLeaveOutAll(provider, shown) && (
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={partOff}
-                disabled={busy || !account}
-                onChange={(e) => void save({ nativeOff: e.target.checked ? [...off, part] : off.filter((p) => p !== part) })}
-              />
-              <span>{t.native.offAll}</span>
-            </label>
-          )}
-          <span className="muted small">{t.native.offNotes[provider][part]}</span>
-        </div>
+        {shown !== 'mods' && (
+          <div className="native-part">
+            {canLeaveOutAll(provider, shown) && (
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={partOff}
+                  disabled={busy || !account}
+                  onChange={(e) => void save({ nativeOff: e.target.checked ? [...off, shown] : off.filter((p) => p !== shown) })}
+                />
+                <span>{t.native.offAll}</span>
+              </label>
+            )}
+            <span className="muted small">{t.native.offNotes[provider][shown]}</span>
+          </div>
+        )}
         {canLeaveOutAll(provider, shown) && !canPickIn(provider, shown) && (
           <p className="muted small">
             {provider === 'claude' && shown === 'hooks' ? t.native.claudeHooks : t.native.cannotPick(PROVIDER_LABEL[provider])}
@@ -272,6 +272,7 @@ export function NativeSetupPanel({
         {shown === 'skills' && provider === 'claude' && <p className="muted small">{t.native.claudeSkills}</p>}
         {shown === 'agents' && provider === 'claude' && <p className="muted small">{t.native.claudeAgents}</p>}
         {shown === 'hooks' && <p className="muted small">{t.native.hooksNote}</p>}
+        {shown === 'mods' && <p className="muted small">{t.native.claudeMods}</p>}
         {(shown === 'instructions' || shown === 'memory') && setup && (
           <p className="muted small">{setup.memoryFromFiles ? t.native.fromFiles : t.native.fromCli}</p>
         )}
@@ -394,15 +395,15 @@ export function NativeSetupPanel({
               ) : (
                 <p className="muted small">{t.native.notListed}</p>
               ))}
-            {shown === 'plugins' &&
-              (setup.plugins ? (
-                <List empty={!setup.plugins.length}>
-                  {setup.plugins
+            {(shown === 'plugins' || shown === 'mods') &&
+              (setup[shown] ? (
+                <List empty={!setup[shown].length}>
+                  {setup[shown]
                     .filter((p) => match(p.name, p.source))
                     .map((p, i) =>
                       row(
                         `${p.name}-${i}`,
-                        box('plugins', p.id, p.name),
+                        shown === 'plugins' && box('plugins', p.id, p.name),
                         <span className="native-name">
                           {p.name}
                           {p.source && <span className="badge">{p.source}</span>}

@@ -9589,7 +9589,7 @@ summary + .checks-editor-body {
   vertical-align: 1px;
 }
 
-/* Eight tabs at most: they wrap into rows where they do not fit side by side (a phone). */
+/* Wrap the tabs into rows on narrower screens. */
 .native-setup .native-tabs {
   max-width: 820px;
   display: grid;

@@ -2514,7 +2514,7 @@ export const zhTW = {
     hint: '這些是 CLI 自己的設定，和工具庫無關，以預設工作目錄為準。查詢時會短暫啟動這個 CLI，不會呼叫模型；Claude Code 與 Codex 會啟動它們的 MCP 伺服器，Claude Code 也會執行你設定的 hook。有設為不載入的項目時，會再依 Harness Relay 啟動它的方式問一次，標出實際不載入的項目。結果保留一分鐘。',
     perAccount: '每個帳號有自己的 CLI 資料夾：這裡列出的是這個帳號載入的項目，「不載入」的設定也只套用在這個帳號。',
     offHint:
-      '「不載入」只在 Harness Relay 啟動這個 CLI 時生效：不會修改 CLI 自己的設定檔，你在終端機使用它也不受影響。工具庫的項目照常提供。每個分頁可以全部不載入，或在查詢後個別勾選。',
+      '「不載入」只在 Harness Relay 啟動這個 CLI 時生效：不會修改 CLI 自己的設定檔，你在終端機使用它也不受影響。工具庫的項目照常提供。支援「不載入」的分頁會顯示可勾選的項目。',
     load: '查詢',
     reload: '重新查詢',
     loading: '查詢中…',
@@ -2526,9 +2526,10 @@ export const zhTW = {
       hooks: 'Hooks',
       agents: 'Subagents',
       plugins: 'Plugins',
+      mods: 'Mods',
       instructions: '指示',
       memory: '記憶',
-    } as Record<'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins' | 'instructions' | 'memory', string>,
+    } as Record<'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins' | 'mods' | 'instructions' | 'memory', string>,
     tabOff: '全部不載入',
     tabPicked: (n: number) => `不載入 ${n} 項`,
     filter: '篩選',
@@ -2556,6 +2557,7 @@ export const zhTW = {
     claudeHooks: 'Claude Code 的 hook 沒有名稱，所以只能全部不載入。',
     claudeMcp: 'Claude Code：勾選的 MCP 伺服器仍會啟動，只是它的工具不提供給成員；要讓伺服器不啟動，請勾選「全部不載入」。',
     codexMcp: 'Codex：只列出你設定檔裡的 MCP 伺服器；plugin 帶來的伺服器在 Plugins 分頁設定，ChatGPT apps 隨「全部不載入」一起關掉。',
+    claudeMods: '列出 Claude Code 啟動這次查詢時載入的 mod。名稱中的 @ 表示來源，例如 @builtin 表示內建。',
     claudeTools:
       'Claude Code 的內建工具。不載入的工具成員無法使用；Harness Relay 依權限關掉的工具（例如唯讀時的 Edit、Write）不論這裡怎麼設都會關掉。',
     source: (s: string) => `來源：${s}`,

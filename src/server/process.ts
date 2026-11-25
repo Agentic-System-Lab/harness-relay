@@ -58,6 +58,8 @@ export interface SpawnOptions {
   onStdout?: (chunk: Buffer) => void;
   /** Max bytes of stdout kept in the result (the oldest output is dropped first, unless `keepStart`). */
   maxCapture?: number;
+  /** Max bytes of stderr kept in the result (64 KiB by default). */
+  maxStderrCapture?: number;
   /** Keep the first `maxCapture` bytes of stdout instead of the last. */
   keepStart?: boolean;
   /** A control channel for the process, on its fd 3 (see `ControlChannel`; also taken from `env`). */
@@ -81,6 +83,8 @@ export interface SpawnResult {
   /** How many bytes of stdout were written in total. */
   stdoutSize: number;
   stderr: string;
+  /** Set when earlier stderr bytes were dropped. */
+  stderrTruncated?: true;
   aborted: boolean;
   timedOut: boolean;
 }
@@ -423,7 +427,7 @@ function supervise(
     }
 
     const stdout = new Capture(o.maxCapture, o.keepStart);
-    const stderr = new Capture();
+    const stderr = new Capture(o.maxStderrCapture);
     let aborted = false;
     let timedOut = false;
     let stopRequested = false;
@@ -516,6 +520,7 @@ function supervise(
         stdoutTruncated: stdout.truncated,
         stdoutSize: stdout.total,
         stderr: stderr.bytes().toString('utf8'),
+        ...(stderr.truncated ? { stderrTruncated: true as const } : {}),
         aborted,
         timedOut,
       });
@@ -544,11 +549,12 @@ export async function converse(o: {
   cwd: string;
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
+  maxStderrCapture?: number;
   /** Stops the CLI from outside, as `finish` does. */
   signal?: AbortSignal;
   open: (write: (msg: unknown) => void) => void;
   onMessage: (msg: Record<string, any>, write: (msg: unknown) => void, finish: () => void) => void;
-}): Promise<{ stderr: string; timedOut: boolean }> {
+}): Promise<{ stderr: string; stderrTruncated?: true; timedOut: boolean }> {
   const stop = linkedAbort(o.signal);
   let write: (msg: unknown) => void = () => undefined;
   const res = await runProcess({
@@ -560,6 +566,7 @@ export async function converse(o: {
     signal: stop.signal,
     timeoutMs: o.timeoutMs,
     maxCapture: 1024,
+    maxStderrCapture: o.maxStderrCapture,
     onSpawn: (child) => {
       write = (msg) => {
         if (child.stdin?.writable) child.stdin.write(JSON.stringify(msg) + '\n');
@@ -578,7 +585,7 @@ export async function converse(o: {
       o.onMessage(msg, write, () => stop.abort());
     },
   });
-  return { stderr: res.stderr, timedOut: res.timedOut };
+  return { stderr: res.stderr, stderrTruncated: res.stderrTruncated, timedOut: res.timedOut };
 }
 
 /** An AbortController that also aborts when `outer` does (already aborted: at once). */

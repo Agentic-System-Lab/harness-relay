@@ -74,6 +74,10 @@ export const FAKE_CLAUDE = `#!/usr/bin/env node
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 const record = (o) => process.env.FAKE_CLAUDE_LOG && fs.appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify(o) + '\\n');
+if (args[0] === '--version' && process.env.FAKE_CLAUDE_VERSION) {
+  process.stdout.write(process.env.FAKE_CLAUDE_VERSION + ' (Claude Code)\\n');
+  process.exit(0);
+}
 if (args[0] === 'plugin' && args[1] === 'list') {
   if (process.env.FAKE_CLAUDE_PLUGIN_LOG) fs.appendFileSync(process.env.FAKE_CLAUDE_PLUGIN_LOG, 'listed\\n');
   if (process.env.FAKE_CLAUDE_NO_PLUGINS) { process.stderr.write('unknown command plugin'); process.exit(1); }
@@ -82,6 +86,11 @@ if (args[0] === 'plugin' && args[1] === 'list') {
 }
 const flag = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
 const has = (name) => args.includes(name);
+if (process.env.FAKE_CLAUDE_EARLY_EXIT && has('-p')) {
+  record({ earlyExit: true });
+  process.stderr.write('private diagnostic detail');
+  process.exit(1);
+}
 if (process.env.FAKE_CLAUDE_REJECT && has(process.env.FAKE_CLAUDE_REJECT)) {
   record({ rejected: process.env.FAKE_CLAUDE_REJECT });
   process.stderr.write("error: unknown option '" + process.env.FAKE_CLAUDE_REJECT + "'\\n");
@@ -216,7 +225,7 @@ if (background) {
     setTimeout(() => process.exit(0), 20);
   });
 }
-input.on('line', (line) => {
+input.on('line', async (line) => {
   const m = JSON.parse(line);
   if (steerMode && m.type === 'user' && m.uuid) return steerIn(m);
   if (m.type === 'control_request' && m.request.subtype === 'cancel_async_message') return record({ cancelled: m.request.message_uuid });
@@ -275,7 +284,28 @@ input.on('line', (line) => {
     if (process.env.FAKE_CLAUDE_HOOK_CALL) return void hookRun(JSON.parse(process.env.FAKE_CLAUDE_HOOK_CALL));
     if (steerMode) return steerRun();
     if (background) return backgroundRun();
-    out({ type: 'system', subtype: 'init', session_id: 'fake-session', tools, mcp_servers: strictMcp ? [] : [{ name: 'local', status: 'connected' }] });
+    const plugins = ['deck@market', 'plain@market', 'refused@market', 'cc-plugin-agents-md@builtin'].map((source) => ({ source, name: source.split('@')[0] }));
+    const format = process.env.FAKE_CLAUDE_MOD_FORMAT;
+    if (format === 'names' || format === 'ambiguous') {
+      for (const plugin of plugins) delete plugin.source;
+      if (format === 'ambiguous') plugins.push({ name: 'deck' });
+    }
+    if (has('--debug-to-stderr')) {
+      process.stderr.write('2026-11-25T00:00:00.000Z [WARN] private diagnostic detail\\n');
+      const log = (text) => process.stderr.write('2026-11-25T00:00:00.000Z [DEBUG] ' + text + '\\n');
+      if (settingsArg && format === 'truncated-as-run') {
+        await new Promise((done) => process.stderr.write('x'.repeat(4 * 1024 * 1024) + '\\n', done));
+      }
+      if (process.env.CLAUDE_CODE_DEBUG_LOG_LEVEL === 'debug' && !(settingsArg && format === 'quiet-as-run')) {
+        log('query initialized');
+        if (!(settingsArg && format === 'empty-as-run')) {
+          log('hooks module cc-plugin-agents-md@builtin loaded (native, environment 1, tier builtin); events: session.start');
+          log('hooks module refused@market not loaded: private diagnostic detail');
+          if (!pluginOff('deck:slides')) log('hooks module deck@market loaded (worker, environment 2, tier user); events: session.start');
+        }
+      }
+    }
+    out({ type: 'system', subtype: 'init', session_id: 'fake-session', tools, plugins, mcp_servers: strictMcp ? [] : [{ name: 'local', status: 'connected' }] });
     if (process.env.FAKE_CLAUDE_WAIT) {
       waitingTurn = true;
       return out({ type: 'stream_event', session_id: 'fake-session', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Working' } } });

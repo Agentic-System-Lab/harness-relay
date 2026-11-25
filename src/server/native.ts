@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { versionBefore } from '../shared/cliVersions';
 import {
   PROVIDER_LABEL,
   nativeItemCount,
@@ -40,7 +41,7 @@ import { copilotHome, copilotProbeEnv, copilotProjectHooks, readCopilotJson } fr
 import { museConfigBase, museEnv, prepareMuseRun } from './agents/muse';
 import { grokNativeEnv } from './agents/grok';
 import { openAgents, versionEnv } from './agents/index';
-import { assertNotTooOld } from './cliVersion';
+import { assertNotTooOld, cliVersion } from './cliVersion';
 import { openHomeEnv } from './agents/open';
 import { parseFrontMatter } from './tools';
 import { t } from './i18n';
@@ -54,7 +55,8 @@ import { AGENT_HOME_ENV } from './settings';
  * - Claude Code: stream-json control requests `initialize` (its commands, skills among them, and
  *   subagents), `mcp_status`, `get_hooks_listing` and `get_settings` (which subagents are denied,
  *   which plugins are off), then a `/usage` turn, which Claude Code answers by itself, for the
- *   `system/init` message that lists its tools (built-in and MCP) and MCP servers; and
+ *   `system/init` message that lists its tools (built-in and MCP) and MCP servers. On versions with
+ *   mods, its plugin sources are matched to hook modules loaded in that query's diagnostic stream. Also
  *   `claude plugin list --json`. Starting it runs the user's SessionStart hooks and connects its
  *   MCP servers.
  * - Codex: `codex app-server` requests `skills/list`, `config/read` (configured MCP servers),
@@ -86,7 +88,7 @@ const short = (s: string) => s.trim().split('\n').slice(-3).join(' ').slice(0, 3
  */
 export type NativeProblem =
   | { kind: 'timeout' }
-  | { kind: 'no-answer'; part: 'all' | 'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins' }
+  | { kind: 'no-answer'; part: 'all' | 'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins' | 'mods' }
   /** `refused`: the CLI refused one of the questions (or one list could not be read); its other answers stand. */
   | { kind: 'failed'; detail: string; refused?: true }
   /** Asking the CLI again the way Harness Relay starts it went wrong, so nothing is marked left out. */
@@ -101,7 +103,7 @@ export type NativeProbe = Omit<NativeSetup, 'errors'> & { problems: NativeProble
 
 /** The lists one answer gives; a list the CLI did not give is undefined. */
 export type NativeLists = Pick<NativeSetup, 'skills' | 'mcpServers' | 'memory'> &
-  Pick<Partial<NativeSetup>, 'hooks' | 'agents' | 'plugins' | 'builtinTools'>;
+  Pick<Partial<NativeSetup>, 'hooks' | 'agents' | 'plugins' | 'mods' | 'builtinTools'>;
 
 /** What a probe that ended without some answers reports: a timeout, the CLI's own words, or the parts missing. */
 function missing(
@@ -201,6 +203,7 @@ export function markLeftOut(
     ...(own.hooks ? { hooks: mark(own.hooks, asRun.hooks, KEYS.hooks, ids('hooks')) } : {}),
     ...(own.agents ? { agents: mark(own.agents, asRun.agents, KEYS.agents, ids('agents')) } : {}),
     ...(own.plugins ? { plugins: mark(own.plugins, asRun.plugins, KEYS.plugins, ids('plugins')) } : {}),
+    ...(own.mods ? { mods: mark(own.mods, asRun.mods, KEYS.plugins) } : {}),
     ...(own.builtinTools ? { builtinTools: mark(own.builtinTools, asRun.builtinTools, KEYS.tools, ids('tools')) } : {}),
   };
 }
@@ -209,7 +212,7 @@ export function markLeftOut(
 const given = <T>(answered: unknown, list: T[] | undefined): T[] | undefined => (answered ? list : undefined);
 
 /** The parts and kinds of single items that change each list: a list nothing left out touches needs no second look. */
-const TOUCHED_BY: Record<'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins', [NativePart[], NativeItemKind[]]> = {
+const TOUCHED_BY: Record<'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins' | 'mods', [NativePart[], NativeItemKind[]]> = {
   skills: [
     ['skills', 'plugins'],
     ['skills', 'plugins'],
@@ -228,6 +231,7 @@ const TOUCHED_BY: Record<'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plug
     ['agents', 'plugins'],
   ],
   plugins: [['plugins'], ['plugins']],
+  mods: [['hooks', 'plugins'], ['plugins']],
 };
 
 /** Whether what is left out changes a list. */
@@ -485,6 +489,33 @@ export function claudeAnswersUsage(init: Json | undefined): boolean {
 }
 
 /**
+ * system/init lists ordinary plugins as well as mods. Only return a plugin's id if Claude Code
+ * logged that its hook module loaded in this session (including built-ins). Keep the rest of
+ * the diagnostic output private. A missing list or log is different from a confirmed empty list.
+ */
+function claudeLoadedMods(diagnostics: string, session?: Json): NativePlugin[] | undefined {
+  if (!Array.isArray(session?.plugins) || !/^\S+ \[DEBUG\] /m.test(diagnostics)) return undefined;
+  const plugins: Json[] = session.plugins;
+  const sources = new Set(plugins.flatMap((p) => (typeof p?.source === 'string' && p.source ? [p.source] : [])));
+  const unnamedSources = plugins.filter((p) => !p?.source);
+  if (unnamedSources.some((p) => typeof p?.name !== 'string' || !p.name)) return undefined;
+  const names = new Set(unnamedSources.map((p) => p.name));
+  const loaded = new Set<string>();
+  for (const match of diagnostics.matchAll(/^\S+ \[DEBUG\] hooks module (\S+) loaded \(/gm)) {
+    const id = match[1]!;
+    if (!sources.has(id)) {
+      // When the CLI omits the source, its name must identify one plugin in this session.
+      const at = id.lastIndexOf('@');
+      const name = at === -1 ? id : id.slice(0, at);
+      if (!names.has(name)) continue;
+      if (plugins.filter((p) => p.name === name).length !== 1) return undefined;
+    }
+    loaded.add(id);
+  }
+  return [...loaded].map((name) => ({ name }));
+}
+
+/**
  * Claude Code's answers to control requests sent one after another; a function makes its request
  * from the answers so far (or none). Answers line up with the requests (undefined when skipped,
  * refused or not answered). With `turn` saying yes to the answers, a `/usage` turn follows, without
@@ -500,8 +531,8 @@ async function askClaude(
   requests: ClaudeRequest[],
   turn?: (answers: (Json | undefined)[]) => boolean,
   timeoutMs = PROBE_TIMEOUT_MS,
-): Promise<Asked<(Json | undefined)[], number> & { session?: Json }> {
-  const ask = async (withTurn: boolean) => {
+): Promise<Asked<(Json | undefined)[], number> & { session?: Json; mods?: NativePlugin[] }> {
+  const ask = async (withTurn: boolean, withMods = false) => {
     const answers: (Json | undefined)[] = [];
     const errors: Record<number, string> = {};
     let session: Json | undefined;
@@ -521,9 +552,10 @@ async function askClaude(
     };
     const res = await converse({
       bin,
-      args: [...CLAUDE_PROBE_ARGS, ...(withTurn ? ['--no-session-persistence'] : []), ...args],
+      args: [...CLAUDE_PROBE_ARGS, ...(withTurn ? ['--no-session-persistence'] : []), ...(withMods ? ['--debug-to-stderr'] : []), ...args],
       cwd,
-      env,
+      env: withMods ? { ...env, CLAUDE_CODE_DEBUG_LOG_LEVEL: 'debug' } : env,
+      maxStderrCapture: withMods ? 4 * 1024 * 1024 : undefined,
       timeoutMs,
       open: (write) => next(write, () => undefined),
       onMessage: (m, write, finish) => {
@@ -540,10 +572,19 @@ async function askClaude(
         next(write, finish);
       },
     });
-    return { answers, errors, res, session };
+    const mods = withMods && !res.stderrTruncated ? claudeLoadedMods(res.stderr, session) : undefined;
+    // Diagnostic stderr may contain private hook and MCP output. Only ordinary stderr is a user-facing error.
+    const refusedDebugFlag = withMods && /^error: unknown option ['"]--debug-to-stderr['"]\s*$/im.test(res.stderr);
+    return { answers, errors, res: { stderr: withMods ? '' : res.stderr, timedOut: res.timedOut }, session, mods, refusedDebugFlag };
   };
   if (!turn) return ask(false);
-  const first = await ask(true);
+  const version = await cliVersion(bin, env);
+  // 2.1.287 is the first CLI version Anthropic supports for mods outside early access.
+  const withMods = !!version && versionBefore(version, '2.1.287') === false;
+  let first = await ask(true, withMods);
+  // Retry only an option-parser rejection. Other failures may already have run startup hooks.
+  if (first.refusedDebugFlag && !first.res.timedOut && !first.answers.some(Boolean) && !Object.keys(first.errors).length)
+    first = await ask(true);
   if (!first.answers.some(Boolean) && /unknown option.*no-session-persistence/i.test(first.res.stderr)) return ask(false);
   return first;
 }
@@ -570,7 +611,7 @@ async function probeClaude(
 ): Promise<NativeProbe> {
   // The other working directories, as runs give them: Claude Code loads their skills too.
   const dirArgs = addDirs.length ? ['--add-dir', ...addDirs] : [];
-  const { answers, errors, res, session } = await askClaude(
+  const { answers, errors, res, session, mods } = await askClaude(
     bin,
     env,
     cwd,
@@ -619,6 +660,7 @@ async function probeClaude(
   const files = claudeMemoryFiles(cwd, configDir);
   let lists: NativeLists = {
     ...parseClaudeProbe({ init, mcp, hooks, settings, session }, plugins, builtins),
+    ...(mods ? { mods } : {}),
     memory: claudeMemoryState(files, env),
   };
 
@@ -687,6 +729,7 @@ async function probeClaude(
             hooks: given(hooks2, parsed.hooks),
             agents: given(settings2, parsed.agents),
             plugins: given(settings2, parsed.plugins),
+            mods: again.mods,
             builtinTools: given(again.session, parsed.builtinTools),
             memory: claudeMemoryState(files, runEnv, excluded),
           },
@@ -704,6 +747,7 @@ async function probeClaude(
             [hooks && !hooks2, 'hooks'],
             [lists.agents && !settings2, 'agents'],
             [lists.plugins && !settings2, 'plugins'],
+            [lists.mods?.length && !again.mods, 'mods'],
           ]),
         );
       }
