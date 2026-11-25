@@ -86,6 +86,17 @@ describe('the panel of what a CLI loads by itself', () => {
     expect(['skills', 'mcp', 'hooks', 'agents', 'plugins'].some((tab) => canPickIn('grok', tab as never))).toBe(false);
   });
 
+  it('shows the read-only Mods tab only after a Claude Code query reports a list, including an empty one', () => {
+    const tab = (provider: 'claude' | 'codex', answer?: NativeSetup) => nativeTabs(provider, answer).find((t) => t.tab === 'mods');
+    expect(tab('claude')).toBeUndefined();
+    expect(tab('claude', setup({}))).toBeUndefined();
+    expect(tab('claude', setup({ mods: [] }))).toEqual({ tab: 'mods', count: 0 });
+    expect(tab('claude', setup({ mods: [{ name: 'sample@market' }] }))).toEqual({ tab: 'mods', count: 1 });
+    expect(tab('codex', setup({ mods: [] }))).toBeUndefined();
+    expect(canLeaveOutAll('claude', 'mods')).toBe(false);
+    expect(canPickIn('claude', 'mods')).toBe(false);
+  });
+
   it('ticks and clears single items, dropping kinds left with none', () => {
     const one = withItem({}, 'skills', 'commit', true);
     expect(one).toEqual({ skills: ['commit'] });

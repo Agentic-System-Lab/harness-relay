@@ -354,9 +354,16 @@ function claudeStream() {
       workflows: process.env.CLAUDE_CODE_DISABLE_WORKFLOWS !== '1',
       ultracode: claudeSettings().ultracode === true,
     });
+    const mod = 'cc-plugin-agents-md@builtin';
+    if (has('--debug-to-stderr')) {
+      process.stderr.write(
+        `${new Date().toISOString()} [DEBUG] hooks module ${mod} loaded (native, environment 1, tier builtin); events: session.start\n`,
+      );
+    }
     out({
       type: 'system',
       subtype: 'init',
+      plugins: [{ name: 'cc-plugin-agents-md', source: mod, path: 'builtin' }],
       session_id: sessionId,
       cwd: process.cwd(),
       tools: ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite'].filter((t) => !disallowed.includes(t)),
