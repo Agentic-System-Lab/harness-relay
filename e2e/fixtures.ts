@@ -56,24 +56,27 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
   fakeBinDir: [async ({}, use) => use(process.env.E2E_FAKE_BIN_DIR || (await installFakeClis())), { scope: 'worker' }],
 
-  relay: async ({ fakeBinDir, serverEnv, live, missingClis, openBackend, sandboxTerminal }, use, testInfo) => {
-    const relay = await startRelay({ fakeBinDir, env: serverEnv, live, missingClis, openBackend, sandboxTerminal });
-    try {
-      await use(relay);
-    } finally {
-      if (testInfo.status !== testInfo.expectedStatus) {
-        await testInfo.attach('server.log', { body: relay.output(), contentType: 'text/plain' });
-        await testInfo.attach('fake-cli.jsonl', {
-          body: relay
-            .fakeLog()
-            .map((e) => JSON.stringify(e))
-            .join('\n'),
-          contentType: 'text/plain',
-        });
+  relay: [
+    async ({ fakeBinDir, serverEnv, live, missingClis, openBackend, sandboxTerminal }, use, testInfo) => {
+      const relay = await startRelay({ fakeBinDir, env: serverEnv, live, missingClis, openBackend, sandboxTerminal });
+      try {
+        await use(relay);
+      } finally {
+        if (testInfo.status !== testInfo.expectedStatus) {
+          await testInfo.attach('server.log', { body: relay.output(), contentType: 'text/plain' });
+          await testInfo.attach('fake-cli.jsonl', {
+            body: relay
+              .fakeLog()
+              .map((e) => JSON.stringify(e))
+              .join('\n'),
+            contentType: 'text/plain',
+          });
+        }
+        await relay.stop();
       }
-      await relay.stop();
-    }
-  },
+    },
+    { timeout: 120_000 },
+  ],
 
   page: async ({ page, relay, lang, signIn, tour, sandboxAsk, envNotice }, use) => {
     // Before the app's own scripts: the tour done (unless asked for), the sandboxes' setup answered

@@ -22,6 +22,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 每個測試一開始有什麼
 
+Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。即使 Windows 上的伺服器啟動較慢，瀏覽器測試仍有完整的執行時間。
+
 - **自己的伺服器**：使用空閒的 port，資料、家目錄與各 CLI 的家目錄（那個家目錄裡的 `.claude`、`.codex`、`.grok`、`.gemini`、`.copilot`、`.config/cursor`，以及 Muse Code 的 `.config/muse` 與 `.local/share/muse`，開源 agent 的則在資料資料夾裡）都在暫存資料夾裡，並關閉作業系統的鑰匙圈：不會讀取或更動你自己的 Harness Relay、CLI 或鑰匙圈，你的憑證（Cursor、Antigravity 與 Google 的也一樣）不會留在它的環境變數裡（Antigravity 的預設帳號改拿測試自己的替身 Gemini API key，放在 `GEMINI_API_KEY`，這是它在 Harness Relay 唯一的登入方式），git 找 repository 時也不會超出測試的資料夾（[`support/relay.ts`](support/relay.ts)）。在 macOS 與 Linux 上，它的資料夾放在 `/tmp`（或 `E2E_TMP_DIR`），路徑短到放得下 Harness Relay 自己的沙箱的 socket。
 - **自己的假模型端點**：一個小 HTTP 伺服器，設成模型來源 `e2e`（**設定 → 模型連線**），有 `e2e-model` 與 `e2e-model-mini` 兩個模型，每個開源 agent 的預設模型都設成 `e2e/e2e-model`，所以測試安裝的開源 agent 都可使用（OpenHands 的終端機開關也已打開）。伺服器列出這兩個模型，另外提供只能按 ID 查到的 `unlisted-model`，並收下在沙箱裡執行的假 CLI 送來的紀錄。測試可以不要它（`openBackend: false`）、關掉 OpenHands 的開關（`sandboxTerminal: false`），或讓某些 CLI 未安裝（`missingClis`）。
 - **一個工作目錄**，裡面是一個小專案：`README.md`、`src/hello.ts` 與 `src/lib/math.ts`（`seedProject()`）。需要其他資料夾的測試會在它旁邊新增（`relay.addProject()`）。
