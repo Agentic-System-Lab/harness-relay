@@ -203,7 +203,7 @@ export function markLeftOut(
     ...(own.hooks ? { hooks: mark(own.hooks, asRun.hooks, KEYS.hooks, ids('hooks')) } : {}),
     ...(own.agents ? { agents: mark(own.agents, asRun.agents, KEYS.agents, ids('agents')) } : {}),
     ...(own.plugins ? { plugins: mark(own.plugins, asRun.plugins, KEYS.plugins, ids('plugins')) } : {}),
-    ...(own.mods ? { mods: mark(own.mods, asRun.mods, KEYS.plugins) } : {}),
+    ...(own.mods ? { mods: mark(own.mods, asRun.mods, KEYS.plugins, ids('plugins')) } : {}),
     ...(own.builtinTools ? { builtinTools: mark(own.builtinTools, asRun.builtinTools, KEYS.tools, ids('tools')) } : {}),
   };
 }
@@ -512,7 +512,11 @@ function claudeLoadedMods(diagnostics: string, session?: Json): NativePlugin[] |
     }
     loaded.add(id);
   }
-  return [...loaded].map((name) => ({ name }));
+  // Claude Code's built-in policy guard cannot be disabled. Only offer a switch for a qualified plugin ID.
+  return [...loaded].map((name) => ({
+    name,
+    ...(name.includes('@') && name !== 'cc-plugin-sec-default@builtin' ? { id: name } : {}),
+  }));
 }
 
 /**

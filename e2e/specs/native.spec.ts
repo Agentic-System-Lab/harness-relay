@@ -62,7 +62,11 @@ test.describe('what each CLI loads by itself', () => {
     const box = await askCli(page, 'claude');
     await box.getByRole('tab', { name: 'Mods (1)' }).click();
     await expect(box.locator('.native-list li')).toHaveText('cc-plugin-agents-md@builtin');
-    await expect(box.getByRole('checkbox')).toHaveCount(0);
+    const mod = 'cc-plugin-agents-md@builtin';
+    const modPick = box.getByRole('checkbox', { name: `Leave ${mod} out of Harness Relay's runs` });
+    expect(relay.fakeLog().find((e) => e.prompt?.includes('Before leaving it out'))?.mods).toEqual([mod]);
+    await modPick.check();
+    await expect(box.getByRole('tab', { name: /^Mods/ })).toContainText('1 left out');
     await box.getByRole('tab', { name: /^Skills/ }).click();
     await expect(box.getByRole('tab', { name: /^Skills \(1\)/ })).toBeVisible();
     await expect(box.locator('.native-list')).toContainText('e2e-review');
@@ -73,12 +77,27 @@ test.describe('what each CLI loads by itself', () => {
     await askAgain(box);
     await expect(box.locator('.native-list li', { hasText: 'e2e-review' })).toContainText('left out');
 
+    await box.getByRole('tab', { name: /^Mods/ }).click();
+    await expect(modPick).toBeChecked();
+    await expect(box.locator('.native-list li', { hasText: mod })).toContainText('left out');
     await page.goto(`${relay.base}/#/c/${chat}`);
     await send(page, 'After leaving it out');
     // Its second reply, finished, so that the turn is in the log.
     await expect(replies(page, 'Claude')).toHaveCount(2);
     await finishedReply(page, 'Claude');
     expect(turnSkills(relay, 'claude', 'After leaving it out')).toEqual([]);
+    expect(relay.fakeLog().find((e) => e.prompt?.includes('After leaving it out'))?.mods).toEqual([]);
+
+    const reopened = await askCli(page, 'claude');
+    await reopened.getByRole('tab', { name: /^Mods/ }).click();
+    await reopened.getByRole('checkbox', { name: `Leave ${mod} out of Harness Relay's runs` }).uncheck();
+    await askAgain(reopened);
+    await expect(reopened.locator('.native-list li')).toHaveText(mod);
+    await page.goto(`${relay.base}/#/c/${chat}`);
+    await send(page, 'With the mod restored');
+    await expect(replies(page, 'Claude')).toHaveCount(3);
+    await finishedReply(page, 'Claude');
+    expect(relay.fakeLog().find((e) => e.prompt?.includes('With the mod restored'))?.mods).toEqual([mod]);
   });
 
   test('codex: its own skill is listed by its file, and one left out is not loaded in its next run', async ({ page, relay }) => {

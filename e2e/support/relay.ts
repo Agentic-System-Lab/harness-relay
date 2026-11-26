@@ -85,6 +85,8 @@ export interface FakeLogEntry {
   effort?: string | null;
   /** A turn: the skills the CLI loaded by itself (its own, not the tool library's), and for Grok whether it trusts the folder. */
   skills?: string[];
+  /** The hook modules Claude Code loaded in this turn, by plugin ID. */
+  mods?: string[];
   trusted?: boolean;
   /** Its plan usage was asked (Settings), in `home`: the percent used it reported. */
   usage?: number;

@@ -23,11 +23,11 @@ import {
   nativeOffTotal,
   nativeTabs,
   sameNativeParts,
-  tabPicked,
+  picksInTab,
+  installedPluginsLeftOut,
   unlistedPicks,
   withItem,
   withoutPicks,
-  withoutTab,
   type NativeTab,
 } from '../native';
 import { formatBytes, relativeTime } from '../util';
@@ -133,7 +133,8 @@ export function NativeSetupPanel({
   const tabs = nativeTabs(provider, setup);
   const shown = tabs.some((x) => x.tab === tab) ? tab : 'skills';
   const partOff = shown !== 'mods' && off.includes(shown);
-  const picked = tabPicked(items, shown);
+  const installedOff = installedPluginsLeftOut(setup, off);
+  const picks = picksInTab(provider, items, shown, setup, installedOff);
   // Whether this answer was given with what is left out now; if not, its marks may no longer hold.
   const current = Boolean(setup && account && sameNativeParts(setup.nativeOff, off) && sameNativeItems(setup.nativeItems ?? {}, items));
   const stale = Boolean(setup && account && !current);
@@ -204,7 +205,7 @@ export function NativeSetupPanel({
         )}
         <div className="segmented native-tabs" role="tablist">
           {tabs.map(({ tab: k, count }) => {
-            const n = tabPicked(items, k);
+            const n = picksInTab(provider, items, k, setup).length;
             const tabOff = k !== 'mods' && off.includes(k);
             return (
               <button key={k} role="tab" aria-selected={shown === k} className={shown === k ? 'on' : ''} onClick={() => setTab(k)}>
@@ -236,16 +237,16 @@ export function NativeSetupPanel({
             {provider === 'claude' && shown === 'hooks' ? t.native.claudeHooks : t.native.cannotPick(PROVIDER_LABEL[provider])}
           </p>
         )}
-        {picked > 0 &&
+        {picks.length > 0 &&
           (partOff ? (
             <p className="muted small">{t.native.offAllOn}</p>
           ) : (
             <p className="muted small">
-              {t.native.picked(picked)}{' '}
+              {t.native.picked(picks.length)}{' '}
               <button
                 type="button"
                 className="link-button"
-                onClick={() => void save({ nativeItems: withoutTab(items, shown) })}
+                onClick={() => void save({ nativeItems: withoutPicks(items, picks) })}
                 disabled={busy || !account}
               >
                 {t.native.clearPicked}
@@ -403,10 +404,11 @@ export function NativeSetupPanel({
                     .map((p, i) =>
                       row(
                         `${p.name}-${i}`,
-                        shown === 'plugins' && box('plugins', p.id, p.name),
+                        box('plugins', p.id, p.name, partOff || installedOff.has(p.name)),
                         <span className="native-name">
                           {p.name}
                           {p.source && <span className="badge">{p.source}</span>}
+                          {shown === 'mods' && installedOff.has(p.name) && <span className="badge">{t.native.modOffWithPlugins}</span>}
                           <StateBadges item={p} still={still(p)} />
                         </span>,
                       ),

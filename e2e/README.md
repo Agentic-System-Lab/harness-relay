@@ -754,7 +754,7 @@ The Tool library links to the agent picker. Following the link, choosing Codex, 
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
-| Its own skill is listed, and one left out is not loaded in its next run | Claude Code, Codex | A skill in the CLI's home is listed (Codex's by its file) and loaded in a turn; ticked, **Ask** marks it "left out", and the next turn loads none (Claude Code's `skillOverrides`, Codex's `skills.config`). The read-only Mods tab shows the built-in mod loaded by Claude Code. |
+| Its own skill is listed, and one left out is not loaded in its next run | Claude Code, Codex | A skill in the CLI's home is listed (Codex's by its file) and loaded in a turn; ticked, **Ask** marks it "left out", and the next turn loads none (Claude Code's `skillOverrides`, Codex's `skills.config`). Ticking a built-in mod in **Mods** leaves it out of the next Claude Code turn. Unticking it loads it again in the following turn. |
 | The Grok card shows the folder's trust; trusting it loads the project's skills, and leaving them out reaches the next run | Grok | Untrusted, the card says so and lists no skill; **Trust this folder** writes `$GROK_HOME/trusted_folders.toml`, and the project's skill appears; **Leave all out** reaches the next turn (`GROK_CLAUDE_SKILLS_ENABLED=false`), which runs trusted and loads none. |
 | A team with a Grok member says when Grok does not trust the folder, and trusting it there records the trust | Grok | From the team card, the trust is recorded and Grok's turn runs trusted. |
 | The team starts without trusting the folder when the user declines | Grok | Nothing is recorded, **Confirm team** still starts, and Grok's turn runs untrusted. |

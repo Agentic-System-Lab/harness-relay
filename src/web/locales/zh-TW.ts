@@ -2557,7 +2557,8 @@ export const zhTW = {
     claudeHooks: 'Claude Code 的 hook 沒有名稱，所以只能全部不載入。',
     claudeMcp: 'Claude Code：勾選的 MCP 伺服器仍會啟動，只是它的工具不提供給成員；要讓伺服器不啟動，請勾選「全部不載入」。',
     codexMcp: 'Codex：只列出你設定檔裡的 MCP 伺服器；plugin 帶來的伺服器在 Plugins 分頁設定，ChatGPT apps 隨「全部不載入」一起關掉。',
-    claudeMods: '列出 Claude Code 啟動這次查詢時載入的 mod。名稱中的 @ 表示來源，例如 @builtin 表示內建。',
+    modOffWithPlugins: '已隨 Plugins 全部停用',
+    claudeMods: '勾選要從這個帳號的執行中排除的 mod，取消勾選即可恢復載入。@builtin 表示 Claude Code 內建的 mod。',
     claudeTools:
       'Claude Code 的內建工具。不載入的工具成員無法使用；Harness Relay 依權限關掉的工具（例如唯讀時的 Edit、Write）不論這裡怎麼設都會關掉。',
     source: (s: string) => `來源：${s}`,

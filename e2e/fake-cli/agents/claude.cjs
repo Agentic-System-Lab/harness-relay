@@ -339,6 +339,8 @@ function claudeStream() {
     };
     recordMcpEnv(claudeMcpEnv(), claudeMcpHttp());
     if (persist) sessions.start(sessionId);
+    const mod = 'cc-plugin-agents-md@builtin';
+    const mods = claudeSettings().enabledPlugins?.[mod] === false ? [] : [mod];
     record({
       prompt,
       briefing,
@@ -348,22 +350,24 @@ function claudeStream() {
       model: flag('--model') || null,
       effort: flag('--effort') || null,
       skills: claudeSkills().map((s) => s.name),
+      mods,
       // What it may do by itself in the turn: its subagents (a deny rule for the whole Agent tool takes
       // them all), its workflows (CLAUDE_CODE_DISABLE_WORKFLOWS) and ultracode, as Claude Code reads them.
       subagents: !((claudeSettings().permissions || {}).deny || []).includes('Agent'),
       workflows: process.env.CLAUDE_CODE_DISABLE_WORKFLOWS !== '1',
       ultracode: claudeSettings().ultracode === true,
     });
-    const mod = 'cc-plugin-agents-md@builtin';
     if (has('--debug-to-stderr')) {
-      process.stderr.write(
-        `${new Date().toISOString()} [DEBUG] hooks module ${mod} loaded (native, environment 1, tier builtin); events: session.start\n`,
-      );
+      process.stderr.write(`${new Date().toISOString()} [DEBUG] query initialized\n`);
+      if (mods.length)
+        process.stderr.write(
+          `${new Date().toISOString()} [DEBUG] hooks module ${mod} loaded (native, environment 1, tier builtin); events: session.start\n`,
+        );
     }
     out({
       type: 'system',
       subtype: 'init',
-      plugins: [{ name: 'cc-plugin-agents-md', source: mod, path: 'builtin' }],
+      plugins: mods.map((source) => ({ name: 'cc-plugin-agents-md', source, path: 'builtin' })),
       session_id: sessionId,
       cwd: process.cwd(),
       tools: ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite'].filter((t) => !disallowed.includes(t)),
