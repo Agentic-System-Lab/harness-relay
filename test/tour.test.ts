@@ -66,17 +66,24 @@ describe('guided tour', () => {
     // The version the last tour had, or a test's: nothing to read.
     expect(guideOnStart(parseGuide(String(TOUR_VERSION), null))).toBeNull();
     expect(guideOnStart(parseGuide('999', null))).toBeNull();
-    // An older one: the topics changed since, each read before in an earlier form.
+    // An older one: the topics changed since, plus one that did not exist yet.
     const old = parseGuide('20', null);
-    expect(unread(old)).toEqual(['agents', 'chat', 'team', 'phone', 'automations', 'apps']);
-    expect(unread(old).every((id) => changed(old, id))).toBe(true);
+    expect(unread(old)).toEqual(['agents', 'chat', 'team', 'replies', 'phone', 'automations', 'apps']);
+    expect(unread(old).filter((id) => !changed(old, id))).toEqual(['replies']);
     expect(guideOnStart(old)).toBe('ask');
-    expect(unread(parseGuide('44', null))).toEqual(['chat', 'team']);
-    expect(unread(parseGuide('45', null))).toEqual(['chat']);
+    expect(unread(parseGuide('44', null))).toEqual(['chat', 'team', 'replies']);
+    expect(unread(parseGuide('45', null))).toEqual(['chat', 'replies']);
+    expect(unread(parseGuide('46', null))).toEqual(['replies']);
     // The tour before it had versions.
     expect(unread(parseGuide('1', null))).toEqual(ALL);
     // A topic read since counts, whatever the old version.
-    expect(unread(parseGuide('20', guide({ seen: { agents: 39, chat: 46 } })))).toEqual(['team', 'phone', 'automations', 'apps']);
+    expect(unread(parseGuide('20', guide({ seen: { agents: 39, chat: 46 } })))).toEqual([
+      'team',
+      'replies',
+      'phone',
+      'automations',
+      'apps',
+    ]);
   });
 
   it('marks a topic read in an earlier revision as changed', () => {
@@ -127,12 +134,12 @@ describe('guided tour', () => {
     } finally {
       vi.unstubAllGlobals();
     }
-    const old = storage({ 'relay:onboarded': '45' });
+    const old = storage({ 'relay:onboarded': '46', 'relay:guide': guide({ quiet: 46 }) });
     try {
       expect(pendingTour()).toBe('ask');
-      markRead('chat');
+      markRead('replies');
       expect(pendingTour()).toBeNull();
-      expect(old.get('relay:onboarded')).toBe('45');
+      expect(old.get('relay:onboarded')).toBe('46');
     } finally {
       vi.unstubAllGlobals();
     }
@@ -182,6 +189,6 @@ describe('guided tour', () => {
     // The topics changed? Raise TOUR_VERSION in src/web/tour.ts and give it to each topic changed, so
     // that browsers which read them are asked about them again, then update both values here. For a
     // change not worth asking about again (a typo), update only the fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 46, fingerprint: '778229addfbc' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 47, fingerprint: '3dd5e5bafb86' });
   });
 });

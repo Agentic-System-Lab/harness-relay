@@ -96,11 +96,11 @@ test.describe('the guided tour', () => {
     await tour(page).getByRole('button', { name: 'Done' }).click();
     await expect(tour(page)).toBeHidden();
 
-    // Not again by itself: the home page asks about the two topics left instead.
+    // After a reload, the home page asks about the topics left.
     await page.reload();
     await appShown(page);
     await expect(tour(page)).toHaveCount(0);
-    await expect(nudge(page)).toContainText('The guided tour has 2 topics you have not read. Take a look?');
+    await expect(nudge(page)).toContainText('The guided tour has 3 topics you have not read. Take a look?');
   });
 
   test('asks on the home page about the topics left: Show me opens the first of them, Not now stops asking', async ({ page }) => {
@@ -144,7 +144,7 @@ test.describe('the guided tour', () => {
     expect(await checked(page)).toEqual(titles.slice(0, 3));
   });
 
-  test('a browser that finished an older tour is asked about the topics changed since, marked as updated', async ({ page }) => {
+  test('a browser that finished an older tour can read new topics and see which existing topics changed', async ({ page }) => {
     await expect(tour(page)).toBeVisible();
     await expect.poll(() => page.evaluate(() => localStorage.getItem('relay:guide'))).not.toBeNull();
     await page.evaluate(() => {
@@ -154,18 +154,27 @@ test.describe('the guided tour', () => {
     await page.reload();
     await appShown(page);
     await expect(tour(page)).toHaveCount(0);
-    await expect(nudge(page)).toContainText('6 topics of the guided tour changed. Take a look?');
+    await expect(nudge(page)).toContainText('The guided tour has 7 topics you have not read. Take a look?');
     await nudge(page).getByRole('button', { name: 'Show me' }).click();
     await expect(shown(page)).toHaveText('Get an agent ready');
     expect(await checked(page)).toEqual(['Meet Harness Relay', 'Get an agent ready']);
     await expect(tour(page).locator('.tour-changed')).toHaveText(Array(5).fill('Updated'));
     await expect(listed(page, 'Start a chat')).toContainText('Updated');
 
-    // The tour's version before the checklist: nothing to ask.
+    await expect(listed(page, 'After a reply')).not.toContainText('Updated');
+
+    // A browser caught up before this topic was added sees just the new topic.
     await page.evaluate(() => {
       localStorage.removeItem('relay:guide');
       localStorage.setItem('relay:onboarded', '46');
     });
+    await page.reload();
+    await appShown(page);
+    await expect(nudge(page)).toContainText('The guided tour has one topic you have not read.');
+    await nudge(page).getByRole('button', { name: 'Show me' }).click();
+    await expect(shown(page)).toHaveText('After a reply');
+    await expect(tour(page)).toContainText('question-mark bubble under their reply');
+    await expect(tour(page)).toContainText('Question usage below your question');
     await page.reload();
     await appShown(page);
     await expect(nudge(page)).toHaveCount(0);

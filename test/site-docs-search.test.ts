@@ -55,6 +55,17 @@ describe('search over the docs', () => {
     expect(new Set(few.map((hit) => hit.href)).size).toBe(3);
   });
 
+  it.each([
+    ['en', 'follow-up question', 'follow-up'],
+    ['en', 'Question usage', 'question-usage'],
+    ['zh-TW', '追問', 'follow-up'],
+    ['zh-TW', '問題用量明細', 'question-usage'],
+  ] as const)('finds the first-chat instructions in %s for %s', (lang, query, id) => {
+    const [hit] = searchDocs(inLang(lang), query);
+    expect(hit?.href).toBe(catalog.find((page) => page.lang === lang && page.path === 'docs/first-chat/')?.url);
+    expect(hit?.id).toBe(id);
+  });
+
   it('ranks a title above a heading, a heading above a subheading, and a phrase above split words', () => {
     const section = (id: string, heading: string, text: string, subheadings: string[] = []) => ({ id, heading, subheadings, text });
     const pages = [

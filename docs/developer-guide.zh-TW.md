@@ -852,7 +852,7 @@ prompt 刻意使用英文（agent 會用使用者的語言回覆）。給使用�
 
 `test/i18n.test.ts` 會檢查兩份介面字典的結構相同（包括型別檢查不到的清單長度）。
 
-使用導覽是一份清單：雙語的主題 `tour.steps` 依照 `src/web/tour.ts` 中的 `TOUR_STEPS` 排列，每個主題有 id（它的圖在 `TourArt.tsx`，按鈕的位址在 `Onboarding.tsx` 的 `TOPIC_LINKS`）與最後修改的版本。顯示過的主題會以當時的版本記為已看（瀏覽器儲存空間的 `relay:guide`，連同「不用了」回答時的版本）；在清單之前看完導覽的瀏覽器只記了一個版本（`relay:onboarded`），到那個版本為止的主題都算已看。導覽只在第一次使用時自己打開；之後還有主題沒看時，首頁會詢問（`TourNudge.tsx`），直到按「不用了」，在某個主題的版本超過那時之前都不再問。有值得再看的變更時，增加 `TOUR_VERSION`，並把新增或修改主題的版本改成該值，兩份語系保持相同順序，並更新 `test/tour.test.ts` 的 fingerprint。
+使用導覽是一份清單：雙語的主題 `tour.steps` 依照 `src/web/tour.ts` 中的 `TOUR_STEPS` 排列，每個主題有 id（它的圖在 `TourArt.tsx`，按鈕的位址在 `Onboarding.tsx` 的 `TOPIC_LINKS`）與最後修改的版本。顯示過的主題會以當時的版本記為已看（瀏覽器儲存空間的 `relay:guide`，連同「不用了」回答時的版本）；在清單之前看完導覽的瀏覽器只記了一個版本（`relay:onboarded`），到那個版本為止的主題都算已看。導覽只在第一次使用時自己打開；之後還有主題沒看時，首頁會詢問（`TourNudge.tsx`），直到按「不用了」，在某個主題的版本超過那時之前都不再問。有值得再看的變更時，增加 `TOUR_VERSION`，並把新增或修改主題的版本改成該值。新增主題時，把 `introduced` 設為它首次出現的版本，讓看過舊版導覽的瀏覽器顯示該主題為未讀。兩份語系保持相同順序，並更新 `test/tour.test.ts` 的 fingerprint。
 
 ## 常用 App 的服務註冊
 

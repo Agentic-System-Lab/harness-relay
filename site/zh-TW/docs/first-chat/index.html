@@ -6,7 +6,7 @@
     <title>第一個對話 · Harness Relay 文件</title>
     <meta
       name="description"
-      content="Harness Relay 文件：開一個對話、提出問題、查看（或確認）首席 agent 組的團隊、在它工作時和它對話，並看它的審閱。"
+      content="Harness Relay 文件帶你開始第一個對話，從確認團隊、閱讀審閱，到追問一位成員，以及查看每個階段的 token 用量與費用。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="第一個對話 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="在 Harness Relay 開始第一個對話：選資料夾與權限、提問、查看（或確認）首席 agent 設計的團隊、在 agent 回覆時插話、回答它們的提問，並閱讀首席 agent 對回覆的審閱。"
+      content="在 Harness Relay 開始第一個對話、確認團隊並加入討論。你可以追問提出發現的成員，也可以查看各階段用了多少 token。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -55,7 +55,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/",
         "name": "第一個對話 · Harness Relay 文件",
-        "description": "Harness Relay 文件：開一個對話、提出問題、查看（或確認）首席 agent 組的團隊、在它工作時和它對話，並看它的審閱。",
+        "description": "Harness Relay 文件帶你開始第一個對話，從確認團隊、閱讀審閱，到追問一位成員，以及查看每個階段的 token 用量與費用。",
         "inLanguage": "zh-TW",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -257,6 +257,8 @@
               </ol>
             </details>
           </li>
+          <li><a href="#follow-up">追問一位成員</a></li>
+          <li><a href="#question-usage">問題用量明細</a></li>
         </ol>
       </nav>
 
@@ -319,7 +321,7 @@
               <code>node_modules</code>。讀到這則訊息的 agent 都打得開，圖片也看得到。
             </li>
             <li>
-              <b>指定成員</b>：輸入 <code>@</code> 挑一位隊友。訊息裡 @ 了成員時，只有他們會回覆；沒有 @ 時，整個團隊都會參與。
+              輸入 <code>@</code> 選擇回答的成員。接力模式下，被點名的成員可以交棒給隊友。你也可以<a href="#follow-up">針對某則回覆追問</a>。
             </li>
             <li>
               <b>用說的</b>：按送出按鈕旁的麥克風按鈕，說完再按一次，文字就會出現在輸入框裡，讓你修改後再送出。語音在你的電腦上轉成文字，錄音不會上傳；第一次使用時，會有對話框說明要下載什麼。
@@ -345,8 +347,7 @@
             </li>
           </ul>
           <p>
-            卡片等你確認的期間，你寫的訊息會和問題一起交給團隊。只有新問題才會重新組隊：回答 agent 的提問、@ 了成員的訊息，以及<b>繼續</b>，都會交給目前的團隊。<a href="../teams/#auto-team">首席
-            agent 怎麼挑團隊</a>
+            卡片等你確認的期間，你寫的訊息會和問題一起交給團隊。追問一位成員、回答 agent 的提問、在訊息裡 @ 成員或按<b>繼續</b>，都會沿用目前的團隊。<a href="../teams/#auto-team">首席 agent 怎麼挑團隊</a>
           </p>
         </section>
 
@@ -462,6 +463,43 @@
           <p>按團隊回覆中 HTML 連結旁的 <b>預覽應用程式</b>，就能在面板中試用頁面。試著按頁面上的按鈕，按 <b>重新載入頁面</b> 就能在同一次執行中再試一次。若出現錯誤，按 <b>將錯誤加入訊息</b>，在草稿中補上操作步驟再送出。<a href="../conversations/#app-preview">從檔案開啟預覽，或預覽 npm、Dockerfile 與 compose 專案</a> 試過沒問題後，按 <b>發布…</b> 就能放上你自己的 Render 與 Neon 免費帳號。<a href="../conversations/#app-publish">發布應用程式</a></p>
         </section>
 
+        <section id="follow-up" aria-labelledby="follow-up-title">
+          <h2 id="follow-up-title">追問一位成員</h2>
+          <p>
+            團隊回答完畢後，按一則回覆下方有問號的對話泡泡，就能向那位成員提問。例如，選 QA 的回覆，再問「為什麼會逾時？」
+            輸入框上方會顯示<b>由 @QA 回答</b>。送出後，QA 會回答一個回合。如果已啟用首席審閱，審閱照常進行。
+          </p>
+          <p>
+            你也可以直接問「剛才的 <code>LOGIN_TIMEOUT</code> 是什麼原因？」如果上一個問題的回覆中只有 QA 提過這個錯誤碼，Relay 會自動選到 QA。
+            測試名稱、檔案路徑或引句也能用來找出成員。若有好幾位成員符合，就會依原本的團隊模式回答。你也可以在送出前按<b>改問全隊</b>。
+          </p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/first-chat-follow-up-zh-TW.webp">
+              <img src="../../../assets/media/docs/first-chat-follow-up-zh-TW.webp" width="860" height="494" loading="lazy"
+                alt="QA 回報 LOGIN_TIMEOUT。追問的草稿上方顯示「由 @QA 回答」與「改問全隊」按鈕。" />
+            </a>
+            <figcaption>最後發言的是 Dev，這個關於登入逾時的問題會由回報錯誤的 QA 回答。</figcaption>
+          </figure>
+        </section>
+
+        <section id="question-usage" aria-labelledby="question-usage-title">
+          <h2 id="question-usage-title">問題用量明細</h2>
+          <p>
+            展開提問下方的<b>問題用量明細</b>，可以看到每個已完成階段的輸入 token、輸出 token 與美元費用。
+            組隊規劃、每次模型檢查、每位成員的回合與首席審閱各列一行。舊對話中的組隊規劃和模型檢查可能合併顯示。
+          </p>
+          <p>
+            agent 的 CLI 未回報的數字顯示為<b>未知</b>。<b>已回報小計</b>會分別加總每一欄有回報的數字。
+          </p>
+          <figure class="doc-figure">
+            <a href="../../../assets/media/docs/first-chat-question-usage-zh-TW.webp">
+              <img src="../../../assets/media/docs/first-chat-question-usage-zh-TW.webp" width="818" height="358" loading="lazy"
+                alt="展開的問題用量明細列出組隊規劃、Claude Code 模型檢查、Claude 的回合與首席審閱。已回報的費用小計為 0.0048 美元。" />
+            </a>
+            <figcaption>這次檢查發版清單，四個階段合計回報了 480 個輸入 token 與 160 個輸出 token。</figcaption>
+          </figure>
+        </section>
+
         <aside class="doc-more" aria-label="技術細節">
           <svg aria-hidden="true"><use href="#i-github" /></svg>
           <div>
@@ -469,6 +507,8 @@
             <ul>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#3-開始對話新對話與範本">開始對話</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#4-對話">對話</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#追問一位成員">追問一位成員</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#問題用量明細">問題用量明細</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#首席-agent-審閱">首席 agent 審閱</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#語音輸入">語音輸入</a></li>
             </ul>

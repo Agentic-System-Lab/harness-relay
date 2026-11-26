@@ -4,18 +4,19 @@
 const DONE_KEY = 'relay:onboarded';
 /** The topics read, each at the revision it was read in, and the version a "Not now" answered. */
 const GUIDE_KEY = 'relay:guide';
-export const TOUR_VERSION = 46;
+export const TOUR_VERSION = 47;
 
-/** Ordered like tour.steps in both locales. Each revision is when that topic last changed for readers. */
+/** Ordered like tour.steps in both locales. Topics added after the checklist also record when they first appeared. */
 export const TOUR_STEPS = [
   { id: 'welcome', revision: 17 },
   { id: 'agents', revision: 39 }, // signing in, the open agents' model connections
   { id: 'chat', revision: 46 }, // the team the lead agent builds, the file permission
   { id: 'team', revision: 45 }, // replies as they come, approvals, questions, cards for the user
+  { id: 'replies', revision: 47, introduced: 47 }, // follow up with the author and see each stage's reported usage
   { id: 'phone', revision: 23 },
   { id: 'automations', revision: 44 },
   { id: 'apps', revision: 33 },
-] as const satisfies readonly { id: string; revision: number }[];
+] as const satisfies readonly { id: string; revision: number; introduced?: number }[];
 
 export type TopicId = (typeof TOUR_STEPS)[number]['id'];
 
@@ -69,7 +70,9 @@ export function unread(state: GuideState | null): TopicId[] {
 
 /** Whether a topic not read now was read in an earlier revision: it changed since. */
 export function changed(state: GuideState | null, id: TopicId): boolean {
-  return Boolean(state) && !isRead(state, id) && (state!.base > 0 || state!.seen[id] !== undefined);
+  if (!state || isRead(state, id)) return false;
+  const topic = TOUR_STEPS.find((s) => s.id === id)!;
+  return state.seen[id] !== undefined || state.base >= ('introduced' in topic ? topic.introduced : 1);
 }
 
 /**
