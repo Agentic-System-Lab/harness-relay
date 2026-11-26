@@ -57,6 +57,59 @@ test.describe('the sidebar', () => {
     await settled(relay, chatId(page));
   });
 
+  test('a question title uses the available header width on desktop, tablet and phone', async ({ page, relay }) => {
+    const question = 'https://github.com/Agentic-System-Lab/harness-relay/releases — summarize the latest changes';
+    await openTeamChat(page, relay, [{ name: 'Collector', provider: 'claude' }], { permission: 'full' }, 'New chat');
+    await send(page, question);
+    await finishedReply(page, 'Collector');
+    await relay.api(`/api/conversations/${chatId(page)}/schedule`, {
+      method: 'PUT',
+      body: { text: question, repeat: { kind: 'daily', time: '09:00' }, approvals: 'deny', missed: 'skip', enabled: true },
+    });
+    await page.reload();
+    const title = page.locator('.chat-title');
+    for (const width of [1600, 820, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(title).toHaveAccessibleName(question);
+      const menu = page.locator('.chat-head .more-button');
+      await expect(menu).toBeInViewport({ ratio: 1 });
+      const warning = page.locator(width === 1600 ? '.chat-head-badges .danger' : '.head-warning');
+      await expect(warning).toBeInViewport({ ratio: 1 });
+      const titleBox = (await title.boundingBox())!;
+      const warningBox = (await warning.boundingBox())!;
+      expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(warningBox.x + 1);
+      const hasRoom = await title.evaluate((el) => {
+        // WebKit can return the clipped bounds for a text range in an ellipsized button.
+        // Measure the first 45 characters with the same font and padding at their natural width.
+        const prefix = el.cloneNode(false) as HTMLElement;
+        prefix.textContent = el.textContent!.slice(0, 45) + '…';
+        prefix.style.cssText = 'position: fixed; width: max-content; max-width: none; visibility: hidden';
+        el.after(prefix);
+        const pastOldLimit = prefix.offsetWidth <= el.clientWidth;
+        prefix.remove();
+        return {
+          pastOldLimit,
+          clipped: el.scrollWidth > el.clientWidth,
+          overflow: getComputedStyle(el).textOverflow,
+        };
+      });
+      expect(hasRoom.pastOldLimit).toBe(width !== 390);
+      if (width === 1600) expect(hasRoom.clipped).toBe(false);
+      if (width === 390) expect(hasRoom.clipped && hasRoom.overflow === 'ellipsis').toBe(true);
+      await menu.click();
+      await expect(page.locator('.chat-head-actions')).toBeVisible();
+      await menu.click();
+      const value = new Promise<string>((resolve) =>
+        page.once('dialog', (d) => {
+          resolve(d.defaultValue());
+          void d.dismiss();
+        }),
+      );
+      await title.click();
+      expect(await value).toBe(question);
+    }
+  });
+
   test('a conversation can be renamed and deleted', async ({ page, relay }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {}, 'Old title');
     await expect(page.locator('.conv-link', { hasText: 'Old title' })).toBeVisible();

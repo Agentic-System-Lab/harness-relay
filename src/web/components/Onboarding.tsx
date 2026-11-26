@@ -12,6 +12,7 @@ export const TOPIC_LINKS: Partial<Record<TopicId, { href: string; section?: Sett
   phone: { href: settingsHref('home-screen'), section: 'home-screen' },
   automations: { href: hashFor({ page: 'schedule' }) },
   apps: { href: settingsHref('apps'), section: 'apps' },
+  labs: { href: settingsHref('labs'), section: 'labs' },
 };
 
 /**

@@ -3546,16 +3546,16 @@ export const en: Messages = {
       },
       {
         title: 'Start a chat',
-        body: 'Send a question with a working directory and file permission. The lead agent builds your team. From the sidebar or an agent reply, reuse the history in a new topic or a child branch.',
+        body: 'Choose a work folder and file access. Type or use the mic, attach files or folders, then send. The lead builds a team. From the sidebar or a reply, use chat history in a new topic or branch.',
         action: 'Start a new chat',
       },
       {
         title: 'While the team works',
-        body: 'Replies show as they are written, and you can step in or stop at any time. When the team needs your approval or an answer, a card shows in the chat and the bell tells you.',
+        body: 'Follow live replies, step in or stop. Cards and the bell flag approvals and questions. Open ⋯ → Files to browse or download. In an idle, writable folder, edit text files or delete files.',
       },
       {
         title: 'After a reply',
-        body: 'To follow up, ask about an error code only one member cited last time or tap the question-mark bubble under their reply. Open Question usage below your question for tokens and cost by stage.',
+        body: 'Ask about an error code only one member just cited, or tap their ? bubble. Share under a reply includes the chat up to it. Question usage below your question shows tokens and cost by stage.',
       },
       {
         title: 'Connect your phone',
@@ -3571,6 +3571,11 @@ export const en: Messages = {
         title: 'Common apps',
         body: 'Connect Gmail, your calendar, Slack and more for the agents to look things up; nothing is sent before you confirm it.',
         action: 'Open Common apps',
+      },
+      {
+        title: 'Labs',
+        body: 'On supported computers, try CodeAct to script tools or RLM to read long texts in parts. Enable long-term memory to let agents save notes across chats. These experiments are off by default.',
+        action: 'Open Labs',
       },
     ],
   },

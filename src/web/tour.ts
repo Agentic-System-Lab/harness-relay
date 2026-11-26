@@ -4,18 +4,19 @@
 const DONE_KEY = 'relay:onboarded';
 /** The topics read, each at the revision it was read in, and the version a "Not now" answered. */
 const GUIDE_KEY = 'relay:guide';
-export const TOUR_VERSION = 47;
+export const TOUR_VERSION = 48;
 
 /** Ordered like tour.steps in both locales. Topics added after the checklist also record when they first appeared. */
 export const TOUR_STEPS = [
   { id: 'welcome', revision: 17 },
   { id: 'agents', revision: 39 }, // signing in, the open agents' model connections
-  { id: 'chat', revision: 46 }, // the team the lead agent builds, the file permission
-  { id: 'team', revision: 45 }, // replies as they come, approvals, questions, cards for the user
-  { id: 'replies', revision: 47, introduced: 47 }, // follow up with the author and see each stage's reported usage
+  { id: 'chat', revision: 48 }, // attachments, dictation and the team the lead builds
+  { id: 'team', revision: 48 }, // replies as they come, approvals, questions and the Files panel
+  { id: 'replies', revision: 48, introduced: 47 }, // follow up, share the chat through a reply and see each stage's usage
   { id: 'phone', revision: 23 },
   { id: 'automations', revision: 44 },
   { id: 'apps', revision: 33 },
+  { id: 'labs', revision: 48, introduced: 48 },
 ] as const satisfies readonly { id: string; revision: number; introduced?: number }[];
 
 export type TopicId = (typeof TOUR_STEPS)[number]['id'];
