@@ -68,6 +68,7 @@ import {
   MemoryIcon,
   PaperclipIcon,
   PencilIcon,
+  ReplyIcon,
   RetryIcon,
   ShareIcon,
 } from './icons';
@@ -1915,8 +1916,14 @@ function AgentMessage({
               </button>
             )}
             {onFollowUp && copyable && !msg.passed && msg.status === 'done' && (
-              <button type="button" className="msg-action" onClick={() => onFollowUp(msg.id)}>
-                {t.message.followUp}
+              <button
+                type="button"
+                className="msg-action icon-action"
+                title={t.message.followUp}
+                aria-label={t.message.followUp}
+                onClick={() => onFollowUp(msg.id)}
+              >
+                <ReplyIcon size={16} />
               </button>
             )}
             {copyable && onShare && (

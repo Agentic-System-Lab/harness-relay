@@ -609,7 +609,7 @@ When it writes a role (for a team it adapts or designs, or a member it adds or r
 
 If QA reports `LOGIN_TIMEOUT` and Dev speaks afterward, ask “What caused LOGIN_TIMEOUT?” in the message box. **Answered by @QA** appears when QA is the only member whose reply matches. **Ask the whole team** sends the question through the team's usual mode, including team design when enabled.
 
-Relay compares your draft with the last completed exchange on this device. A test name, file path, error code or quoted phrase can identify its author. If two members used the same reference, or you just type “Why?”, the usual team flow applies. To ask “Why?” about a specific reply, click **Follow up** under it first. You can choose an older reply by a current member in the same topic.
+Relay compares your draft with the last completed exchange on this device. A test name, file path, error code or quoted phrase can identify its author. If two members used the same reference, or you just type “Why?”, the usual team flow applies. To ask “Why?” about a specific reply, click the **Follow up** arrow under it first. You can choose an older reply by a current member in the same topic.
 
 A directed follow-up gives its author one turn in any mode. It skips team design and relay handoffs. Your team, its rounds and its optional lead review keep their settings.
 

@@ -271,6 +271,16 @@ export function RetryIcon({ size }: { size?: number }) {
   );
 }
 
+/** A left-facing reply arrow: follow up on the member's message. */
+export function ReplyIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="m9 4-6 6 6 6" />
+      <path d="M3 10h9a9 9 0 0 1 9 9" />
+    </Svg>
+  );
+}
+
 /** A box with an arrow out of it: share. */
 export function ShareIcon({ size }: { size?: number }) {
   return (

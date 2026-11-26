@@ -85,7 +85,13 @@ test.describe('how members take turns', () => {
     await settled(relay, id);
     await expect(replies(page, 'Dev')).toHaveCount(1);
     await expect(page.locator('.msg-user').last()).toContainText('Answered by @QA');
-    await replies(page, 'Dev').first().getByRole('button', { name: 'Follow up', exact: true }).click();
+    const followUp = replies(page, 'Dev').first().getByRole('button', { name: 'Follow up', exact: true });
+    await expect(followUp).toHaveAttribute('title', 'Follow up');
+    await expect(followUp).toHaveText('');
+    await expect(followUp.locator('svg[aria-hidden="true"]')).toBeVisible();
+    await followUp.focus();
+    await followUp.press('Enter');
+    await expect(composer(page)).toBeFocused();
     await send(page, 'Why?');
     await expect(replies(page, 'Dev')).toHaveCount(2);
     await settled(relay, id);

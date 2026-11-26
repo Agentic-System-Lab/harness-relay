@@ -238,7 +238,7 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 | A question is skipped, and the rest of the team goes on | Claude Code, Grok | **Skip, let the team go on**, and the next member answers. |
 | Relay mode: a member hands the floor to the teammate it mentions | Claude Code, Codex | The first member answers first and mentions the second, which answers; then the floor comes back to the user (two replies). |
 | A message that @mentions a member is answered by that member only | Claude Code, Codex, Grok | Only @Grok answers. |
-| A follow-up reaches the author of a finding, with a reply action and a whole-team override | Claude Code, Codex | Only QA answers a unique earlier error code, even though Dev spoke last. Selecting a Dev reply directs “Why?” to Dev. The whole-team override restores the normal round. |
+| A follow-up reaches the author of a finding, with a reply action and a whole-team override | Claude Code, Codex | Only QA answers a unique earlier error code, even though Dev spoke last. Pressing Enter on the labeled reply arrow focuses the composer and directs “Why?” to Dev. The whole-team override restores the normal round. |
 | In a later round, members with nothing to add pass, and the round ends early | Claude Code, Codex | With three rounds: both answer, both pass, and there is no third round. |
 | A reply can be stopped | each | While the reply streams, **Stop** ends it with "(stopped)", and the live tag and the Stop button go away. |
 | An error inside the CLI's protocol is shown on the reply | each | The error as each CLI reports it shows on the reply: Claude's error result, a failed Codex turn, an ACP agent's JSON-RPC error (Cursor's error text in its reply, as Cursor sends one), Pi's failed message. |

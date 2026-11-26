@@ -240,7 +240,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 | 略過問題，團隊其他人繼續 | Claude Code、Grok | 按**略過，讓團隊繼續**（Skip, let the team go on），下一位成員回答。 |
 | 接力模式：成員把發言權交給它 @ 的隊友 | Claude Code、Codex | 第一位成員先回答並 @ 第二位，第二位接著回答；之後發言權交還給使用者（共兩則回答）。 |
 | @ 某位成員的訊息只由那位成員回答 | Claude Code、Codex、Grok | 只有 @Grok 回答。 |
-| 直接追問線索的作者，也能從回覆追問或改問全隊 | Claude Code、Codex | 最後發言的是 Dev，只有 QA 回答關於先前錯誤碼的追問；選取 Dev 的回覆後，「為什麼？」交給 Dev；改問全隊後兩位都回答。 |
+| 直接追問線索的作者，也能從回覆追問或改問全隊 | Claude Code、Codex | 最後發言的是 Dev，只有 QA 回答關於先前錯誤碼的追問；在 Dev 回覆下方的追問箭頭按 Enter，游標會移到輸入框，「為什麼？」交給 Dev；改問全隊後兩位都回答。 |
 | 之後的回合沒有補充的成員 PASS，提前結束 | Claude Code、Codex | 設定三輪：兩人都回答、兩人都 PASS，沒有第三輪。 |
 | 回答可以停止 | 各一 | 回答串流時按**停止**（Stop），回答以「(stopped)」結束，即時標籤與停止按鈕都消失。 |
 | CLI 協定之內的錯誤顯示在回答上 | 各一 | 各 CLI 以自己的方式回報的錯誤都顯示在回答上：Claude 的錯誤結果、失敗的 Codex 回合、ACP agent 的 JSON-RPC 錯誤（Cursor 則像它實際那樣，把錯誤文字放在回答裡）、Pi 失敗的訊息。 |
