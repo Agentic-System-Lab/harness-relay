@@ -487,8 +487,8 @@ export const api = {
   reorganizeGroups: (b: GroupReorganize) =>
     request<{ groups: ConversationGroup[]; created: ConversationGroup[] }>('POST', '/api/groups/reorganize', b),
   /** While the team replies the message waits for the next turn (`queued`); `interrupt` stops the team and sends it now. */
-  send: (id: string, text: string, attachments: AttachmentUpload[] = [], interrupt = false) =>
-    postTask<{ ok: true; queued: boolean }>(`/api/conversations/${id}/messages`, { text, attachments, interrupt }),
+  send: (id: string, text: string, attachments: AttachmentUpload[] = [], interrupt = false, followUp?: string) =>
+    postTask<{ ok: true; queued: boolean }>(`/api/conversations/${id}/messages`, { text, attachments, interrupt, followUp }),
   /** Take back a message still waiting to be delivered; returns it. */
   withdraw: (id: string, messageId: string) => request<ChatMessage>('DELETE', `/api/conversations/${id}/queue/${messageId}`),
   attachmentUrl: (convId: string, attachmentId: string) => `/api/conversations/${convId}/attachments/${attachmentId}`,

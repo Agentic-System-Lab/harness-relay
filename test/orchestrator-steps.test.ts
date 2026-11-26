@@ -223,7 +223,9 @@ describe('steps cards', () => {
       });
       expect(() => orchestrator.tickStep(conv.id, bob.id, 0, true)).toThrow(expect.objectContaining({ status: 409 }));
       // Nor through send itself, whatever calls it.
-      await expect(orchestrator.send(conv.id, 'answer for Bob', undefined, false, undefined, 'b')).rejects.toMatchObject({ status: 409 });
+      await expect(orchestrator.send(conv.id, 'answer for Bob', undefined, false, undefined, { answers: 'b' })).rejects.toMatchObject({
+        status: 409,
+      });
       expect(conv.queue ?? []).toEqual([]);
       expect(calls.at(-1)!.steered).toBeUndefined();
       expect(stepsOf(bob)).not.toHaveProperty('answer');

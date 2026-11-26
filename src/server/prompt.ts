@@ -1,3 +1,4 @@
+import { topicCutoff } from '../shared/followUp';
 import {
   CHECK_LIMITS,
   CHECK_RESULT_LIMITS,
@@ -869,6 +870,8 @@ Fix it so that the whole result passes, unless the user says otherwise. Do not w
 }
 
 export interface TurnInfo {
+  /** A directed follow-up, with an excerpt for a reference such as “why?”. Empty when resuming after a question. */
+  followUp?: string;
   mode: Mode;
   round: number;
   rounds: number;
@@ -886,12 +889,6 @@ export interface TurnInfo {
   handoffs?: string;
   /** This chat's automation (`scheduleNow()`), when it changed since this member's session last heard it ('' for none now). */
   schedule?: string;
-}
-
-/** Everything through this index is background copied into an independent topic. */
-function topicCutoff(conv: Conversation): number {
-  const branch = conv.branch;
-  return branch?.independent ? conv.messages.findIndex((m) => m.id === branch.afterId) : -1;
 }
 
 function topicMessages(conv: Conversation): ChatMessage[] {
@@ -930,7 +927,11 @@ export function buildTurnPrompt(
   const answered = `You asked the user a question and their reply is among the messages above${
     ownSchedule(conv) || delta.some((m) => m.scheduled) ? ' (one marked via="schedule" is not their reply)' : ''
   }: now give your full answer, adjusted to it.`;
-  if (turn.answered) {
+  if (turn.followUp !== undefined) {
+    cue = `It's your turn, @${agent.name}. The user is following up on your reply. Answer directly.`;
+    if (turn.followUp) cue += `\nExcerpt of your earlier reply: ${JSON.stringify(turn.followUp)}`;
+    if (turn.answered) cue += ' ' + answered;
+  } else if (turn.answered) {
     cue = `It's your turn, @${agent.name}. ${answered}`;
     if (turn.mode === 'relay') cue += ' Mention a teammate to hand off; otherwise the floor returns to the user.';
   } else if (turn.mode === 'relay') {

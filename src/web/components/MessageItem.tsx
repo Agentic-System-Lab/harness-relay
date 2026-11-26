@@ -68,6 +68,7 @@ import {
   MemoryIcon,
   PaperclipIcon,
   PencilIcon,
+  FollowUpIcon,
   RetryIcon,
   ShareIcon,
 } from './icons';
@@ -888,6 +889,7 @@ interface Props {
   /** Put a next step the lead agent suggests in the message box (lead review). */
   onUseStep?: (text: string) => void;
   /** Branch the conversation from this reply: a new one with the messages up to and including it. */
+  onFollowUp?: (messageId: string) => void;
   onBranch?: (messageId: string) => void;
   /** A team checks card: whether it is the conversation's latest result (only it offers anything). */
   latestChecks?: boolean;
@@ -1419,6 +1421,7 @@ function UserMessage({
   onResend: Props['onResend'];
 }) {
   const t = useT();
+  const followUpName = msg.parts.find((p) => p.type === 'text')?.followUp?.name;
   const text = messageText(msg);
   const [draft, setDraft] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -1452,6 +1455,7 @@ function UserMessage({
               <PencilIcon size={16} />
             </button>
           )}
+          {followUpName && <span className="queued-tag">{t.composer.memberRoute(followUpName)}</span>}
           {/* Last, so the tag sits at the right edge under the bubble: copy and edit only turn transparent off hover and still take their space. */}
           {msg.scheduled ? (
             <span className="queued-tag scheduled-tag" title={t.schedule.tagTitle}>
@@ -1557,6 +1561,7 @@ export const MessageItem = memo(function MessageItem({
   answerLater,
   onSkipQuestion,
   onShare,
+  onFollowUp,
   onBranch,
   onPreview,
   marks,
@@ -1661,6 +1666,7 @@ export const MessageItem = memo(function MessageItem({
       answerLater={answerLater}
       onSkipQuestion={onSkipQuestion}
       onShare={onShare}
+      onFollowUp={onFollowUp}
       onBranch={onBranch}
       onPreview={onPreview}
       marks={marks}
@@ -1689,6 +1695,7 @@ function AgentMessage({
   answerLater,
   onSkipQuestion,
   onShare,
+  onFollowUp,
   onBranch,
   onPreview,
   marks,
@@ -1713,6 +1720,7 @@ function AgentMessage({
   | 'answerLater'
   | 'onSkipQuestion'
   | 'onShare'
+  | 'onFollowUp'
   | 'onBranch'
   | 'onPreview'
   | 'marks'
@@ -1742,6 +1750,7 @@ function AgentMessage({
   const marked = marks?.highlights.length ?? 0;
   const m = msg.meta;
   const copyable = !msg.passed && messageText(msg).length > 0;
+  const followUpLabel = onFollowUp && t.message.followUp(agents.find((a) => a.id === agentId)?.name ?? name);
 
   return (
     <div
@@ -1905,6 +1914,17 @@ function AgentMessage({
                 onClick={() => void onRetry(msg.id)}
               >
                 <RetryIcon size={16} />
+              </button>
+            )}
+            {onFollowUp && copyable && !msg.passed && msg.status === 'done' && (
+              <button
+                type="button"
+                className="msg-action icon-action"
+                title={followUpLabel}
+                aria-label={followUpLabel}
+                onClick={() => onFollowUp(msg.id)}
+              >
+                <FollowUpIcon size={18} />
               </button>
             )}
             {copyable && onShare && (

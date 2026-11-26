@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 55 個 spec 檔、673 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 55 個 spec 檔、674 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -47,7 +47,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 | [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
 | [團隊檢查](#團隊檢查) | [`checks.spec.ts`](specs/checks.spec.ts) | 13 | [使用者說明 → 團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[架構 → 團隊檢查](../docs/architecture.zh-TW.md#團隊檢查) |
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
-| [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
+| [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 56 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
 | [直接送進進行中的回合](#直接送進進行中的回合) | [`steer.spec.ts`](specs/steer.spec.ts) | 4 | [使用說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
 | [要使用者做的步驟](#要使用者做的步驟) | [`steps.spec.ts`](specs/steps.spec.ts) | 5 | [使用者說明 → 對話](../docs/user-guide.zh-TW.md#4-對話)、[架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 15 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
@@ -240,6 +240,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 | 略過問題，團隊其他人繼續 | Claude Code、Grok | 按**略過，讓團隊繼續**（Skip, let the team go on），下一位成員回答。 |
 | 接力模式：成員把發言權交給它 @ 的隊友 | Claude Code、Codex | 第一位成員先回答並 @ 第二位，第二位接著回答；之後發言權交還給使用者（共兩則回答）。 |
 | @ 某位成員的訊息只由那位成員回答 | Claude Code、Codex、Grok | 只有 @Grok 回答。 |
+| 直接追問線索的作者，也能從回覆追問或改問全隊 | Claude Code、Codex | 最後發言的是 Dev，只有 QA 回答關於先前錯誤碼的追問；在 Dev 回覆下方標示「追問 @Dev」的問號對話泡泡按 Enter，游標會移到輸入框，「為什麼？」交給 Dev；改問全隊後兩位都回答。 |
 | 之後的回合沒有補充的成員 PASS，提前結束 | Claude Code、Codex | 設定三輪：兩人都回答、兩人都 PASS，沒有第三輪。 |
 | 回答可以停止 | 各一 | 回答串流時按**停止**（Stop），回答以「(stopped)」結束，即時標籤與停止按鈕都消失。 |
 | CLI 協定之內的錯誤顯示在回答上 | 各一 | 各 CLI 以自己的方式回報的錯誤都顯示在回答上：Claude 的錯誤結果、失敗的 Codex 回合、ACP agent 的 JSON-RPC 錯誤（Cursor 則像它實際那樣，把錯誤文字放在回答裡）、Pi 失敗的訊息。 |
@@ -896,6 +897,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 
 | 情境 | Claude Code | Codex | Grok | Cursor | Antigravity | Copilot | Muse Code |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| 追問線索或選取回覆，改問全隊 | ✓ | ✓ | — | — | — | — | — |
 | 思考、工具呼叫與待辦清單 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | subagent 的呼叫摺進啟動它的那次呼叫，以及 CLI 對自己這次執行的附註 | ✓ | — | — | — | — | — | — |
 | 設定頁的方案用量 | ✓（5 小時與每週額度） | ✓（5 小時與每週時段） | ✓（這週的點數） | 只有方案 | ✓（用 API key：沒有方案，從不詢問 agy） | ✓（以次數計的 premium 請求） | ✓（訂閱額度） |
@@ -980,6 +982,8 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 
 ## 平台與瀏覽器
 
+追問分派情境可在各支援系統與瀏覽器執行。
+
 - 在[首席 agent 在團隊之外的協助](#首席-agent-在團隊之外的協助)裡，以開源 agent 當首席的測試只在 Harness Relay 自己的沙箱能運作的地方執行（macOS，以及裝了 bubblewrap、socat 與 ripgrep 的 Linux）。
 - [安裝 Git](#安裝-git) 在各測試平台模擬伺服器回應，測試缺少 Git 與 Windows Git Bash 的流程。
 - [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) 會在每個候選版本發佈前（發佈 workflow 會呼叫它；正式版本一定在它最新的候選版本發佈之後），以及每個碰到它們依賴的檔案的 pull request 上（`scripts/ci-scope.ts`：只改文件、單元測試、桌面 app 或網站首頁的 pull request 不會跑，維護者開的（`MAINTAINERS`）也不跑，他們的改動由候選版本那次執行測試；手動執行一定會跑），推送到 `main` 時不跑，以 Node 24 在 Ubuntu、macOS 與 Windows 上，並以 Node 22 在 Ubuntu 上，用 Chromium 執行所有 spec：每一種都分成兩個 job，各跑一半的測試（Playwright 的 `--shard=1/2` 與 `2/2`），讓每個 job 都不超過七分鐘多少。手動執行可以選擇其他瀏覽器；在本機則用 `E2E_BROWSERS=chromium,firefox,webkit`（[`playwright.config.ts`](../playwright.config.ts)）。在 Ubuntu 上它會安裝 Harness Relay 自己的沙箱需要的東西（bubblewrap、socat 與 ripgrep，以及讓 `/usr/bin/bwrap` 能建立 namespace 的 AppArmor 設定檔），在 Ubuntu 上先執行沙箱自己的檢查（`scripts/sandbox-check.ts`），並在那裡設定 `E2E_REQUIRE_RELAY_SANDBOX=1`，讓需要沙箱的測試失敗而不是跳過。
@@ -1006,6 +1010,8 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 本機預覽情境使用 loopback 主機名稱，並把瀏覽器縮成手機寬度。WebKit 的本機驗證採用已兌換的票券、專屬隨機主機名稱及同 origin 的 Fetch Metadata。Linux CI 另啟用需 Docker 的面板測試：npm 的建置與後端、`Dockerfile` 應用程式、WebSocket 應用程式、終端機程式，以及 compose 應用程式。
 
 ## 沒有測到的部分
+
+追問案例會驗證測試對話的實際發言成員和畫面上的回答者；模型的回答品質不在測試範圍內。
 
 - **新 CLI session 收到的複製紀錄。** 瀏覽器測試驗證選定的對話紀錄；協調器與提示詞測試檢查歷史紀錄的界線、新 session id，以及哪些問題仍待回答。
 

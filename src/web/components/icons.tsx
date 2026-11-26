@@ -271,6 +271,17 @@ export function RetryIcon({ size }: { size?: number }) {
   );
 }
 
+/** A question in a speech bubble: ask this member about their reply. */
+export function FollowUpIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M5.5 2.5h13a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H9l-5.5 4v-4.7a3 3 0 0 1-1-2.3v-10a3 3 0 0 1 3-3Z" />
+      <path d="M9.6 7.7a2.5 2.5 0 0 1 4.9.6c0 1.9-2.5 2-2.5 3.9" />
+      <circle cx="12" cy="15.2" r="1.1" fill="currentColor" stroke="none" />
+    </Svg>
+  );
+}
+
 /** A box with an arrow out of it: share. */
 export function ShareIcon({ size }: { size?: number }) {
   return (

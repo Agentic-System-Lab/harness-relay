@@ -940,6 +940,7 @@ export const en: Messages = {
     diagramFit: 'Fit to width',
     diagramFailed: 'This Mermaid diagram could not be drawn, so its source is shown.',
     retry: 'Retry',
+    followUp: (name) => `Ask @${name} a follow-up question`,
     retryTitle: 'Let this member answer again',
     share: 'Share',
     shareTitle: 'Copy or share the conversation up to this reply',
@@ -1706,6 +1707,10 @@ export const en: Messages = {
   },
 
   composer: {
+    memberRoute: (name: string) => `Answered by @${name}`,
+    askTeam: 'Ask the whole team',
+    teamRoute: 'Using team mode',
+    autoRoute: 'Detect automatically',
     stop: '■ Stop',
     stopLabel: 'Stop',
     continue: 'Continue ↻',

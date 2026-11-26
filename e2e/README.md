@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 673 tests in 55 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 674 tests in 55 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -47,7 +47,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [The lead agent's review](#the-lead-agents-review) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [User guide → Lead review](../docs/user-guide.md#lead-review), [Architecture → Lead review](../docs/architecture.md#lead-review) |
 | [Team checks](#team-checks) | [`checks.spec.ts`](specs/checks.spec.ts) | 13 | [User guide → Team checks](../docs/user-guide.md#team-checks), [Architecture → Team checks](../docs/architecture.md#team-checks) |
 | [A member's model and reasoning effort](#a-members-model-and-reasoning-effort) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [User guide → Default model and reasoning effort](../docs/user-guide.md#default-model-and-reasoning-effort), [Team members](../docs/user-guide.md#team-members) |
-| [How members take turns](#how-members-take-turns) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes), [How agents share context](../docs/architecture.md#how-agents-share-context) |
+| [How members take turns](#how-members-take-turns) | [`turns.spec.ts`](specs/turns.spec.ts) | 56 | [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes), [How agents share context](../docs/architecture.md#how-agents-share-context) |
 | [Sending a message into a running turn](#sending-a-message-into-a-running-turn) | [`steer.spec.ts`](specs/steer.spec.ts) | 4 | [User guide → Chat](../docs/user-guide.md#4-chat), [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes) |
 | [Steps for the user](#steps-for-the-user) | [`steps.spec.ts`](specs/steps.spec.ts) | 5 | [User guide → Chat](../docs/user-guide.md#4-chat), [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes) |
 | [What an agent does on its way to a reply](#what-an-agent-does-on-its-way-to-a-reply) | [`activity.spec.ts`](specs/activity.spec.ts) | 15 | [Architecture → Agent activity](../docs/architecture.md#agent-activity) |
@@ -238,6 +238,7 @@ The website’s own files exercise deep links and keyboard disclosure in the Chi
 | A question is skipped, and the rest of the team goes on | Claude Code, Grok | **Skip, let the team go on**, and the next member answers. |
 | Relay mode: a member hands the floor to the teammate it mentions | Claude Code, Codex | The first member answers first and mentions the second, which answers; then the floor comes back to the user (two replies). |
 | A message that @mentions a member is answered by that member only | Claude Code, Codex, Grok | Only @Grok answers. |
+| A follow-up reaches the author of a finding, with a reply action and a whole-team override | Claude Code, Codex | Only QA answers a unique earlier error code, even though Dev spoke last. Pressing Enter on the question-mark bubble labeled **Ask @Dev a follow-up question** focuses the composer and directs “Why?” to Dev. The whole-team override restores the normal round. |
 | In a later round, members with nothing to add pass, and the round ends early | Claude Code, Codex | With three rounds: both answer, both pass, and there is no third round. |
 | A reply can be stopped | each | While the reply streams, **Stop** ends it with "(stopped)", and the live tag and the Stop button go away. |
 | An error inside the CLI's protocol is shown on the reply | each | The error as each CLI reports it shows on the reply: Claude's error result, a failed Codex turn, an ACP agent's JSON-RPC error (Cursor's error text in its reply, as Cursor sends one), Pi's failed message. |
@@ -894,6 +895,7 @@ The scenarios tried with each CLI (most of them as a test per CLI, the rest with
 
 | Scenario | Claude Code | Codex | Grok | Cursor | Antigravity | Copilot | Muse Code |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| Follow up on a finding or select its reply; ask the whole team | ✓ | ✓ | — | — | — | — | — |
 | Thinking, a tool call and a to-do list | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | A subagent's calls folded under the call that started it, and the CLI's note about its own run | ✓ | — | — | — | — | — | — |
 | Plan usage in Settings | ✓ (5-hour and weekly limits) | ✓ (5-hour and weekly windows) | ✓ (the week's credits) | its plan only | ✓ (on an API key: no plan, agy never asked) | ✓ (premium requests, counted) | ✓ (the allowance) |
@@ -978,6 +980,8 @@ The two branch choices and independent history cutoffs run with Codex’s fake C
 
 ## Platforms and browsers
 
+The follow-up routing scenario runs on every supported system and browser.
+
 - [Installing Git](#installing-git) exercises the missing-Git and Windows Git Bash flows on every tested platform through simulated API responses.
 - [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) runs every spec in Chromium on Ubuntu, macOS and Windows with Node 24, and on Ubuntu with Node 22, for each release candidate before it is published (the Release workflow calls it; a release comes only after its newest release candidate is out), and for each pull request that touches a file they depend on (`scripts/ci-scope.ts`: not for one that changes the docs, the unit tests, the desktop app or the landing page alone, nor for one a maintainer opened, `MAINTAINERS`, whose changes the release candidate's run tests; a run by hand always runs them), never for a push to `main`: each in two jobs, half the tests each (Playwright's `--shard=1/2` and `2/2`), so that no job runs much over seven minutes. Run it by hand to choose other browsers; locally, `E2E_BROWSERS=chromium,firefox,webkit` ([`playwright.config.ts`](../playwright.config.ts)). On Ubuntu it installs what Harness Relay's own sandbox needs (bubblewrap, socat and ripgrep, and the AppArmor profile that lets `/usr/bin/bwrap` make its namespaces), on Ubuntu it runs the sandbox's own checks (`scripts/sandbox-check.ts`) first, and it sets `E2E_REQUIRE_RELAY_SANDBOX=1` there, so a test that needs the sandbox fails rather than skips.
 - The open agents run below full access on macOS and Linux only (Linux with bubblewrap, socat and ripgrep): on Windows, which Harness Relay's own sandbox does not cover, they run with full access only, and so does OpenCode on Linux. There the tests about permissions skip them, saying why, the others run them with full access, and [Harness Relay's own sandbox](#harness-relays-own-sandbox) checks that a chat below full access does not start them. Without the sandbox on a Mac or Linux computer, the tests that need it are skipped, saying why (`E2E_RELAY_SANDBOX`, which `global-setup.ts` works out once).
@@ -1004,6 +1008,8 @@ The two branch choices and independent history cutoffs run with Codex’s fake C
 The local preview scenarios use loopback hostnames and a phone-sized browser viewport. WebKit’s local session uses a redeemed ticket, a secret per-preview hostname and same-origin Fetch Metadata. Linux CI also enables the live Docker panel tests: an npm build and backend, a `Dockerfile` app, a WebSocket app, a terminal app and a compose app.
 
 ## What they do not cover
+
+The follow-up scenario checks the actual speakers and recipient shown for fixture replies. It does not evaluate the quality of a model’s answer.
 
 - **Copied context inside a fresh CLI session.** The browser checks the selected conversation history. The orchestrator and prompt tests verify its boundary, fresh session IDs and which questions still await an answer.
 

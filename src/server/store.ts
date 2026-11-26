@@ -358,6 +358,12 @@ function toPart(r: PartRow): MessagePart {
         ...(r.tool_error ? { error: r.tool_error } : {}),
         ...(r.tool_output ? { output: r.tool_output } : {}),
       };
+    case 'text': {
+      const route = parseJson<{ replyId?: unknown; name?: unknown } | null>(r.data, null);
+      const followUp =
+        typeof route?.replyId === 'string' && typeof route.name === 'string' ? { replyId: route.replyId, name: route.name } : undefined;
+      return { type: 'text', text: r.text ?? '', ...(followUp ? { followUp } : {}) };
+    }
     case 'thinking':
       return { type: 'thinking', text: r.text ?? '' };
     case 'plan':
@@ -465,6 +471,7 @@ function toPart(r: PartRow): MessagePart {
 function partColumns(p: MessagePart): (string | null)[] {
   switch (p.type) {
     case 'text':
+      return [p.text, null, null, null, null, null, null, p.followUp ? JSON.stringify(p.followUp) : null];
     case 'thinking':
       return [p.text, null, null, null, null, null, null, null];
     case 'notice':

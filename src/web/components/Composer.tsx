@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { addressedFollowUp, inferFollowUp, type FollowUpSource } from '../../shared/followUp';
 import { PROVIDER_LABEL, type AgentConfig } from '../../shared/types';
 import type { AttachmentUpload } from '../api';
 import { enterSends, isTouchScreen, restoredText } from '../chat';
@@ -9,6 +10,10 @@ import { AttachmentPicker, AttachmentTray, readUploads, useMessageFiles, type Pe
 import { VoiceButton } from './VoiceInput';
 
 interface Props {
+  sources: FollowUpSource[];
+  followUpChoice?: { id: string };
+  selectedName?: string;
+  onChooseFollowUp: (id?: string) => void;
   autoFocus?: boolean;
   agents: AgentConfig[];
   /** The team is replying: what is sent waits for the next turn, and Stop is offered. */
@@ -30,7 +35,7 @@ interface Props {
   steering?: boolean;
   placeholder: string;
   /** `interrupt`: stop the team and send this now (Cmd/Ctrl+Enter while it replies). */
-  onSend: (text: string, attachments: AttachmentUpload[], interrupt: boolean) => Promise<boolean>;
+  onSend: (text: string, attachments: AttachmentUpload[], interrupt: boolean, followUp?: string) => Promise<boolean>;
   onStop: () => void;
   onContinue: () => Promise<unknown>;
   /**
@@ -47,6 +52,10 @@ const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navig
 const TOKEN = /(^|[\s(（])@([\p{L}\p{N}_-]*)$/u;
 
 export function Composer({
+  sources,
+  followUpChoice,
+  selectedName,
+  onChooseFollowUp,
   autoFocus,
   agents,
   running,
@@ -77,6 +86,19 @@ export function Composer({
   const ref = useRef<HTMLTextAreaElement>(null);
   const textRef = useRef(text);
   textRef.current = text;
+
+  const explicitMention =
+    (followUpChoice || sources.length) &&
+    addressedFollowUp(
+      text,
+      agents.map((a) => a.name),
+    );
+  const inferred = !explicitMention && !followUpChoice && !files.length ? inferFollowUp(text, sources) : undefined;
+  const recipient = explicitMention ? undefined : (followUpChoice?.id ?? inferred?.id);
+  const recipientName = followUpChoice ? selectedName : inferred?.agent.name;
+  useEffect(() => {
+    if (followUpChoice) ref.current?.focus();
+  }, [followUpChoice]);
 
   // A withdrawn message (or a lead review's next step) comes in, ahead of anything typed since.
   useEffect(() => {
@@ -157,7 +179,7 @@ export function Composer({
         setNotice(t.composer.readFailed);
         return;
       }
-      const ok = await onSend(trimmed, attachments, interrupt && running && !locked);
+      const ok = await onSend(trimmed, attachments, interrupt && running && !locked, explicitMention ? undefined : followUpChoice?.id);
       if (ok) {
         setText('');
         setCaret(0);
@@ -214,6 +236,14 @@ export function Composer({
 
   return (
     <div className="composer-wrap" {...dropZone}>
+      {recipient && (
+        <div className="follow-up-route">
+          <span role="status">{recipient === 'team' ? t.composer.teamRoute : t.composer.memberRoute(recipientName ?? '?')}</span>
+          <button type="button" className="ghost small-button" onClick={() => onChooseFollowUp(recipient === 'team' ? undefined : 'team')}>
+            {recipient === 'team' ? t.composer.autoRoute : t.composer.askTeam}
+          </button>
+        </div>
+      )}
       {notice && <p className="error-line composer-notice">{notice}</p>}
       {menuOpen && (
         <ul className="mention-menu" role="listbox">

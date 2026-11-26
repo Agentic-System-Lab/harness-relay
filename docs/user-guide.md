@@ -595,15 +595,25 @@ When it writes a role (for a team it adapts or designs, or a member it adds or r
 - The decision appears in the chat as a **Team design** card: the current team kept, the template it used, the template it adapted, or its new team; why; and each member's full role, folded to a few lines when long (**Show more** shows the rest, also on a [shared page](#sharing-a-conversation)).
 - When you choose **Wait for my confirmation** on the New chat page, you confirm it: click **Confirm team** on the card and the team answers your question. Until then the sidebar marks the conversation **Confirm the team**, and what you write meanwhile (even while the lead agent is still designing) waits above the message box and goes to the team with your question. **Adjust team** opens the team settings, where you change the design yourself or have the lead agent change it (see [Editing the team mid-chat](#editing-the-team-mid-chat)); saving your changes there counts as confirming too. Only the latest design offers **Adjust team**: it is the team now, while earlier cards are history. Once you have changed the team, by **Adjust team** or in **Team settings**, that card shows the members as you set them and says *You adjusted this team*. While agents are at work (the team answering, or the lead agent reviewing its replies), **Adjust team** waits: it is disabled until they finish.
 - With **Start answering right away** on the New chat page (the first new chat's choice; or tick **Use the lead agent's team without asking me** later in **Team settings**), the team answers right away; the card still shows what the lead agent chose and why (**Used without asking**).
-- Not every message is a new question. An answer to an agent's question, a message that @mentions members of the current team (they answer it), **Continue**, **Retry** and automations' messages go to the current team without a new design.
+- Not every message is a new question. A directed follow-up, an answer to an agent's question, a message that @mentions members of the current team (they answer it), **Continue**, **Retry** and automations' messages go to the current team without a new design.
 - Members who stay on (same name and CLI) keep the **Tools** you set for them. They keep their session and what they learned when they stay on the same account. New members and those that switch accounts read the conversation from the start.
 - You choose the working directory and the file permission; the lead agent cannot change them.
 - The card has the box **Have the lead agent review the team's replies**, which only you switch (see [Lead review](#lead-review)).
 - When the lead agent designed or adapted a team, the card asks whether to keep it: **Save as template** saves it (you can rename it), and it then shows up under **Templates**, for the lead agent to pick as it is. A template used as it is, or the current team kept, is already there, so the card doesn't ask.
 - If the configured lead agent cannot run, the team design card names it and points you to **Settings & sign-in → Lead agent**. If the lead cannot run or its design cannot be used, Relay uses the current team with any unavailable members reassigned. For a first question it uses the roles from the General-question panel. If you press **Stop** while it is designing, **Continue** or your next question designs the team again.
-- Editing a question (see [Copying, editing and retrying](#copying-editing-and-retrying)) designs its team again (unless the edit @mentions members, who then answer), to be confirmed again unless you use the lead agent's team without asking.
+- Editing a question (see [Copying, editing and retrying](#copying-editing-and-retrying)) designs its team again (a directed follow-up keeps its source, and an edit that @mentions members goes to them), to be confirmed again unless you use the lead agent's team without asking.
 - **No, keep the current team** on the card turns the design down: the team you had answers instead (not offered for a first question, or when the lead agent kept the team). Until you confirm or decline, the conversation keeps its current team: **Retry** or editing an earlier message still uses it (and drops the waiting design). **Team settings** shows the waiting design while it waits, and saving there uses it as you edited it.
 - When the team has a Grok member and Grok doesn't trust the working directory, the card says so before you confirm, with **Trust this folder**.
+
+### Follow up with one member
+
+If QA reports `LOGIN_TIMEOUT` and Dev speaks afterward, ask “What caused LOGIN_TIMEOUT?” in the message box. **Answered by @QA** appears when QA is the only member whose reply matches. **Ask the whole team** sends the question through the team's usual mode, including team design when enabled.
+
+Relay compares your draft with the last completed exchange on this device. A test name, file path, error code or quoted phrase can identify its author. If two members used the same reference, or you just type “Why?”, the usual team flow applies. To ask “Why?” about a specific reply, click the speech bubble with a question mark under it. Its tooltip names the recipient, for example **Ask @QA a follow-up question**. You can choose an older reply by a current member in the same topic.
+
+A directed follow-up gives its author one turn in any mode. It skips team design and relay handoffs. Your team, its rounds and its optional lead review keep their settings.
+
+![A follow-up about a login timeout routed to QA](media/follow-up-en.png)
 
 ### Question usage
 

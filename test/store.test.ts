@@ -87,6 +87,21 @@ const agentMsg: ChatMessage = {
 };
 
 describe('Store (SQLite)', () => {
+  it('keeps a follow-up source across a database restart and reads ordinary text unchanged', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const followUp: ChatMessage = {
+      ...userMsg,
+      id: 'q2',
+      createdAt: 2300,
+      parts: [{ type: 'text', text: 'Why?', followUp: { replyId: agentMsg.id, name: 'Quality' } }],
+    };
+    conv.messages.push(userMsg, agentMsg, followUp);
+    for (const m of [userMsg, agentMsg, followUp]) store.saveMessage(conv.id, m, true);
+    expect(new Store(reopen()).get(conv.id)!.messages.map((m) => m.parts)).toEqual([userMsg.parts, agentMsg.parts, followUp.parts]);
+  });
+
   it('round-trips a conversation, its messages and agent sessions', () => {
     const store = new Store(db);
     const conv = sampleConversation();
