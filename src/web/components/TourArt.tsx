@@ -1,6 +1,18 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { TopicId } from '../tour';
-import { BellIcon, BranchIcon, ClockIcon, FolderIcon, FollowUpIcon, KeyIcon, MailIcon, UsersIcon } from './icons';
+import {
+  BellIcon,
+  BranchIcon,
+  ClockIcon,
+  FolderIcon,
+  FollowUpIcon,
+  KeyIcon,
+  MailIcon,
+  MicIcon,
+  PaperclipIcon,
+  ShareIcon,
+  UsersIcon,
+} from './icons';
 
 /** A CSS animation's start, in seconds from the topic opening (`--at` in styles.css). */
 const at = (s: number) => ({ '--at': `${s}s` }) as CSSProperties;
@@ -158,6 +170,12 @@ const PICTURES: Record<TopicId, () => ReactNode> = {
           <rect className="chip" x="142" y="220" width="62" height="24" rx="12" />
           <path className="chip-glyph" d="M155 225.5l6 2.2v4.6c0 3.4-2.6 5.6-6 6.7-3.4-1.1-6-3.3-6-6.7v-4.6z" />
           <rect className="pill-text" x="168" y="229" width="26" height="6" rx="3" />
+          <Glyph x={240} y={222}>
+            <PaperclipIcon size={20} />
+          </Glyph>
+          <Glyph x={276} y={222}>
+            <MicIcon size={20} />
+          </Glyph>
         </g>
         <g className="pop" style={at(0.75)}>
           <circle className="send" cx="330" cy="232" r="15" />
@@ -214,10 +232,16 @@ const PICTURES: Record<TopicId, () => ReactNode> = {
       </g>
       <circle className="halo alert" cx="364" cy="58" r="8" style={at(1.85)} />
       <circle className="dot alert pop" cx="364" cy="58" r="8" style={at(1.7)} />
+      <g className="enter" style={at(1.8)}>
+        <circle className="tour-art-card" cx="348" cy="192" r="30" />
+        <Glyph x={334} y={178}>
+          <FolderIcon size={28} />
+        </Glyph>
+      </g>
     </svg>
   ),
 
-  // The usage table beneath your question, then a member's reply and its follow-up button.
+  // The usage table beneath your question, then a member's reply and its follow-up and share buttons.
   replies: () => (
     <svg viewBox="0 0 400 280" focusable="false">
       <g className="enter">
@@ -245,6 +269,9 @@ const PICTURES: Record<TopicId, () => ReactNode> = {
       <g className="pop" style={at(1.2)}>
         <Glyph x={48} y={240}>
           <FollowUpIcon size={26} />
+        </Glyph>
+        <Glyph x={90} y={240}>
+          <ShareIcon size={26} />
         </Glyph>
       </g>
     </svg>
@@ -330,6 +357,36 @@ const PICTURES: Record<TopicId, () => ReactNode> = {
         </g>
       ))}
       <Mark x={186} y={140} start={0.1} />
+    </svg>
+  ),
+
+  // Labs: three choices for using tools, with long-term memory a separate setting below.
+  labs: () => (
+    <svg viewBox="0 0 400 280" focusable="false">
+      <g className="enter">
+        <rect className="tour-art-card" x="54" y="18" width="292" height="244" rx="16" />
+        <path
+          className="glyph"
+          d="M80 37h12m-9 0v9l-8 13a2 2 0 0 0 2 3h18a2 2 0 0 0 2-3l-8-13v-9m-10 17h14"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        <rect className="line" x="112" y="44" width="88" height="10" rx="5" />
+        <path className="divider" d="M74 77h252M74 192h252" />
+      </g>
+      {[102, 135, 168].map((y, i) => (
+        <g key={y} className="show" style={at(0.3 + i * 0.2)}>
+          <circle className="chip" cx="90" cy={y} r="9" />
+          {i === 0 && <circle className="send" cx="90" cy={y} r="5" />}
+          <rect className="line" x="116" y={y - 4} width={[46, 132, 112][i]} height="8" rx="4" />
+        </g>
+      ))}
+      <g className="show" style={at(1)}>
+        <rect className="chip" x="81" y="216" width="18" height="18" rx="3" />
+        <rect className="line" x="116" y="221" width="148" height="8" rx="4" />
+      </g>
     </svg>
   ),
 };

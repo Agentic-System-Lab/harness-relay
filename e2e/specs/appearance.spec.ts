@@ -17,8 +17,12 @@ const listed = (page: Page, title: string) =>
     .getByRole('navigation', { name: 'Tour topics' })
     .getByRole('button', { name: new RegExp(`^${title}`) });
 
-/** The topics checked in the list, by title. */
-const checked = (page: Page) => tour(page).locator('.tour-list button:has(.tour-mark.read) .tour-name').allTextContents();
+/** Titles of the topics whose buttons announce that they have been read. */
+const checked = (page: Page) =>
+  tour(page)
+    .getByRole('navigation', { name: 'Tour topics' })
+    .getByRole('button', { name: / Read$/ })
+    .locator('.tour-name');
 
 /** The home page's question about the topics left to read. */
 const nudge = (page: Page) => page.getByRole('complementary', { name: 'Guided tour' });
@@ -73,7 +77,7 @@ test.describe('the guided tour', () => {
     await expect(tour(page)).toBeVisible();
     await expect(shown(page)).toHaveText(titles[0]!);
     await expect(tour(page).getByText(`1 of ${titles.length} read`)).toBeVisible();
-    expect(await checked(page)).toEqual([titles[0]]);
+    await expect(checked(page)).toHaveText([titles[0]]);
     await expect(listed(page, titles[0]!)).toHaveAttribute('aria-current', 'step');
 
     await tour(page).getByRole('button', { name: 'Next' }).click();
@@ -83,7 +87,7 @@ test.describe('the guided tour', () => {
     await listed(page, 'Automations').click();
     await expect(shown(page)).toHaveText('Automations');
     await expect(listed(page, 'Automations')).toHaveAttribute('aria-current', 'step');
-    expect(await checked(page)).toEqual([titles[0], titles[1], 'Automations']);
+    await expect(checked(page)).toHaveText([titles[0], titles[1], 'Automations']);
     // The arrow keys step too.
     await page.keyboard.press('ArrowLeft');
     await expect(shown(page)).toHaveText('Connect your phone');
@@ -100,7 +104,7 @@ test.describe('the guided tour', () => {
     await page.reload();
     await appShown(page);
     await expect(tour(page)).toHaveCount(0);
-    await expect(nudge(page)).toContainText('The guided tour has 3 topics you have not read. Take a look?');
+    await expect(nudge(page)).toContainText('The guided tour has 4 topics you have not read. Take a look?');
   });
 
   test('asks on the home page about the topics left: Show me opens the first of them, Not now stops asking', async ({ page }) => {
@@ -124,7 +128,7 @@ test.describe('the guided tour', () => {
     await nudge(page).getByRole('button', { name: 'Show me' }).click();
     await expect(nudge(page)).toHaveCount(0);
     await expect(shown(page)).toHaveText(titles[1]!);
-    expect(await checked(page)).toEqual([titles[0], titles[1]]);
+    await expect(checked(page)).toHaveText([titles[0], titles[1]]);
     await page.keyboard.press('Escape');
     await expect(tour(page)).toBeHidden();
 
@@ -141,7 +145,7 @@ test.describe('the guided tour', () => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
     await expect(shown(page)).toHaveText(titles[2]!);
-    expect(await checked(page)).toEqual(titles.slice(0, 3));
+    await expect(checked(page)).toHaveText(titles.slice(0, 3));
   });
 
   test('a browser that finished an older tour can read new topics and see which existing topics changed', async ({ page }) => {
@@ -154,27 +158,49 @@ test.describe('the guided tour', () => {
     await page.reload();
     await appShown(page);
     await expect(tour(page)).toHaveCount(0);
-    await expect(nudge(page)).toContainText('The guided tour has 7 topics you have not read. Take a look?');
+    await expect(nudge(page)).toContainText('The guided tour has 8 topics you have not read. Take a look?');
     await nudge(page).getByRole('button', { name: 'Show me' }).click();
     await expect(shown(page)).toHaveText('Get an agent ready');
-    expect(await checked(page)).toEqual(['Meet Harness Relay', 'Get an agent ready']);
+    await expect(checked(page)).toHaveText(['Meet Harness Relay', 'Get an agent ready']);
     await expect(tour(page).locator('.tour-changed')).toHaveText(Array(5).fill('Updated'));
     await expect(listed(page, 'Start a chat')).toContainText('Updated');
 
     await expect(listed(page, 'After a reply')).not.toContainText('Updated');
 
-    // A browser caught up before this topic was added sees just the new topic.
+    // A browser that read every topic and dismissed reminders in version 47.
     await page.evaluate(() => {
-      localStorage.removeItem('relay:guide');
-      localStorage.setItem('relay:onboarded', '46');
+      localStorage.removeItem('relay:onboarded');
+      localStorage.setItem(
+        'relay:guide',
+        JSON.stringify({
+          seen: { welcome: 17, agents: 39, chat: 46, team: 45, replies: 47, phone: 23, automations: 44, apps: 33 },
+          quiet: 47,
+        }),
+      );
     });
     await page.reload();
     await appShown(page);
-    await expect(nudge(page)).toContainText('The guided tour has one topic you have not read.');
+    await expect(nudge(page)).toContainText('The guided tour has 4 topics you have not read.');
     await nudge(page).getByRole('button', { name: 'Show me' }).click();
+    await expect(shown(page)).toHaveText('Start a chat');
+    await expect(tour(page)).toContainText('mic, attach files or folders');
+    await expect(listed(page, 'While the team works')).toContainText('Updated');
+    await expect(listed(page, 'After a reply')).toContainText('Updated');
+    await expect(listed(page, 'Labs')).not.toContainText('Updated');
+    await tour(page).getByRole('button', { name: 'Next' }).click();
+    await expect(tour(page)).toContainText('edit text files or delete files');
+    await tour(page).getByRole('button', { name: 'Next' }).click();
     await expect(shown(page)).toHaveText('After a reply');
-    await expect(tour(page)).toContainText('question-mark bubble under their reply');
+    await expect(tour(page)).toContainText('Share under a reply');
     await expect(tour(page)).toContainText('Question usage below your question');
+    await listed(page, 'Labs').click();
+    await expect(tour(page)).toContainText('CodeAct');
+    await expect(tour(page)).toContainText('RLM');
+    await expect(tour(page)).toContainText('long-term memory');
+    await tour(page).getByRole('link', { name: 'Open Labs' }).click();
+    await expect(page).toHaveURL(/#\/settings\/labs$/);
+    await expect(page.locator('#settings-labs')).toBeInViewport();
+    await page.goBack();
     await page.reload();
     await appShown(page);
     await expect(nudge(page)).toHaveCount(0);

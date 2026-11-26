@@ -50,6 +50,7 @@ import type {
   HandoffBlock,
   StepsPart,
 } from '../shared/types';
+import { titleFrom } from '../shared/conversationTitle';
 import { FIXED_COMMAND_NEWS, HANDOFF_LIMITS, INTERACTIVE_LIMITS, attachmentLabel } from '../shared/types';
 import { checkProposal, interactiveLine, maskValues, refusedHostsToTell, splitHandoffs, withoutHandoffBlocks } from '../shared/handoffs';
 import { askingReplies, splitAsk } from '../shared/ask';
@@ -538,12 +539,6 @@ type ScheduledEvent = Pick<ChatMessage, 'event' | 'eventSource'>;
 function sendFailure(err: unknown): ScheduledSend {
   if (err instanceof HttpError && (err.status === 409 || err.status === 503)) return { result: 'busy', reason: err.message };
   return { result: 'failed', reason: (err as Error).message, ...(err instanceof HttpError && err.code ? { code: err.code } : {}) };
-}
-
-/** A conversation's name taken from a message: its first line, shortened to 40 characters. */
-export function titleFrom(text: string): string {
-  const line = (text.split('\n')[0] ?? '').trim();
-  return line.length > 40 ? line.slice(0, 39) + '…' : line;
 }
 
 /**

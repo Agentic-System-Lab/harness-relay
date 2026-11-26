@@ -113,7 +113,8 @@ import { copyGrokTrust, restoreGrokTrustAll, trustGrokFolderAll } from './grokTr
 import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
 import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, resolveMedia } from './media';
-import { HttpError, forClient, scheduleForClient, titleFrom, type Orchestrator } from './orchestrator';
+import { titleFrom } from '../shared/conversationTitle';
+import { HttpError, forClient, scheduleForClient, type Orchestrator } from './orchestrator';
 import { KeyOnlyAccountError, type ProviderService } from './providers';
 import type { SettingsStore } from './settings';
 import { fileLinkCount, fileLinksIn, megabytesOver, replaceFileLinks, shareFileHref, shareSize } from '../shared/share';

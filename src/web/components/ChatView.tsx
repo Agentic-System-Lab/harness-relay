@@ -34,6 +34,7 @@ import {
   type PreviewSuggestion,
 } from '../appPreview';
 import { highlightsByReply, nextReviewStart } from '../../shared/review';
+import { conversationHeading } from '../../shared/conversationTitle';
 import { followUpSources, topicCutoff } from '../../shared/followUp';
 import { checksHold, latestChecks } from '../../shared/checks';
 import { askingReplies } from '../../shared/ask';
@@ -841,9 +842,10 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
     }
   };
 
+  const heading = conversationHeading(conv);
   const rename = async () => {
-    const title = prompt(t.chat.renamePrompt, conv.title);
-    if (!title?.trim()) return;
+    const title = prompt(t.chat.renamePrompt, heading);
+    if (!title?.trim() || title.trim() === heading) return;
     await api.updateConversation(conv.id, { title }).catch((e: Error) => setError(e.message));
   };
 
@@ -858,7 +860,7 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
           {/* The title and a branch's "Continued from" share the row by what they need (styles.css). */}
           <div className="chat-title-row">
             <button className="chat-title" onClick={rename} title={t.chat.rename}>
-              {conv.title}
+              {heading}
             </button>
             {conv.branch && <BranchFrom branch={conv.branch} conversations={conversations} className="head-branch" />}
             {conv.settings.permission === 'full' && (
