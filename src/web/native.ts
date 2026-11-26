@@ -52,7 +52,7 @@ export const TAB_KINDS: Record<NativeTab, NativeItemKind[]> = {
   hooks: ['hooks'],
   agents: ['agents'],
   plugins: ['plugins'],
-  mods: [],
+  mods: ['plugins'],
   instructions: ['instructions'],
   memory: [],
 };
@@ -104,13 +104,34 @@ export function withItem(items: NativeItemsOff, kind: NativeItemKind, id: string
   return next.length ? { ...rest, [kind]: next } : rest;
 }
 
-/** `items` without any of a tab's kinds. */
-export function withoutTab(items: NativeItemsOff, tab: NativeTab): NativeItemsOff {
-  return Object.fromEntries(Object.entries(items).filter(([kind]) => !TAB_KINDS[tab].includes(kind as NativeItemKind)));
+/**
+ * Mods and Plugins share their saved IDs. An ID shown on both tabs can be cleared from either.
+ * Picks absent from both lists stay on Plugins, where the user can clear them.
+ */
+export function picksInTab(
+  provider: Provider,
+  items: NativeItemsOff,
+  tab: NativeTab,
+  setup?: NativeSetup | null,
+  installedOff?: ReadonlySet<string>,
+) {
+  const picks = TAB_KINDS[tab].flatMap((kind) => (items[kind] ?? []).map((id) => ({ kind, id })));
+  if (!picks.length || (tab !== 'mods' && tab !== 'plugins')) return picks;
+  const mods = new Set(setup?.mods?.map((p) => p.id));
+  if (tab === 'mods') return picks.filter((p) => mods.has(p.id) && !installedOff?.has(p.id));
+  const plugins = new Set(setup?.plugins?.map((p) => p.id));
+  return picks.filter(({ id }) => {
+    if (plugins.has(id)) return true;
+    // Claude's installed plugin list omits built-ins. An unavailable mod list cannot orphan one.
+    if (provider === 'claude' && setup?.mods === undefined && id.endsWith('@builtin')) return false;
+    return !mods.has(id);
+  });
 }
 
-/** How many single items of a tab are left out. */
-export const tabPicked = (items: NativeItemsOff, tab: NativeTab) => TAB_KINDS[tab].reduce((n, k) => n + (items[k]?.length ?? 0), 0);
+/** Installed plugin IDs covered by “Leave all out”, including any that also appear on Mods. */
+export function installedPluginsLeftOut(setup: NativeSetup | null, off: readonly NativePart[]) {
+  return new Set(off.includes('plugins') ? setup?.plugins?.map((p) => p.name) : []);
+}
 
 /** Whether an item is picked to be left out. */
 export const isPicked = (items: NativeItemsOff, kind: NativeItemKind, id: string | undefined) => Boolean(id && items[kind]?.includes(id));
@@ -125,6 +146,8 @@ export const nativeOffTotal = (off: readonly NativePart[], items: NativeItemsOff
  */
 export function nativeLeftOutCount(setup: NativeSetup): number {
   const tools = setup.mcpServers.filter((s) => !s.leftOut).flatMap((s) => s.tools ?? []);
+  const plugins = setup.plugins ?? [];
+  const omittedPlugins = new Set(plugins.filter((p) => p.leftOut).map((p) => p.name));
   return [
     setup.skills,
     setup.mcpServers,
@@ -133,8 +156,8 @@ export function nativeLeftOutCount(setup: NativeSetup): number {
     setup.memory,
     setup.hooks ?? [],
     setup.agents ?? [],
-    setup.plugins ?? [],
-    setup.mods ?? [],
+    plugins,
+    setup.mods?.filter((m) => !omittedPlugins.has(m.name)) ?? [],
   ]
     .flat()
     .filter((item) => (item as { leftOut?: boolean }).leftOut).length;
@@ -164,6 +187,7 @@ function listedIds(setup: NativeSetup, tab: NativeTab): Partial<Record<NativeIte
     case 'instructions':
       return { instructions: ids(setup.memory.filter((m) => m.kind === 'instructions')) };
     case 'mods':
+      return setup.mods && { plugins: ids(setup.mods) };
     case 'memory':
       return {};
   }
@@ -180,10 +204,8 @@ export function unlistedPicks(setup: NativeSetup, items: NativeItemsOff, tab: Na
   // A tool of a server whose tools are not known may well still be there. A tool's id starts with
   // its server's: `mcp__<server>__` (Claude Code) or `["<server>",` (Codex).
   const unknown = setup.mcpServers.flatMap((s) => (!s.tools && s.id ? [`${s.id}__`, `${JSON.stringify([s.id]).slice(0, -1)},`] : []));
-  return TAB_KINDS[tab].flatMap((kind) =>
-    (items[kind] ?? [])
-      .filter((id) => !listed[kind]?.includes(id) && !(kind === 'mcpTools' && unknown.some((prefix) => id.startsWith(prefix))))
-      .map((id) => ({ kind, id })),
+  return picksInTab(setup.provider, items, tab, setup).filter(
+    ({ kind, id }) => !listed[kind]?.includes(id) && !(kind === 'mcpTools' && unknown.some((prefix) => id.startsWith(prefix))),
   );
 }
 

@@ -286,6 +286,7 @@ input.on('line', async (line) => {
     if (background) return backgroundRun();
     const plugins = ['deck@market', 'plain@market', 'refused@market', 'cc-plugin-agents-md@builtin'].map((source) => ({ source, name: source.split('@')[0] }));
     const format = process.env.FAKE_CLAUDE_MOD_FORMAT;
+    if (format === 'policy') plugins.push({ name: 'cc-plugin-sec-default', source: 'cc-plugin-sec-default@builtin' });
     if (format === 'names' || format === 'ambiguous') {
       for (const plugin of plugins) delete plugin.source;
       if (format === 'ambiguous') plugins.push({ name: 'deck' });
@@ -299,7 +300,9 @@ input.on('line', async (line) => {
       if (process.env.CLAUDE_CODE_DEBUG_LOG_LEVEL === 'debug' && !(settingsArg && format === 'quiet-as-run')) {
         log('query initialized');
         if (!(settingsArg && format === 'empty-as-run')) {
-          log('hooks module cc-plugin-agents-md@builtin loaded (native, environment 1, tier builtin); events: session.start');
+          if (format === 'policy') log('hooks module cc-plugin-sec-default@builtin loaded (native, environment 1, tier builtin); events: session.start');
+          if (format === 'policy' || settings.enabledPlugins?.['cc-plugin-agents-md@builtin'] !== false)
+            log('hooks module cc-plugin-agents-md@builtin loaded (native, environment 1, tier builtin); events: session.start');
           log('hooks module refused@market not loaded: private diagnostic detail');
           if (!pluginOff('deck:slides')) log('hooks module deck@market loaded (worker, environment 2, tier user); events: session.start');
         }

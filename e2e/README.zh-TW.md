@@ -756,7 +756,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 它自己的 skill 會列出，設為不載入的在下一次執行時不會載入 | Claude Code、Codex | CLI 家目錄中的 skill 會列出（Codex 的附上檔案），並在回合中載入；勾選後**查詢**標示它不載入，下一回合一個都不載入（Claude Code 的 `skillOverrides`、Codex 的 `skills.config`）。 Claude Code 的 Mods 分頁會顯示載入的內建 mod，供檢視。 |
+| 它自己的 skill 會列出，設為不載入的在下一次執行時不會載入 | Claude Code、Codex | CLI 家目錄中的 skill 會列出（Codex 的附上檔案），並在回合中載入；勾選後**查詢**標示它不載入，下一回合一個都不載入（Claude Code 的 `skillOverrides`、Codex 的 `skills.config`）。在 **Mods** 勾選 Claude Code 的內建 mod，下一回合就不載入。取消勾選後，下一回合會重新載入。 |
 | Grok 卡片顯示資料夾的信任狀態；信任後載入專案的 skill，設為不載入則影響下一次執行 | Grok | 未信任時卡片會標示，也沒有列出 skill；**信任這個資料夾**會寫入 `$GROK_HOME/trusted_folders.toml`，專案的 skill 隨之出現；**全部不載入**會影響下一回合（`GROK_CLAUDE_SKILLS_ENABLED=false`），它在信任下執行且不載入任何 skill。 |
 | 團隊有 Grok 成員時會說明 Grok 不信任這個資料夾，在那裡信任它就會記錄下來 | Grok | 從團隊卡片信任後記錄下來，Grok 的回合在信任下執行。 |
 | 使用者拒絕時，團隊不信任資料夾就開始 | Grok | 什麼都沒記錄，**確認團隊**仍會開始，Grok 的回合在未信任下執行。 |

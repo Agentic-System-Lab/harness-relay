@@ -876,7 +876,10 @@ describe.skipIf(process.platform === 'win32')('asking again the way Harness Rela
       expect(probe.mods).toBeUndefined();
       expect(diagnostics).toEqual([]);
     } else {
-      expect(probe.mods).toEqual([{ name: 'cc-plugin-agents-md@builtin' }, { name: 'deck@market', leftOut: true }]);
+      expect(probe.mods).toEqual([
+        { name: 'cc-plugin-agents-md@builtin', id: 'cc-plugin-agents-md@builtin' },
+        { name: 'deck@market', id: 'deck@market', leftOut: true },
+      ]);
       expect(diagnostics).toHaveLength(2);
       expect(JSON.stringify(probe)).not.toContain('private diagnostic detail');
     }
@@ -892,8 +895,8 @@ describe.skipIf(process.platform === 'win32')('asking again the way Harness Rela
         nativeItems: () => ({ plugins: ['deck@market'] }),
       });
       const probe = await service.get('claude', root);
-      const builtin = { name: 'cc-plugin-agents-md@builtin' };
-      const deck = { name: 'deck@market' };
+      const builtin = { name: 'cc-plugin-agents-md@builtin', id: 'cc-plugin-agents-md@builtin' };
+      const deck = { name: 'deck@market', id: 'deck@market' };
       if (format === 'ambiguous') expect(probe.mods).toBeUndefined();
       if (format === 'names') expect(probe.mods).toEqual([builtin, { ...deck, leftOut: true }]);
       if (format === 'empty-as-run')
@@ -907,6 +910,20 @@ describe.skipIf(process.platform === 'win32')('asking again the way Harness Rela
       expect(JSON.stringify(probe)).not.toContain('private diagnostic detail');
     },
   );
+
+  it('keeps the built-in policy guard read-only and reports a picked mod the CLI still loads', async () => {
+    const id = 'cc-plugin-agents-md@builtin';
+    const bin = writeFakeClaude(join(root, 'claude-managed-mod'));
+    const service = new NativeSetupService({
+      bin: () => bin,
+      env: () => env({ FAKE_CLAUDE_VERSION: '2.1.331', FAKE_CLAUDE_MOD_FORMAT: 'policy' }),
+      nativeItems: () => ({ plugins: [id] }),
+    });
+    const probe = await service.get('claude', root);
+    expect(probe.problems).toEqual([]);
+    expect(probe.mods).toContainEqual({ name: 'cc-plugin-sec-default@builtin' });
+    expect(probe.mods).toContainEqual({ name: id, id, stillLoaded: true });
+  });
 
   it('Claude Code: a failure before initialize neither repeats startup hooks nor exposes diagnostic stderr', async () => {
     const bin = writeFakeClaude(join(root, 'claude-mods-early-exit'));

@@ -2555,7 +2555,9 @@ export const en: Messages = {
       'Claude Code: a ticked MCP server still starts; only its tools are kept from the agents. To keep the servers from starting, use "Leave all out".',
     codexMcp:
       'Codex: only the MCP servers in your config files are listed; plugins\' servers are set on the Plugins tab, and ChatGPT apps go with "Leave all out".',
-    claudeMods: 'Mods Claude Code loaded for this query. The part after @ identifies the source, such as @builtin for a built-in mod.',
+    modOffWithPlugins: 'Left out with all installed plugins',
+    claudeMods:
+      'Select a mod to leave it out of this account’s runs. Clear the selection to load it again. @builtin identifies mods bundled with Claude Code.',
     claudeTools:
       "Claude Code's built-in tools. Agents cannot use a tool left out; tools Harness Relay turns off for the permission (Edit and Write when read-only, say) stay off whatever is set here.",
     source: (s) => `from ${s}`,

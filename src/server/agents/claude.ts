@@ -696,7 +696,8 @@ export function claudeNativeSettings(
   /** What the run turns on: `ultracode` (with workflows) sets `"ultracode": true`, which keeps the member's effort. */
   on: readonly NativeOnPart[] = [],
 ): Record<string, unknown> | undefined {
-  const plugins = off.includes('plugins') ? pluginIds : (items.plugins ?? []);
+  // Built-in mods are picked by ID too, but are absent from the installed plugin list.
+  const plugins = [...(off.includes('plugins') ? pluginIds : []), ...(items.plugins ?? [])];
   const skills = off.includes('skills') ? [] : (items.skills ?? []);
   const files = off.includes('instructions') ? [] : (items.instructions ?? []);
   // All its subagents: a rule for the whole `Agent` tool, which the built-in ones are called through too.

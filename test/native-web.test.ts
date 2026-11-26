@@ -17,11 +17,11 @@ import {
   nativeOffTotal,
   nativeTabs,
   sameNativeParts,
-  tabPicked,
+  picksInTab,
+  installedPluginsLeftOut,
   unlistedPicks,
   withItem,
   withoutPicks,
-  withoutTab,
 } from '../src/web/native';
 
 const setup = (extra: Partial<NativeSetup> = {}): NativeSetup => ({
@@ -86,7 +86,7 @@ describe('the panel of what a CLI loads by itself', () => {
     expect(['skills', 'mcp', 'hooks', 'agents', 'plugins'].some((tab) => canPickIn('grok', tab as never))).toBe(false);
   });
 
-  it('shows the read-only Mods tab only after a Claude Code query reports a list, including an empty one', () => {
+  it('shows the Mods tab only after a Claude Code query reports a list, including an empty one', () => {
     const tab = (provider: 'claude' | 'codex', answer?: NativeSetup) => nativeTabs(provider, answer).find((t) => t.tab === 'mods');
     expect(tab('claude')).toBeUndefined();
     expect(tab('claude', setup({}))).toBeUndefined();
@@ -94,7 +94,47 @@ describe('the panel of what a CLI loads by itself', () => {
     expect(tab('claude', setup({ mods: [{ name: 'sample@market' }] }))).toEqual({ tab: 'mods', count: 1 });
     expect(tab('codex', setup({ mods: [] }))).toBeUndefined();
     expect(canLeaveOutAll('claude', 'mods')).toBe(false);
-    expect(canPickIn('claude', 'mods')).toBe(false);
+    expect(canPickIn('claude', 'mods')).toBe(true);
+  });
+
+  it('shares plugin IDs between both tabs and clears only the picks belonging to that tab', () => {
+    const mod = 'cc-plugin-agents-md@builtin';
+    const plugin = (id: string) => ({ name: id, id, leftOut: true });
+    const answer = setup({ mods: [plugin(mod), plugin('both@market')], plugins: [plugin('both@market'), plugin('ordinary@market')] });
+    const items = { plugins: [mod, 'both@market', 'ordinary@market', 'gone@market'] };
+    expect(picksInTab('claude', items, 'mods', answer).length).toBe(2);
+    expect(picksInTab('claude', items, 'plugins', answer).length).toBe(3);
+    expect(withoutPicks(items, picksInTab('claude', items, 'mods', answer))).toEqual({ plugins: ['ordinary@market', 'gone@market'] });
+    expect(withoutPicks(items, picksInTab('claude', items, 'plugins', answer))).toEqual({ plugins: [mod] });
+    expect(unlistedPicks(answer, items, 'plugins')).toEqual([{ kind: 'plugins', id: 'gone@market' }]);
+    expect(unlistedPicks(answer, items, 'mods')).toEqual([]);
+    expect(nativeLeftOutCount(answer)).toBe(6);
+  });
+
+  it('locks only installed mods when Plugins is left out as a whole', () => {
+    const deck = { name: 'deck@market', id: 'deck@market' };
+    const builtin = { name: 'cc-plugin-agents-md@builtin', id: 'cc-plugin-agents-md@builtin' };
+    const answer = setup({ plugins: [deck], mods: [deck, builtin] });
+    expect(installedPluginsLeftOut(answer, [])).toEqual(new Set());
+    const locked = installedPluginsLeftOut(answer, ['plugins']);
+    expect(locked).toEqual(new Set([deck.id]));
+    const items = { plugins: [deck.id, builtin.id] };
+    const clearable = picksInTab('claude', items, 'mods', answer, locked);
+    expect(withoutPicks(items, clearable)).toEqual({ plugins: [deck.id] });
+    expect(picksInTab('claude', { plugins: [deck.id] }, 'mods', answer, locked)).toEqual([]);
+  });
+
+  it('preserves built-in mod picks on Plugins until the mod inventory is known', () => {
+    const mod = 'cc-plugin-privacy@builtin';
+    const items = { plugins: [mod, 'ordinary@market'] };
+    const missing = setup({ plugins: [] });
+    const empty = setup({ plugins: [], mods: [] });
+    for (const answer of [null, missing]) {
+      expect(withoutPicks(items, picksInTab('claude', items, 'plugins', answer))).toEqual({ plugins: [mod] });
+    }
+    expect(picksInTab('codex', items, 'plugins').map((p) => p.id)).toEqual(items.plugins);
+    expect(unlistedPicks(missing, items, 'plugins').map((p) => p.id)).toEqual(['ordinary@market']);
+    expect(unlistedPicks(empty, items, 'plugins').map((p) => p.id)).toEqual([mod, 'ordinary@market']);
   });
 
   it('ticks and clears single items, dropping kinds left with none', () => {
@@ -104,10 +144,10 @@ describe('the panel of what a CLI loads by itself', () => {
     const two = withItem(withItem(one, 'mcp', 'mcp__a', true), 'mcpTools', 'mcp__b__x', true);
     expect(two).toEqual({ skills: ['commit'], mcp: ['mcp__a'], mcpTools: ['mcp__b__x'] });
     expect(withItem(two, 'skills', 'commit', false)).toEqual({ mcp: ['mcp__a'], mcpTools: ['mcp__b__x'] });
-    expect(tabPicked(two, 'mcp')).toBe(2);
-    expect(tabPicked(two, 'tools')).toBe(0);
+    expect(picksInTab('claude', two, 'mcp').length).toBe(2);
+    expect(picksInTab('claude', two, 'tools').length).toBe(0);
     // Clearing a tab clears both its kinds (an MCP server and its tools).
-    expect(withoutTab(two, 'mcp')).toEqual({ skills: ['commit'] });
+    expect(withoutPicks(two, picksInTab('claude', two, 'mcp'))).toEqual({ skills: ['commit'] });
     expect(isPicked(two, 'mcp', 'mcp__a')).toBe(true);
     expect(isPicked(two, 'mcp', undefined)).toBe(false);
     expect(nativeOffTotal(['hooks'], two)).toBe(4);

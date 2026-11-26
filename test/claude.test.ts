@@ -616,6 +616,9 @@ describe('leaving out what Claude Code loads by itself', () => {
     expect(claudeNativeSettings(['plugins'], ['deck@market', 'lsp@market'])).toEqual({
       enabledPlugins: { 'deck@market': false, 'lsp@market': false },
     });
+    expect(claudeNativeSettings(['plugins'], ['deck@market'], { plugins: ['deck@market', 'cc-plugin-agents-md@builtin'] })).toEqual({
+      enabledPlugins: { 'deck@market': false, 'cc-plugin-agents-md@builtin': false },
+    });
     expect(claudeNativeSettings(['plugins'], [])).toBeUndefined();
     expect(claudeNativeSettings(['skills', 'agents'], ['deck@market'])).toBeUndefined();
     const args = claudeArgs({ ...base, nativeOff: ['hooks', 'plugins'], pluginIds: ['deck@market'] });
