@@ -68,7 +68,7 @@ import {
   MemoryIcon,
   PaperclipIcon,
   PencilIcon,
-  ReplyIcon,
+  FollowUpIcon,
   RetryIcon,
   ShareIcon,
 } from './icons';
@@ -1750,6 +1750,7 @@ function AgentMessage({
   const marked = marks?.highlights.length ?? 0;
   const m = msg.meta;
   const copyable = !msg.passed && messageText(msg).length > 0;
+  const followUpLabel = onFollowUp && t.message.followUp(agents.find((a) => a.id === agentId)?.name ?? name);
 
   return (
     <div
@@ -1919,11 +1920,11 @@ function AgentMessage({
               <button
                 type="button"
                 className="msg-action icon-action"
-                title={t.message.followUp}
-                aria-label={t.message.followUp}
+                title={followUpLabel}
+                aria-label={followUpLabel}
                 onClick={() => onFollowUp(msg.id)}
               >
-                <ReplyIcon size={16} />
+                <FollowUpIcon size={18} />
               </button>
             )}
             {copyable && onShare && (

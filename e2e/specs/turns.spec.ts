@@ -85,8 +85,8 @@ test.describe('how members take turns', () => {
     await settled(relay, id);
     await expect(replies(page, 'Dev')).toHaveCount(1);
     await expect(page.locator('.msg-user').last()).toContainText('Answered by @QA');
-    const followUp = replies(page, 'Dev').first().getByRole('button', { name: 'Follow up', exact: true });
-    await expect(followUp).toHaveAttribute('title', 'Follow up');
+    const followUp = replies(page, 'Dev').first().getByRole('button', { name: 'Ask @Dev a follow-up question', exact: true });
+    await expect(followUp).toHaveAttribute('title', 'Ask @Dev a follow-up question');
     await expect(followUp).toHaveText('');
     await expect(followUp.locator('svg[aria-hidden="true"]')).toBeVisible();
     await followUp.focus();
@@ -96,7 +96,7 @@ test.describe('how members take turns', () => {
     await expect(replies(page, 'Dev')).toHaveCount(2);
     await settled(relay, id);
     await expect(replies(page, 'QA')).toHaveCount(2);
-    await replies(page, 'QA').first().getByRole('button', { name: 'Follow up', exact: true }).click();
+    await replies(page, 'QA').first().getByRole('button', { name: 'Ask @QA a follow-up question', exact: true }).click();
     await page.getByRole('button', { name: 'Ask the whole team' }).click();
     await send(page, 'What do you think?');
     await expect(replies(page, 'Dev')).toHaveCount(3);

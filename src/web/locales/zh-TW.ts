@@ -955,7 +955,7 @@ export const zhTW = {
     diagramFit: '縮放至符合寬度',
     diagramFailed: '這張 Mermaid 圖無法繪製，因此顯示原始碼。',
     retry: '重試',
-    followUp: '追問',
+    followUp: (name: string) => `追問 @${name}`,
     retryTitle: '讓這位成員重新回答',
     share: '分享',
     shareTitle: '把到這則回覆為止的對話複製或分享出去',

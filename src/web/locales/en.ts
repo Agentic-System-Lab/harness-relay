@@ -938,7 +938,7 @@ export const en: Messages = {
     diagramFit: 'Fit to width',
     diagramFailed: 'This Mermaid diagram could not be drawn, so its source is shown.',
     retry: 'Retry',
-    followUp: 'Follow up',
+    followUp: (name) => `Ask @${name} a follow-up question`,
     retryTitle: 'Let this member answer again',
     share: 'Share',
     shareTitle: 'Copy or share the conversation up to this reply',
