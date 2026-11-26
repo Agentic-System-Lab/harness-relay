@@ -5,6 +5,7 @@ import { expect, test } from '../fixtures';
 import type { RelayServer } from '../support/relay';
 import { fakeGithub, openShared } from '../support/share';
 import {
+  chooseChatAction,
   LEAD_REVIEW,
   awaitingPlan,
   composer,
@@ -25,7 +26,7 @@ import {
  */
 /** Shares the open chat as a link (into the fake `gh`'s gist) and returns the page made, its body and the gist's id. */
 async function shareOpenChat(page: Page, relay: RelayServer): Promise<{ html: string; body: string; gistId: string; url: string }> {
-  await page.locator('.chat-head').getByRole('button', { name: 'Share', exact: true }).click();
+  await chooseChatAction(page, 'Share');
   const dialog = page.getByRole('dialog', { name: 'Share conversation' });
   await dialog.getByRole('button', { name: 'Create link' }).click();
   const link = dialog.getByRole('textbox', { name: 'Public link' });
@@ -136,7 +137,7 @@ test.describe('lead review', () => {
     await settled(relay, id);
     await expect(reviewCards(page)).toHaveCount(0);
 
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await drawer.getByRole('checkbox', { name: LEAD_REVIEW }).check();
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
@@ -210,7 +211,7 @@ test.describe('lead review', () => {
     const lastReview = () => relay.fakeLog().findLast((e) => e.prompt?.includes('with your review'))?.prompt ?? '';
     await expect.poll(lastReview).toContain('<message from="user">\nAnd this\n</message>');
     expect(lastReview()).toContain('<message from="user">\nGo e2e:slowreview\n</message>');
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await expect(drawer).toContainText('lead review and steering alone can be saved now');
     const save = drawer.getByRole('button', { name: 'Save', exact: true });
@@ -317,7 +318,7 @@ test.describe('lead review', () => {
       return (await relay.api<{ settings: { leadReview?: boolean } }>(`/api/conversations/${id}`)).settings.leadReview;
     };
     expect(await create(true)).toBe(true);
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await expect(drawer.getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
     await drawer.getByRole('button', { name: 'Cancel' }).click();

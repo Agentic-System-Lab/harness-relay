@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { finishedReply, openTeamChat, send, settled } from '../support/app';
+import { chooseChatAction, finishedReply, openTeamChat, send, settled } from '../support/app';
 import { chatWith, CLIS, eachCli, loggedModel } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
@@ -15,7 +15,7 @@ function memberCard(page: Page, name: string) {
 
 /** Picks a member's model and effort in Team settings, and saves the team. */
 async function pickModel(page: Page, name: string, model: string, effort: string): Promise<void> {
-  await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+  await chooseChatAction(page, 'Team settings');
   const drawer = page.getByRole('dialog', { name: 'Team settings' });
   const card = memberCard(page, name);
   // The models come from the CLI: wait until its list is there.
@@ -92,7 +92,7 @@ test.describe("a member's model and reasoning effort", () => {
 
     // A member with no model of its own: the drawer says what Default is now.
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const models = memberCard(page, 'Claude').getByRole('combobox', { name: /^Model/ });
     await expect(models.locator('option:checked')).toHaveText('Default: sonnet');
     await page.keyboard.press('Escape');

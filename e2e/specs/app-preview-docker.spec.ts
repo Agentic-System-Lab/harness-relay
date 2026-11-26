@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import { composer, finishedReply, openTeamChat, previewControls, send } from '../support/app';
+import { chooseChatAction, composer, finishedReply, openTeamChat, previewControls, send } from '../support/app';
 
 test.skip(process.env.E2E_PREVIEW_DOCKER !== '1', 'Requires a local Docker engine running Linux containers.');
 // The test server has a home of its own. Docker Desktop and OrbStack keep the Compose and buildx
@@ -174,7 +174,7 @@ test('a terminal app takes typed input, runs again with another command, opens a
     'import sys\nname = input("Your name? ")\nprint("Hello,", name, " ".join(sys.argv[1:]))\nraise SystemExit(2 if name == "fail" else 0)\n',
   );
   await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-  await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+  await chooseChatAction(page, 'Files');
   const files = page.getByRole('dialog', { name: 'Files' });
   await files.getByRole('button', { name: 'greeter', exact: true }).click();
   await files.getByRole('button', { name: 'Preview this folder' }).click();

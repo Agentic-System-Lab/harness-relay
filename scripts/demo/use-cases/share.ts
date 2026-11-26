@@ -106,7 +106,11 @@ export async function shareUseCase(
         const reply = page.locator(`[id="msg-${upTo}"]`);
         await reply.scrollIntoViewIfNeeded();
         await reply.getByRole('button', { name: T.message.share, exact: true }).last().click();
-      } else await page.locator('.head-button', { hasText: T.share.button }).click();
+      } else {
+        const head = page.locator('.chat-head');
+        await head.getByRole('button', { name: T.chat.more, exact: true }).click();
+        await head.getByRole('button', { name: T.share.button, exact: true }).click();
+      }
       const dialog = page.locator('.share-dialog');
       await dialog.waitFor();
       // The files the replies link to, checked by default once the dialog knows them (no list: none).

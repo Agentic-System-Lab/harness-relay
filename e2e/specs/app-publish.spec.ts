@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test as base } from '../fixtures';
-import { openTeamChat } from '../support/app';
+import { chooseChatAction, openTeamChat } from '../support/app';
 import { NEON_KEY, RENDER_KEY, startCloud, type FakeCloud } from '../support/cloud';
 import type { RelayServer } from '../support/relay';
 
@@ -34,7 +34,7 @@ async function previewSite(page: Page, relay: RelayServer, heading: string) {
   mkdirSync(site, { recursive: true });
   writeFileSync(join(site, 'index.html'), `<!doctype html><title>${heading}</title><h1>${heading}</h1>`);
   await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-  await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+  await chooseChatAction(page, 'Files');
   const files = page.getByRole('dialog', { name: 'Files' });
   await files.getByRole('button', { name: 'site', exact: true }).click();
   await files.getByRole('button', { name: 'Preview this folder' }).click();

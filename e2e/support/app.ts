@@ -35,6 +35,18 @@ export async function countPages(page: Page): Promise<() => Promise<number>> {
 /** The home page (#/), where the app opens: the logo and its tagline. Shows once the browser is signed in. */
 export const homePage = (page: Page) => page.getByRole('heading', { name: 'From now on, let your agent team work for you' });
 
+/** Open the conversation's ⋯ menu, also when the test selected a different UI language. */
+export async function openChatActions(page: Page): Promise<Locator> {
+  const more = page.locator('.chat-head .more-button');
+  if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click();
+  return page.locator('.chat-head-actions');
+}
+
+export async function chooseChatAction(page: Page, name: string): Promise<void> {
+  const actions = await openChatActions(page);
+  await actions.getByRole('button', { name, exact: true }).click();
+}
+
 /** Opens a category on the Tool library settings card, including after a reload. */
 export async function openToolCategory(page: Page, name: string): Promise<Locator> {
   const category = page.locator('#settings-tools .library-category').and(page.getByRole('group', { name, exact: true }));

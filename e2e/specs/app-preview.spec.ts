@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import { composer, finishedReply, openTeamChat, previewControls, replies, send } from '../support/app';
+import { chooseChatAction, openChatActions, composer, finishedReply, openTeamChat, previewControls, replies, send } from '../support/app';
 import { DEV_WEB_DIR } from '../support/paths';
 
 test('Files previews a static site, rebuilds edits, stops it and copies errors to an editable draft', async ({ page, relay }) => {
@@ -14,7 +14,7 @@ test('Files previews a static site, rebuilds edits, stops it and copies errors t
   writeFileSync(join(site, 'app.js'), "document.querySelector('button').onclick = () => { throw new Error('Button error'); }");
   await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
   await composer(page).fill('My draft');
-  await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+  await chooseChatAction(page, 'Files');
   const files = page.getByRole('dialog', { name: 'Files' });
   const dockerRequests: string[] = [];
   page.on('request', (r) => {
@@ -79,7 +79,7 @@ test.describe("in the desktop app's window", () => {
       window.open = (...args: unknown[]) => (opened.push(args.map(String)), null);
     });
     const opened = () => page.evaluate(() => (window as unknown as { relayOpened: string[][] }).relayOpened);
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const files = page.getByRole('dialog', { name: 'Files' });
     await files.getByRole('button', { name: 'site', exact: true }).click();
     await files.getByRole('button', { name: 'Preview this folder' }).click();
@@ -118,7 +118,7 @@ test('a page at the top of a working directory too large to copy whole opens wit
   );
   writeFileSync(join(relay.workDir, 'style.css'), 'h1 { color: rgb(255, 0, 0) }');
   await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-  await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+  await chooseChatAction(page, 'Files');
   await page.getByRole('dialog', { name: 'Files' }).getByRole('button', { name: 'Preview this folder' }).click();
   const panel = page.getByLabel('App preview', { exact: true });
   const heading = panel.frameLocator('iframe').getByRole('heading');
@@ -166,7 +166,8 @@ test('a reply opens the author’s own file in parallel and the preview fits a p
 test.describe('the app the team made', () => {
   test('a page the team writes opens by itself, folds its controls, and the card and the header bring it back', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
-    const toggle = page.locator('.chat-head').getByRole('button', { name: 'Preview', exact: true });
+    const actions = await openChatActions(page);
+    const toggle = actions.getByRole('button', { name: 'Preview', exact: true });
     await expect(toggle).toBeDisabled();
     await expect(toggle).toHaveAttribute('title', 'Nothing to preview yet: this works once the team makes a page or an app');
     await send(page, 'Make a page e2e:write=site/index.html');
@@ -175,7 +176,10 @@ test.describe('the app the team made', () => {
     const panel = page.getByLabel('App preview', { exact: true });
     await expect(panel.frameLocator('iframe').locator('body')).toContainText('Written by Claude');
     await expect(composer(page)).toBeFocused();
+    await openChatActions(page);
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await panel.frameLocator('iframe').locator('body').click();
+    await expect(actions).toBeHidden();
     // While it runs, what it runs from and its buttons are folded into one row.
     const summary = panel.locator('.app-preview-summary');
     await expect(summary).toHaveText('site · @Claude');
@@ -210,11 +214,12 @@ test.describe('the app the team made', () => {
     await tab.close();
     // The header's button hides it without stopping it: shown again, it is the same run.
     const src = await panel.locator('iframe').getAttribute('src');
-    await toggle.click();
+    await chooseChatAction(page, 'Preview');
     await expect(panel).toBeHidden();
     await expect(page.locator('.chat')).not.toHaveClass(/previewing/);
+    await openChatActions(page);
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    await toggle.click();
+    await chooseChatAction(page, 'Preview');
     await expect(panel).toBeVisible();
     await expect(panel.locator('iframe')).toHaveAttribute('src', src!);
     // Closed, it stops; the card starts it again.
@@ -227,7 +232,7 @@ test.describe('the app the team made', () => {
     await expect(composer(page)).toBeVisible();
     await expect(card).toBeVisible();
     await expect(panel).toHaveCount(0);
-    await toggle.click();
+    await chooseChatAction(page, 'Preview');
     await expect(panel.frameLocator('iframe').locator('body')).toContainText('Written by Claude');
     // The next question puts the card away until the team has answered it.
     await send(page, 'Thanks');
@@ -242,7 +247,7 @@ test.describe('the app the team made', () => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
     const panel = page.getByLabel('App preview', { exact: true });
     // A preview the user opened stays: the page the team writes waits in the card.
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const files = page.getByRole('dialog', { name: 'Files' });
     await files.getByRole('button', { name: 'site', exact: true }).click();
     await files.getByRole('button', { name: 'Preview this folder' }).click();
@@ -303,10 +308,14 @@ test.describe('the app the team made', () => {
     mkdirSync(join(relay.workDir, 'site'));
     writeFileSync(join(relay.workDir, 'site', 'index.html'), '<!doctype html><h1>Wide</h1>');
     await page.setViewportSize({ width: 1400, height: 900 });
-    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await relay.api(`/api/conversations/${id}/schedule`, {
+      method: 'PUT',
+      body: { text: 'Daily check', repeat: { kind: 'daily', time: '08:00' }, approvals: 'deny', missed: 'skip', enabled: true },
+    });
     const panel = page.getByLabel('App preview', { exact: true });
     const open = async () => {
-      await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+      await chooseChatAction(page, 'Files');
       const files = page.getByRole('dialog', { name: 'Files' });
       await files.getByRole('button', { name: 'site', exact: true }).click();
       await files.getByRole('button', { name: 'Preview this folder' }).click();
@@ -340,6 +349,10 @@ test.describe('the app the team made', () => {
     // Never so wide that the chat keeps less than 360 pixels.
     await drag(-2000);
     await expect.poll(width).toBeCloseTo(main.width - 360, 0);
+    await expect(page.locator('.schedule-badge')).toBeVisible();
+    const actions = await openChatActions(page);
+    await expect(actions.getByRole('button', { name: 'Pin', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
     await drag(400);
     const kept = await width();
     // Remembered on this browser.
@@ -462,7 +475,7 @@ test.describe('Docker setup for previews', () => {
     writeLockfile(relay.workDir);
     const docker = await mockDocker(page);
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const files = page.getByRole('dialog', { name: 'Files' });
     await files.getByRole('button', { name: 'Preview this folder' }).click();
 
@@ -648,7 +661,7 @@ test.describe('container previews', () => {
       { type: 'phase', phase: 'failed', error: 'Building the image of app failed.' },
     ]);
     await composer(page).fill('My draft');
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     await page.getByRole('dialog', { name: 'Files' }).getByRole('button', { name: 'Preview this folder' }).click();
     const panel = page.getByLabel('App preview', { exact: true });
     await expect(panel.locator('.app-preview-status')).toHaveText('The preview failed. The terminal says why.');
@@ -664,7 +677,7 @@ test.describe('container previews', () => {
     writeFileSync(join(relay.workDir, 'Dockerfile'), 'FROM python:3.13-slim\n');
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await mockContainer(page, [output('Your name? ', true), { type: 'phase', phase: 'running', command: 'python app.py' }], true);
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     await page.getByRole('dialog', { name: 'Files' }).getByRole('button', { name: 'Preview this folder' }).click();
     const panel = page.getByLabel('App preview', { exact: true });
     await expect(panel.locator('.xterm-rows')).toContainText('Your name?');
@@ -678,7 +691,7 @@ test.describe('container previews', () => {
     mkdirSync(join(relay.workDir, 'tool'));
     writeFileSync(join(relay.workDir, 'tool', 'main.go'), 'package main\nfunc main() {}\n');
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const files = page.getByRole('dialog', { name: 'Files' });
     await files.getByRole('button', { name: 'tool', exact: true }).click();
     await files.getByRole('button', { name: 'Preview this folder' }).click();
