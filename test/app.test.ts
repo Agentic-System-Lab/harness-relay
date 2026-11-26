@@ -272,6 +272,10 @@ describe('retrying a task after losing the HTTP response', () => {
     const path = '/api/conversations/' + conv.id + '/messages';
     const post = (requestId: string) => app.request(path, json('POST', { requestId, text: 'Run the task' }));
     expect((await post('invalid')).status).toBe(400);
+    for (const followUp of [false, '', {}]) {
+      expect((await app.request(path, json('POST', { text: 'Why?', followUp }))).status).toBe(400);
+    }
+    expect((await app.request(path, json('POST', { text: 'Why?', followUp: 'stale-reply' }))).status).toBe(409);
     const requestId = 'b'.repeat(32);
     const prepare = vi.spyOn(orchestrator, 'prepareWorkspace').mockRejectedValueOnce(new HttpError(409, 'busy'));
     try {

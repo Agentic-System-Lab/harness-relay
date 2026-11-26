@@ -64,6 +64,40 @@ test.describe('how members take turns', () => {
     await expect(page.locator('.msg-agent')).toHaveCount(1);
   });
 
+  test('a follow-up reaches the author of a finding, with a reply action and a whole-team override', async ({ page, relay }) => {
+    const id = await openTeamChat(
+      page,
+      relay,
+      [
+        { name: 'QA', provider: 'claude' },
+        { name: 'Dev', provider: 'codex' },
+      ],
+      { mode: 'roundtable' },
+    );
+    await send(page, 'Check the release e2e:env=LOGIN_TIMEOUT@claude');
+    await finishedReply(page, 'Dev');
+    await settled(relay, id);
+    const why = 'What caused LOGIN_TIMEOUT?';
+    await composer(page).fill(why);
+    await expect(page.getByRole('status').filter({ hasText: 'Answered by @QA' })).toBeVisible();
+    await send(page, why);
+    await expect(replies(page, 'QA')).toHaveCount(2);
+    await settled(relay, id);
+    await expect(replies(page, 'Dev')).toHaveCount(1);
+    await expect(page.locator('.msg-user').last()).toContainText('Answered by @QA');
+    await replies(page, 'Dev').first().getByRole('button', { name: 'Follow up', exact: true }).click();
+    await send(page, 'Why?');
+    await expect(replies(page, 'Dev')).toHaveCount(2);
+    await settled(relay, id);
+    await expect(replies(page, 'QA')).toHaveCount(2);
+    await replies(page, 'QA').first().getByRole('button', { name: 'Follow up', exact: true }).click();
+    await page.getByRole('button', { name: 'Ask the whole team' }).click();
+    await send(page, 'What do you think?');
+    await expect(replies(page, 'Dev')).toHaveCount(3);
+    await settled(relay, id);
+    await expect(replies(page, 'QA')).toHaveCount(3);
+  });
+
   test('in a later round, members with nothing to add pass, and the round ends early', async ({ page, relay }) => {
     const id = await openTeamChat(
       page,

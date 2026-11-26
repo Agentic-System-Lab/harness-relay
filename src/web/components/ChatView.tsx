@@ -34,6 +34,7 @@ import {
   type PreviewSuggestion,
 } from '../appPreview';
 import { highlightsByReply, nextReviewStart } from '../../shared/review';
+import { followUpSources, topicCutoff } from '../../shared/followUp';
 import { checksHold, latestChecks } from '../../shared/checks';
 import { askingReplies } from '../../shared/ask';
 import { stepsOfMessage } from '../../shared/steps';
@@ -210,6 +211,8 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
   const chatRef = useRef<HTMLDivElement>(null);
   const [diff, setDiff] = useState<{ title: string; load: () => Promise<string> } | null>(null);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
+  const [followUpChoice, setFollowUpChoice] = useState<{ id: string }>();
+  const chooseFollowUp = useCallback((id?: string) => setFollowUpChoice(id ? { id } : undefined), []);
   /** A withdrawn message's text, going back into the composer to be edited. */
   const [restore, setRestore] = useState<{ text: string; once?: boolean }>();
   const scroller = useRef<HTMLDivElement>(null);
@@ -589,6 +592,12 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
 
   // Stable while messages stream, so MessageItem (memoised) only re-renders the message that changed.
   const agents = state.conv?.agents;
+  const canFollowUp = Boolean(
+    state.conv && !state.running && !state.held && !state.conv.pause && !state.conv.queue?.length && !pendingPlan(state.conv.messages),
+  );
+  const sources = useMemo(() => (canFollowUp && state.conv ? followUpSources(state.conv) : []), [canFollowUp, state.conv]);
+  const memberIds = useMemo(() => new Set(agents?.map((a) => a.id)), [agents]);
+  const cutoff = state.conv?.branch?.independent ? topicCutoff(state.conv) : -1;
   const mentionNames = useMemo(() => (agents ?? []).map((a) => a.name), [agents]);
 
   // What the lead agent's reviews point out, by reply: worked out again only when a review is added
@@ -796,11 +805,15 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
     else fallbackStatus = t.plan.canContinue;
   }
 
-  const send = async (text: string, attachments: AttachmentUpload[], interrupt = false) => {
+  const selectedAuthor = followUpChoice && conv.messages.find((m) => m.id === followUpChoice.id)?.author;
+  const selectedMember = selectedAuthor?.kind === 'agent' ? conv.agents.find((a) => a.id === selectedAuthor.agentId) : undefined;
+
+  const send = async (text: string, attachments: AttachmentUpload[], interrupt = false, followUp?: string) => {
     setError('');
     try {
       stick.current = true;
-      await api.send(conv.id, text, attachments, interrupt);
+      await api.send(conv.id, text, attachments, interrupt, followUp);
+      setFollowUpChoice(undefined);
       return true;
     } catch (e) {
       setError((e as Error).message);
@@ -1014,6 +1027,15 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
                 othersWaiting={askIds.has(m.id) ? othersWaiting(m.id) : undefined}
                 answerLater={answerLaterIds.has(m.id)}
                 onSkipQuestion={onSkipQuestion}
+                onFollowUp={
+                  canFollowUp &&
+                  i > cutoff &&
+                  m.author.kind === 'agent' &&
+                  memberIds.has(m.author.agentId) &&
+                  m.parts.some((p) => p.type === 'text' && p.text.trim())
+                    ? chooseFollowUp
+                    : undefined
+                }
                 onShare={onShare}
                 onBranch={onBranch}
                 marks={marks.get(m.id)}
@@ -1138,6 +1160,10 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
           onWithdraw={withdraw}
         />
         <Composer
+          sources={sources}
+          followUpChoice={followUpChoice}
+          selectedName={selectedMember?.name}
+          onChooseFollowUp={chooseFollowUp}
           autoFocus={focusComposer}
           agents={conv.agents}
           running={running}

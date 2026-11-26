@@ -955,6 +955,7 @@ export const zhTW = {
     diagramFit: '縮放至符合寬度',
     diagramFailed: '這張 Mermaid 圖無法繪製，因此顯示原始碼。',
     retry: '重試',
+    followUp: '追問',
     retryTitle: '讓這位成員重新回答',
     share: '分享',
     shareTitle: '把到這則回覆為止的對話複製或分享出去',
@@ -1718,6 +1719,10 @@ export const zhTW = {
   },
 
   composer: {
+    memberRoute: (name: string) => `由 @${name} 回答`,
+    askTeam: '改問全隊',
+    teamRoute: '依團隊模式回答',
+    autoRoute: '自動判斷',
     stop: '■ 停止',
     stopLabel: '停止',
     continue: '繼續 ↻',

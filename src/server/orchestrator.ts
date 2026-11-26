@@ -77,6 +77,15 @@ import {
   permissionAbove,
   planSavable,
 } from '../shared/types';
+import {
+  addressedFollowUp,
+  followUpId,
+  followUpSource,
+  followUpSources,
+  inferFollowUp,
+  topicCutoff,
+  type FollowUpSource,
+} from '../shared/followUp';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import { appProblems } from './previewTarget';
 import { withSubModelTokens, type SubModelTokens } from './runCode';
@@ -373,6 +382,7 @@ function folderLabels(roots: string[]): Map<string, string> {
 }
 
 interface Run {
+  followUp?: string; // Excerpt of the source reply; empty when resuming a directed exchange.
   usageQuestionId?: string;
   abort: AbortController;
   active: Set<string>;
@@ -453,6 +463,7 @@ interface TurnSteer {
 }
 
 interface StartOptions {
+  followUp?: FollowUpSource;
   /** The original question when confirming a plan or retrying one of its replies. */
   usageQuestionId?: string;
   request?: TaskRequest;
@@ -561,6 +572,12 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   });
   const ids = new Map(messages.map((m, i) => [m.id, copies[i]!.id]));
   for (const m of copies) {
+    for (const part of m.parts) {
+      if (part.type !== 'text' || !part.followUp) continue;
+      const replyId = ids.get(part.followUp.replyId);
+      if (replyId) part.followUp.replyId = replyId;
+      else delete part.followUp;
+    }
     if (m.usageQuestionId) m.usageQuestionId = ids.get(m.usageQuestionId);
     if (m.checks) {
       m.checks.historical = true;
@@ -799,6 +816,9 @@ export function branchPause(conv: Conversation, index: number): RunPause | undef
   }
   const { mode, rounds } = conv.settings;
   const askerId = reply.author.agentId;
+  if (reply.usageQuestionId && followUpId(conv.messages.find((m) => m.id === reply.usageQuestionId))) {
+    return { mode, followUp: true, askers: [askerId], rest: [], participants: [askerId], round: 1, rounds: 1 };
+  }
   if (mode === 'relay') {
     // The teammates its reply handed to speak once it has answered, as in the run.
     const by = conv.agents.find((a) => a.id === askerId)?.name ?? reply.agentName;
@@ -2575,7 +2595,7 @@ export class Orchestrator {
     // Answered on the card at once, so that a second click (here or in another browser) finds it so.
     this.saveSteps(conv, msg);
     try {
-      return await this.send(convId, text, undefined, false, undefined, agentId);
+      return await this.send(convId, text, undefined, false, undefined, { answers: agentId });
     } catch (err) {
       part.items = before;
       delete part.answer;
@@ -2783,13 +2803,31 @@ export class Orchestrator {
     uploads?: AttachmentUpload[],
     interrupt = false,
     request?: TaskRequest,
-    /** The message answers this agent alone (`StartOptions.answers`). */
-    answers?: string,
+    { answers, followUp }: { answers?: string; followUp?: string } = {},
   ): Promise<{ queued: boolean }> {
     const text = rawText.trim();
     const content = Boolean(text || uploads?.length);
     const found = this.store.get(convId);
     if (!found) throw new HttpError(404, t().conversationNotFound);
+    const pinned = followUp !== undefined && followUp !== 'team';
+    const eligible = content && !answers && !interrupt && !this.queues(found) && !found.pause && !found.queue?.length;
+    // A stale explicit recipient must never turn into a broadcast or be steered into another turn.
+    if (pinned && !eligible) throw new HttpError(409, t().followUpUnavailable);
+    let source: FollowUpSource | undefined;
+    if (
+      eligible &&
+      followUp !== 'team' &&
+      !addressedFollowUp(
+        text,
+        found.agents.map((a) => a.name),
+      )
+    ) {
+      if (pinned) {
+        const at = found.messages.findIndex((m) => m.id === followUp);
+        if (at > topicCutoff(found)) source = followUpSource(found.messages[at]!, found.agents);
+        if (!source) throw new HttpError(409, t().followUpUnavailable);
+      } else if (!uploads?.length) source = inferFollowUp(text, followUpSources(found));
+    }
     // An answer to one agent alone (a steps card) is never queued nor steered into running turns: a
     // message taken from the queue answers every agent that waits then.
     if (answers && (this.queues(found) || this.reviewing.has(convId))) throw new HttpError(409, t().steps.busy);
@@ -2825,6 +2863,7 @@ export class Orchestrator {
           request,
           ...(content ? { question: 'new' as const } : {}),
           ...(answers ? { answers } : {}),
+          ...(source ? { followUp: source } : {}),
         });
       } catch (err) {
         removeAttachments(conv.id, files);
@@ -3606,7 +3645,18 @@ export class Orchestrator {
     // The edited message keeps its attached files.
     const files = target.parts.filter((p): p is AttachmentPart => p.type === 'attachment');
     if (!text && !files.length) throw new HttpError(400, t().emptyMessage);
+    const sourceId = followUpId(target);
+    const original = sourceId && conv.messages.find((m) => m.id === sourceId);
+    const source =
+      original &&
+      !addressedFollowUp(
+        text,
+        conv.agents.map((a) => a.name),
+      )
+        ? followUpSource(original, conv.agents)
+        : undefined;
     await this.start(conv, text, {
+      ...(source ? { followUp: source } : {}),
       beforePost: () => this.truncateFrom(conv, messageId, files),
       question: 'edited',
       files,
@@ -3637,11 +3687,15 @@ export class Orchestrator {
         if (a && m.meta?.round === target.meta?.round && !again.includes(a)) again.push(a);
       }
     }
+    const sourceId = followUpId(conv.messages.find((m) => m.id === target.usageQuestionId));
+    const sourceMessage = sourceId && conv.messages.find((m) => m.id === sourceId);
+    const source = sourceMessage ? followUpSource(sourceMessage, conv.agents) : undefined;
     // A reply of a tracking schedule's run: answered again, it reports on the goal too.
     const tracking = target.tracked && { ...target.tracked, due: this.clock(), attempt: 0, retries: false };
     await this.start(conv, '', {
       beforePost: () => this.truncateFrom(conv, messageId),
       only: again,
+      ...(source?.agent.id === first.id ? { followUp: source } : {}),
       usageQuestionId: target.usageQuestionId,
       ...(tracking ? { tracking } : {}),
     });
@@ -3845,7 +3899,7 @@ export class Orchestrator {
    * run of their own after it) keep the current team.
    */
   private designs(conv: Conversation, text: string, opts: StartOptions): boolean {
-    if (!conv.settings.autoTeam || opts.only) return false;
+    if (!conv.settings.autoTeam || opts.only || opts.followUp) return false;
     if (opts.designSchedule || conv.agents.length === 0) return true;
     if (opts.keepTeam) return false;
     if (opts.question === 'new' && conv.pause) return false;
@@ -3855,7 +3909,8 @@ export class Orchestrator {
 
   /** Start a run that posts `text` (if any) as the user's message; see `StartOptions`. */
   private async start(conv: Conversation, text: string, opts: StartOptions = {}): Promise<void> {
-    const { beforePost, only, files = [] } = opts;
+    const { beforePost, files = [] } = opts;
+    const only = opts.followUp ? [opts.followUp.agent] : opts.only;
     const convId = conv.id;
     // A run that designs the team writes nothing (the lead agent is read-only and nobody else
     // speaks), so it locks nothing.
@@ -3932,16 +3987,19 @@ export class Orchestrator {
         },
         opts.request,
         opts.autoFix ? { attempt: opts.autoFix, of: CHECK_LIMITS.autoFixes } : undefined,
+        opts.followUp,
       );
       if (own) posted.push(own);
       else if (opts.request) this.store.recordTask(opts.request, convId, false);
       if (teamNote) this.systemNote(conv, teamNote);
       const pausedTracked = conv.pause?.tracked;
+      const pausedFollowUp = conv.pause?.followUp;
       const resumed = this.takePause(conv, posted, only, planning, opts.answers);
       resume = resumed?.schedule;
       const pausedChecks = resumed ? this.pendingPauseChecks(conv) : undefined;
       tracking = opts.tracking ?? this.carriedTracking(conv, posted, opts, pausedTracked, planning);
       run = {
+        followUp: opts.followUp?.text.slice(0, 600) ?? (resume && pausedFollowUp ? '' : undefined),
         usageQuestionId: opts.usageQuestionId ?? (resumed || opts.autoFix ? previousQuestion : posted[0]?.id) ?? previousQuestion,
         abort: new AbortController(),
         active: new Set(),
@@ -4056,6 +4114,7 @@ export class Orchestrator {
     event: ScheduledEvent = {},
     request?: TaskRequest,
     autoFix?: ChatMessage['autoFix'],
+    source?: FollowUpSource,
   ): ChatMessage | undefined {
     let msg: ChatMessage | undefined;
     if (text || files.length) {
@@ -4063,7 +4122,12 @@ export class Orchestrator {
         id: randomUUID(),
         author: { kind: 'user' },
         createdAt: Date.now(),
-        parts: [...(text ? [{ type: 'text' as const, text }] : []), ...files],
+        parts: [
+          ...(text || source
+            ? [{ type: 'text' as const, text, ...(source ? { followUp: { replyId: source.id, name: source.agent.name } } : {}) }]
+            : []),
+          ...files,
+        ],
         status: 'done',
         ...(scheduled ? { scheduled: true } : {}),
         ...(scheduled ? event : {}),
@@ -6399,7 +6463,7 @@ export class Orchestrator {
         this.deliverBefore(conv, run, [agent]);
         const msg = await this.turn(conv, agent, run, { mode, round: 1, rounds: 1, handedBy, hopsLeft, answered: answered(agent) });
         await run.checks?.checkpoint(agent.name);
-        if (spoke(msg)) {
+        if (spoke(msg) && run.followUp === undefined) {
           for (const next of parseMentions(textOf(msg), conv.agents, agent.id)) {
             if (!queue.some((q) => q.agent.id === next.id)) queue.push({ agent: next, handedBy: agent.name });
           }
@@ -6505,6 +6569,7 @@ export class Orchestrator {
   /** An agent asked the user something: the run stops here, and the team waits for the answer. */
   private pauseFor(conv: Conversation, pause: RunPause, run: Run): void {
     // A tracking schedule's run asked: the answer's run goes on with the goal (`carriedTracking`).
+    if (run.followUp !== undefined) pause.followUp = true;
     conv.pause = run.tracking ? { ...pause, tracked: runOf(run.tracking) } : pause;
     this.store.saveMeta(conv);
     this.emitConversation(conv);
@@ -6580,6 +6645,7 @@ export class Orchestrator {
 
   /** One agent turn: build its prompt, run the CLI, stream into a new chat message. */
   private async turn(conv: Conversation, agent: AgentConfig, run: Run, info: TurnInfo): Promise<ChatMessage> {
+    info.followUp = run.followUp;
     const state: AgentSessionState = (conv.agentState[agent.id] ??= { seen: [] });
     const lastProvider = state.provider;
     // The account it runs as: one that was removed is the default account. A session is kept in its

@@ -172,6 +172,8 @@ When the user sends a message (or presses **Continue**, which sends nothing), th
 - **Parallel** — for each round, all participants run concurrently. Messages still streaming are not delivered, so agents don't see each other's answers until the next round.
 - **Relay** — a queue starts with the mentioned agents, or the first team member (the "lead"). After each reply, every teammate `@mentioned` in the reply's prose (not in code or link text, see `src/shared/mentions.ts`) is appended to the queue. The run ends when the queue is empty or after `maxHops` turns (a system note tells the user, who can press **Continue**).
 
+**Directed follow-ups.** For an idle chat, `src/shared/followUp.ts` matches references in the draft against completed reply text from the last exchange in this topic. The composer previews a unique author, and the server repeats the check at send time. An explicit reply selection can refer further back. Markdown mentions take precedence. Ambiguity and the whole-team override use normal scheduling. The selected member takes one turn, including in relay mode, where handoffs are suppressed across a question to the user and its answer. Team checks and enabled lead review still run. The user text part stores the source reply id in `message_parts.data` for edits, retries and branches.
+
 A reply that is exactly `[PASS]` (or empty with no tool calls) is marked as *passed* and rendered dimmed.
 
 Only one run per conversation can be active at a time; different conversations can run concurrently. **Stop** aborts the run and kills the active CLI processes (process group `SIGTERM`, then `SIGKILL` after 3 s). Each agent turn also has a safety timeout: 1 day, or as many minutes as `RELAY_TURN_TIMEOUT_MIN` says (a minute to 7 days).

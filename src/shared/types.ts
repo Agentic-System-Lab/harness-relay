@@ -2470,7 +2470,12 @@ export interface StepsAnswer {
 export const STEPS_LIMITS = { steps: 30, blockChars: 8000, noteChars: 2000 };
 
 export type MessagePart =
-  | { type: 'text'; text: string }
+  | {
+      type: 'text';
+      text: string;
+      /** The source reply and the recipient's name at the time this user follow-up was sent. */
+      followUp?: { replyId: string; name: string };
+    }
   /** The agent's reasoning, as far as its CLI shares it. Never forwarded to other agents. */
   | { type: 'thinking'; text: string }
   /** The agent's current plan / to-do list (updated in place). */
@@ -3349,6 +3354,8 @@ export type ScheduleUpdate = Pick<
  * agents that asked answer first and the run goes on from here (`Orchestrator.execute`).
  */
 export interface RunPause {
+  /** The user directed this exchange to a single member. */
+  followUp?: boolean;
   mode: Mode;
   /** The agents that asked, by id. */
   askers: string[];

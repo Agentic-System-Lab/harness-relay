@@ -2233,13 +2233,18 @@ export function createApp({
   // Send a message. While the team replies it waits in the queue for the next turn ({ queued: true });
   // `interrupt` stops the team first and sends it now.
   app.post('/api/conversations/:id/messages', async (c) => {
-    const { requestId, ...b } = await body<{ text?: string; attachments?: AttachmentUpload[]; interrupt?: boolean; requestId?: unknown }>(
-      c,
-    );
+    const { requestId, ...b } = await body<{
+      text?: string;
+      attachments?: AttachmentUpload[];
+      interrupt?: boolean;
+      followUp?: string;
+      requestId?: unknown;
+    }>(c);
     const id = c.req.param('id');
     const { queued } = await submitTask('send/' + id, requestId, b, async (request, receipt) => {
       if (receipt) return { queued: Boolean(receipt.queued) };
-      return orchestrator.send(id, String(b.text ?? ''), b.attachments, b.interrupt === true, request);
+      if (b.followUp !== undefined && (typeof b.followUp !== 'string' || !b.followUp)) throw new HttpError(400, t().followUpUnavailable);
+      return orchestrator.send(id, String(b.text ?? ''), b.attachments, b.interrupt === true, request, { followUp: b.followUp });
     });
     return c.json({ ok: true, queued }, 202);
   });

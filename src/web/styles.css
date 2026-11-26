@@ -4259,6 +4259,18 @@ video.chat-media {
   margin: 0 auto 8px;
 }
 
+.follow-up-route {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.85rem;
+}
+.follow-up-route span {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
 .composer-wrap {
   max-width: 840px;
   margin: 0 auto;
