@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 55 個 spec 檔、672 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 55 個 spec 檔、673 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -71,7 +71,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 | [直接連結 Microsoft Teams](#直接連結-microsoft-teams) | [`teams.spec.ts`](specs/teams.spec.ts) | 3 | [使用者說明 → 連結 Microsoft Teams](../docs/user-guide.zh-TW.md#連結-microsoft-teams-並發送訊息) |
 | [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 5 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 4 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
-| [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
+| [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 16 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
 | [首席 agent 在團隊之外的協助](#首席-agent-在團隊之外的協助) | [`lead-drafts.spec.ts`](specs/lead-drafts.spec.ts) | 8 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本)、[團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[自動任務](../docs/user-guide.zh-TW.md#自動任務)、[群組](../docs/user-guide.zh-TW.md#群組)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 12 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
@@ -579,6 +579,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
+| 複製以網址開頭、下方有中文段落的使用者訊息 | Codex | 模擬 iPhone 的瀏覽器識別字串，確認按鈕讓瀏覽器複製選取的文字，貼回輸入框時保留網址、空行與段落。 |
 | 回答的複製按鈕複製的是 Markdown，而不是畫面上的文字 | Codex | 剪貼簿裡是原始內容（標題、表格的直線、程式碼區塊的圍欄），按鈕顯示已複製。只在 Chromium。 |
 | 分享對話框把整個對話，或到某則回答為止的部分，複製成 Markdown | Claude Code | 標題列的對話框複製整段對話；某則回答自己的**分享**只複製到它為止。只在 Chromium。 |
 | 分享的對話是瀏覽器產生的頁面做成的 secret gist，在 Harness Relay 的網站上打開，在設定中列出直到移除 | Claude Code | `gh gist create --filename index.html …` 存下一個 secret gist，頁面有問題與回答，但沒有中間的步驟（思考、工具）；連結是 Harness Relay 的分享頁（`…/harness-relay/share/#relay-e2e/<id>`），旁邊是 gist 本身的連結。打開時（儲存庫的 `site/` 放在網站的網址、假 `gh` 的 gist 放在 GitHub 原始檔的網址，都由測試攔截，離線進行），分享頁只讀一次 gist 的原始 `index.html`，完全不呼叫 GitHub 的 API，說明這是誰的 gist 並附上它在 GitHub 上的連結，使用頁面的標題，並把回覆顯示在只允許彈出視窗的 sandbox 框架裡。**設定 → 分享**列出它，按**移除**會刪掉 gist（`gist delete <id> --yes`）；之後它的連結會在問過一次 GitHub 的 API 它是否在別處（這裡被拒絕）後，說 GitHub 上沒有這個對話。 |
@@ -923,6 +924,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 | 附加的圖片 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 訊息直接送進進行中的回合 | ✓ | ✓ | —（只有離線測試） | —（不能） | —（只有離線測試） | —（還不能） | —（還不能） |
+| 模擬 iPhone 複製以網址開頭的使用者訊息 | — | ✓ | — | — | — | — | — |
 | 從側欄或回覆開新議題、建立子分支 | — | ✓ | — | — | — | — | — |
 | 下一回合接續自己的 session | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 設定中的版本與登入，以及未登入 | ✓ | ✓ | ✓ | ✓ | ✓（它的 Gemini API key；沒有時不提供登入，也不啟動 agy） | ✓ | ✓ |
@@ -996,7 +998,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 - [密鑰與固定指令](#密鑰與固定指令)：三個固定指令的測試在 Harness Relay 自己的沙箱不能執行的地方會略過（Windows；CI 上沒有 bubblewrap 的 Linux 會失敗，`E2E_REQUIRE_RELAY_SANDBOX=1`），漏掉卡片的測試在 Windows 上略過：那裡不執行固定指令，Harness Relay 也就不會要卡片。
 - [在手機上](#在手機上)在 Firefox 中跳過；其中用瀏覽器自己的觸控的測試只在 Chromium 執行（觸控透過它的 DevTools 協定送出）。
 - [修改對話的團隊](#修改對話的團隊)的新增成員卡測試，只在支援捲動驅動動畫的瀏覽器（Chromium、WebKit）檢查清單的陰影，因為其他瀏覽器沒有陰影：在 Firefox 中只檢查其餘部分。
-- [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」在 Windows 上跳過，分享頁的下載測試則在 WebKit 中跳過：Playwright 下的 WebKit 不會下載連結打開的任何東西（在沒有框架的頁面、以附件送出也一樣）。
+- [複製與分享](#複製與分享)中透過 API 讀取剪貼簿的兩個測試只在 Chromium 執行，「沒有 gh」在 Windows 上跳過，分享頁的下載測試則在 WebKit 中跳過：Playwright 下的 WebKit 不會下載連結打開的任何東西（在沒有框架的頁面、以附件送出也一樣）。
 - [檔案與修改](#檔案與修改)中附加資料夾的測試，在 WebKit 只檢查送出標籤的下載檔名而不下載，因為 WebKit 在 Playwright 下不會下載連結開啟的任何東西；WebKit 的資料夾選擇器會自己略過名稱以點開頭的資料夾，所以它的標籤可能只列出略過了 `node_modules`；空資料夾那一步在 WebKit 也會跳過。
 - [回報問題](#回報問題)中讀取郵件連結的四個測試，在沒有 Navigation API 的瀏覽器中跳過。
 - [接手瀏覽器](#接手瀏覽器)在 Windows 上用 Playwright 的 Chromium 啟動對話的瀏覽器，而不是系統的 Chrome 或 Edge：它們在那裡的測試伺服器自己的家目錄下啟動不了（那裡沒有 AppData 資料夾）。
@@ -1013,7 +1015,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 - **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。
 - **密鑰與固定指令的大部分。** 端對端測試只用 Claude Code 的 fake 提供密鑰、儲存試跑並分享固定指令、從待送出匣送出一次執行、從卡片和待送出匣核准改過的程式碼、確認會發布的指令的試跑、在卡片上停止執行中的指令（目前為止的輸出收起來），以及建立只執行指令的提議自動任務（自動任務到時間執行指令的部分，連同它的說明與核准，在離線測試裡）：區塊是伺服器讀的純文字，所以每個 CLI 的回覆讀法都一樣。只有回覆漏掉、再問 agent 一次補上的卡片，是用每個 CLI 在完整權限下測（Windows 上不測，那裡不會要卡片）；補問後仍缺的部分（Harness Relay 自己的密鑰卡片、沒有指令的腳本的提示，以及只告訴 agent 一次）、pass 記號、補問那次執行被停止，以及不補問的自動化執行，由離線測試涵蓋（`test/orchestrator-handoffs.test.ts`），哪些檔案算這種腳本也是（`test/handoff-gaps.test.ts`）。離線測試涵蓋：區塊的各種寫法與哪些留作文字、遮蔽、儲存區（`test/handoffs.test.ts`），執行的沙箱、環境、密鑰檔與續期的值、執行中回報的內容、以 0 結束的執行被擋下的主機（以及卡片上的警告），以及在真的儲存庫上的鎖定（`test/fixed-commands.test.ts`），鎖定失效、自動任務的固定指令和它的各種結果（`test/orchestrator-handoffs.test.ts`），以及路由（`test/handoffs-api.test.ts`）。任何 agent 自己的沙箱都讀不到執行中的密鑰檔，靠的是轉接器（`agentProtectedReads()`），沒有在端對端測試裡試過。
 - **步驟卡片的大部分。**端對端測試只用 Claude Code 的假 CLI 給步驟：區塊是伺服器讀取的純文字，所以每個 CLI 的回覆都以同樣的方式讀取。離線測試涵蓋：區塊的各種寫法與留作文字的情況（`test/steps.test.ts`）、平行與接力模式、只有步驟的回覆、旁邊的提問標記、重新啟動後的勾選與送不出去的回答（`test/orchestrator-steps.test.ts`）、路由拒絕的請求（`test/steps-api.test.ts`），以及分享頁面、複製與對話紀錄中的步驟（`test/steps-web.test.ts`）與 AgentsView 中的步驟（`test/agentsview.test.ts`）。
-- **實機手機與正式網域。** 測試使用手機寬度的瀏覽器，另用測試用 HTTPS 設定驗證遠端模式。手機本身、DNS、憑證與代理仍需在部署環境中確認。真實 Docker 另有獨立檢查 `npx tsx scripts/preview-runtime-check.ts`，也在 Linux CI 執行。
+- **實機手機與正式網域。** 訊息複製測試在桌面瀏覽器使用 iPhone 的瀏覽器識別字串。要確認原生 App 貼上時選擇哪種剪貼簿格式，需要 iPhone 或 iPad 實機。遠端模式則用手機寬度與測試用 HTTPS 設定驗證。手機本身、DNS、憑證與代理仍需在部署環境中確認。真實 Docker 另有獨立檢查 `npx tsx scripts/preview-runtime-check.ts`，也在 Linux CI 執行。
 - **完全存取下團隊做出的容器自動開始。** spec 試了自動開始的網頁，以及在完全存取以外會等待的 Dockerfile；完全存取下哪些模式會自動開始，由 `test/webPreview.test.ts` 測試。
 - **Windows 與 macOS CI 上的容器預覽。** 它們的真實 Docker 測試在 Linux CI 與手動（macOS 上用 OrbStack）執行；經 Windows 具名管道的 Engine API 尚未試過。其他地方用模擬的串流測試面板的終端機。
 - **團隊檢查的大部分。**端對端測試檢查編輯器、受保護路徑、指令與 hook，需要 CLI 時用 Claude Code 的替身。以下情況由離線測試涵蓋：commit 格式、平行模式成員的 worktree、停下來問使用者的一輪、首席 agent 審閱讀到結果、沒人看著的自動任務那一輪、範本的清單複製進對話、改到設定而擋下的指令、重新檢查時在背景執行指令，以及套用平行模式結果時在檢查樹裡（連進依賴）執行的指令，都在離線測試裡（`test/orchestrator-checks.test.ts`、`test/checks.test.ts`、`test/checkCommands.test.ts`），各 CLI 寫入受保護檔案也是（檢查讀的是磁碟，不管是誰寫的）。指令能開的兩個開放（macOS 的所有本機連接埠、Linux 的所有 Unix socket）只有手動試過，因為 `scripts/sandbox-check.ts` 不會執行檢查的指令。

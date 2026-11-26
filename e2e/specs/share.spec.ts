@@ -1,9 +1,9 @@
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
-import type { Download, Page } from '@playwright/test';
+import { devices, type Download, type Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
+import { acceptNextDialog, composer, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
 import type { RelayServer } from '../support/relay';
 import { FAKE_OWNER, fakeGithub, openShared, writeGist } from '../support/share';
 import { shareViewerUrl } from '../../src/shared/share';
@@ -110,6 +110,33 @@ test.describe('copying', () => {
     await upTo.getByRole('button', { name: 'Copy', exact: true }).click();
     await expect(upTo.getByRole('button', { name: 'Copied' })).toBeVisible();
     expect(await clipboard(page)).toBe(`${first.join('\n\n')}\n`);
+  });
+});
+
+test.describe('copying a message on iOS', () => {
+  test.use({ userAgent: devices['iPhone 13'].userAgent });
+
+  test('a URL followed by a Chinese paragraph pastes back as the complete message', async ({ page, relay }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }]);
+    const url = 'https://example.com/a%20b?x=1&y=2';
+    const message = `${url}\n\n幫我看這個網站做得如何？ 行銷做得如何？`;
+    await send(page, message);
+    await settled(relay, id);
+    const bubble = page.locator('.msg-user');
+    await expect(bubble.getByRole('link')).toHaveAttribute('href', url);
+    await bubble.hover();
+    const copy = bubble.getByRole('button', { name: 'Copy', exact: true });
+    // Only the browser's default selection copy avoids the additional URL type on iOS.
+    const nativeCopy = await page.evaluateHandle(() => {
+      const observed = { used: false };
+      window.addEventListener('copy', (event) => (observed.used = !event.defaultPrevented), { once: true });
+      return observed;
+    });
+    await copy.click();
+    await expect(bubble.getByRole('button', { name: 'Copied' })).toBeVisible();
+    expect((await nativeCopy.jsonValue()).used).toBe(true);
+    await composer(page).press('ControlOrMeta+v');
+    await expect(composer(page)).toHaveValue(message);
   });
 });
 

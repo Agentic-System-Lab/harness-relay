@@ -13,6 +13,7 @@ import {
   isFolderAttachment,
 } from '../shared/types';
 import { mentionsInMarkdown, unknownMentions } from '../shared/mentions';
+import { isIos } from './alerts';
 import type { TeamChange } from './chat';
 import { stepsMarkdown } from './steps';
 import type { Messages } from './i18n';
@@ -277,25 +278,27 @@ export function conversationMarkdown(conv: Conversation, t: Messages): string {
 }
 
 /**
- * Copy text to the clipboard exactly as it is. Where the async API is unavailable (a page that is not
- * https or localhost, e.g. a phone opening the app over the network), copy the legacy way.
+ * Copy the source as plain text, also on pages without the async clipboard API (such as plain HTTP).
  */
 export async function copyText(text: string): Promise<boolean> {
+  // On iOS a string starting with a URL can also be offered to other apps as one URL, with
+  // the following text percent-encoded. WebKit's native textarea copy writes plain text bytes.
+  if (isIos(navigator) && /^https?:\/\/\S+\s+\S/i.test(text) && legacyCopy(text, 'selection')) return true;
   try {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
     /* not a secure context, or permission denied: try the legacy way */
   }
-  return legacyCopy(text);
+  return legacyCopy(text, 'source');
 }
 
 /**
  * `execCommand('copy')` copies the selection, so select a hidden textarea holding the text: some browsers
- * (Safari) only copy when something is selected. A textarea turns CRLF line endings into LF, so the copy
- * event puts the text itself on the clipboard instead.
+ * (Safari) only copy when something is selected. In 'source' mode the copy event supplies the original
+ * line endings. In 'selection' mode the browser copies the textarea's text (LF) itself.
  */
-function legacyCopy(text: string): boolean {
+function legacyCopy(text: string, from: 'source' | 'selection'): boolean {
   const focused = document.activeElement;
   const ta = document.createElement('textarea');
   const onCopy = (e: ClipboardEvent) => {
@@ -311,7 +314,7 @@ function legacyCopy(text: string): boolean {
     ta.style.opacity = '0';
     ta.style.fontSize = '12pt'; // iOS zooms in on smaller text it focuses
     document.body.appendChild(ta);
-    document.addEventListener('copy', onCopy);
+    if (from === 'source') document.addEventListener('copy', onCopy);
     ta.select();
     ta.setSelectionRange(0, ta.value.length); // iOS selects nothing with select() alone
     return document.execCommand('copy');

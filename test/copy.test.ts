@@ -412,7 +412,7 @@ describe('copying exactly what was written', () => {
   });
 
   /** A page without the clipboard API (not https or localhost); its textarea turns CRLF into LF. */
-  function legacyPage() {
+  function legacyPage(selectionAllowed = true) {
     const steps: string[] = [];
     const listeners = new Map<string, (e: unknown) => void>();
     let value = '';
@@ -437,7 +437,12 @@ describe('copying exactly what was written', () => {
       addEventListener: (type: string, fn: (e: unknown) => void) => listeners.set(type, fn),
       removeEventListener: (type: string, fn: unknown) => listeners.get(type) === fn && listeners.delete(type),
       execCommand: (command: string) => {
-        listeners.get(command)?.({ clipboardData: { setData: (_: string, d: string) => (copied = d) }, preventDefault: () => {} });
+        let prevented = false;
+        listeners.get(command)?.({
+          clipboardData: { setData: (_: string, d: string) => (copied = d) },
+          preventDefault: () => (prevented = true),
+        });
+        if (!prevented && selectionAllowed) copied = value;
         return copied !== undefined;
       },
     };
@@ -453,6 +458,49 @@ describe('copying exactly what was written', () => {
     // Selected in full first (iOS needs the range), then cleaned up, and focus goes back to the button.
     expect(page.steps).toEqual(['select', `range 0-${page.selected().length}`, 'removed', 'focus back']);
     expect(page.listeners.size).toBe(0);
+  });
+
+  const mixed = 'https://example.com/a%20b?x=1&y=2\n\n幫我看看這個網站。';
+
+  it.each([
+    ['iPhone', 5],
+    ['Macintosh', 5], // iPad requesting desktop sites
+  ])('copies a URL and prose through the native text selection on %s with %i touch points', async (userAgent, maxTouchPoints) => {
+    const page = legacyPage();
+    const writeText = vi.fn();
+    vi.stubGlobal('navigator', { userAgent, maxTouchPoints, clipboard: { writeText } });
+    expect(await copyText(mixed)).toBe(true);
+    expect(writeText).not.toHaveBeenCalled();
+    expect(page.copied()).toBe(mixed);
+    expect(page.steps).toContain('focus back');
+  });
+
+  it('preserves paragraph breaks when iOS copies a CRLF message over HTTP', async () => {
+    const page = legacyPage();
+    vi.stubGlobal('navigator', { userAgent: 'iPhone' });
+    expect(await copyText(mixed.replaceAll('\n', '\r\n'))).toBe(true);
+    expect(page.copied()).toBe(mixed);
+  });
+
+  it.each([
+    ['iPhone', 'https://example.com/a%20b'],
+    ['iPhone', '看看這個網站\nhttps://example.com/'],
+    ['Macintosh', mixed],
+    ['Android', mixed],
+  ])('keeps ordinary clipboard writes for %s copying %s', async (userAgent, text) => {
+    const writeText = vi.fn();
+    vi.stubGlobal('navigator', { userAgent, maxTouchPoints: 0, clipboard: { writeText } });
+    expect(await copyText(text)).toBe(true);
+    expect(writeText).toHaveBeenCalledWith(text);
+  });
+
+  it('tries the clipboard API when iOS refuses to copy the selection', async () => {
+    const page = legacyPage(false);
+    const writeText = vi.fn();
+    vi.stubGlobal('navigator', { userAgent: 'iPhone', clipboard: { writeText } });
+    expect(await copyText(mixed)).toBe(true);
+    expect(page.steps).toContain('removed');
+    expect(writeText).toHaveBeenCalledWith(mixed);
   });
 });
 
