@@ -56,6 +56,8 @@ describe('branching a conversation', () => {
     expect(readFileSync(copy, 'utf8')).toBe('PNG');
     if (process.platform !== 'win32') expect(statSync(copy).mode & 0o777).toBe(0o600);
     const copied = agentMessages(branch).at(-1)!;
+    expect(copied.usageQuestionId).toBe(branch.messages.find((m) => m.author.kind === 'user')!.id);
+    expect(copied.usageQuestionId).not.toBe(reply.usageQuestionId);
     expect(textOf(copied)).toBe(`Here it is: ![Screenshot](<${copy}>)`);
     // It shows in the branch, also once the conversation it came from is gone; the original is untouched.
     rmSync(attachmentsDir(conv.id), { recursive: true, force: true });

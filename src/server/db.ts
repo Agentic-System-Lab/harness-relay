@@ -582,6 +582,8 @@ const MIGRATIONS: string[] = [
   ALTER TABLE schedule_attachments ADD COLUMN folder TEXT;
   CREATE INDEX schedule_files_by_folder ON schedule_attachments(folder) WHERE folder IS NOT NULL;
   `,
+  // 45: the question a plan, member turn or lead review belongs to.
+  `ALTER TABLE messages ADD COLUMN usage_question_id TEXT;`,
 ];
 
 /**

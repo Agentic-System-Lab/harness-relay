@@ -901,6 +901,19 @@ export const en: Messages = {
     },
   },
 
+  questionUsage: {
+    title: 'Question usage',
+    stage: 'Stage',
+    inputTokens: 'Input tokens',
+    outputTokens: 'Output tokens',
+    costUsd: 'Cost (USD)',
+    subtotal: 'Reported subtotal',
+    unknown: 'Unknown',
+    planning: 'Team planning',
+    modelCheck: 'Model check',
+    combined: 'Planning and model checks',
+    review: 'Lead review',
+  },
   message: {
     openImage: (name) => `Open ${name}`,
     mediaMissing: (path) => `⚠ Can't show ${path}`,

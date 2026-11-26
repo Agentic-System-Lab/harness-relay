@@ -69,6 +69,13 @@ test.describe('lead review', () => {
       /Team\s*Ask @Claude to go on\.\s*Ask the team/,
     ]);
 
+    const breakdown = page.locator('.question-usage').first();
+    await breakdown.locator('summary').click();
+    const table = breakdown.getByRole('table', { name: 'Question usage' });
+    await expect(table.locator('tbody th')).toHaveText(['Team planning', /Model check · Claude Code/, /@Claude/, 'Lead review']);
+    await expect(table.locator('tfoot td')).toHaveText(['480', '160', '$0.0048']);
+    await breakdown.locator('summary').click();
+
     // The words it quotes are marked in the reply (CSS Custom Highlight API), and the reply says so.
     await expect
       .poll(() =>
@@ -107,6 +114,11 @@ test.describe('lead review', () => {
     const conv = await settled(relay, id);
     expect(conv.settings.leadReview).toBe(true);
     expect(relay.fakeLog().some((e) => e.prompt?.includes('<reply n="1" from="@Claude (Claude Code)">\nHello from Claude'))).toBe(true);
+
+    await page.reload();
+    const followup = page.locator('.question-usage').nth(1);
+    await followup.locator('summary').click();
+    await expect(followup.locator('tbody th')).toHaveText([/@Claude/, 'Lead review']);
 
     // Every new chat starts with it off, whatever the last one had.
     await startChat(page, 'Check the draft', { leadReview: true });

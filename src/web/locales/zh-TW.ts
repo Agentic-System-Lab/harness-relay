@@ -918,6 +918,19 @@ export const zhTW = {
     },
   },
 
+  questionUsage: {
+    title: '問題用量明細',
+    stage: '執行階段',
+    inputTokens: '輸入 token',
+    outputTokens: '輸出 token',
+    costUsd: '費用（USD）',
+    subtotal: '已回報小計',
+    unknown: '未知',
+    planning: '組隊規劃',
+    modelCheck: '模型檢查',
+    combined: '組隊及模型檢查',
+    review: '首席審閱',
+  },
   message: {
     openImage: (name: string) => `開啟 ${name}`,
     mediaMissing: (path: string) => `⚠ 無法顯示 ${path}`,

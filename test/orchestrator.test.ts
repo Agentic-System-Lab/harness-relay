@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { Conversation, ConversationSettings } from '../src/shared/types';
 import {
+  AgentRunError,
   agentMessages,
   agents,
   attachmentPath,
@@ -1258,12 +1259,12 @@ describe('failed turns', () => {
     await finish(conv.id);
     expect(conv.agentState.a!.sessionId).toBe('session-Alice');
 
-    fake.fail = () => new Error('rate limited'); // not a session problem: the fresh session fails too
+    fake.fail = () => new AgentRunError('rate limited', false, { inputTokens: 3 }); // both attempts report usage
     calls.length = 0;
     await orchestrator.send(conv.id, 'second');
     await finish(conv.id);
     expect(calls.map((c) => c.sessionId)).toEqual(['session-Alice', undefined]);
-    expect(agentMessages(conv).at(-1)).toMatchObject({ status: 'error', error: 'rate limited' });
+    expect(agentMessages(conv).at(-1)).toMatchObject({ status: 'error', error: 'rate limited', meta: { inputTokens: 6 } });
     expect(conv.agentState.a!.sessionId).toBe('session-Alice');
 
     fake.fail = undefined;
@@ -1273,6 +1274,13 @@ describe('failed turns', () => {
     expect(calls[0]!.sessionId).toBe('session-Alice');
     // The messages it missed are offered again.
     expect(calls[0]!.prompt).toContain('second');
+
+    let attempts = 0;
+    fake.fail = () => (++attempts === 1 ? new AgentRunError('stale session', false, { inputTokens: 4 }) : undefined);
+    fake.runUsage = { inputTokens: 8, outputTokens: 2 };
+    await orchestrator.send(conv.id, 'fourth');
+    await finish(conv.id);
+    expect(agentMessages(conv).at(-1)).toMatchObject({ status: 'done', meta: { inputTokens: 12, outputTokens: 2 } });
   });
 
   it('tells teammates which files a failed turn changed', async () => {

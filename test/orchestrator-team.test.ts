@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { PlannerContext } from '../src/server/planner';
 import { TEAM_WORKTREE, type Conversation, type ConversationSchedule } from '../src/shared/types';
+import { AgentRunError } from '../src/server/agents/types';
 import { HttpError } from '../src/server/errors';
 import {
   agentMessages,
@@ -63,9 +64,9 @@ describe('a team the lead agent designs', () => {
       }
       if (!o.stateKey) {
         tasks.push({ model: o.model, cwd: o.cwd, prompt: o.prompt, session: o.sessionId });
-        if (!o.model || o.model === 'sonnet') throw new Error('endpoint unavailable');
+        if (!o.model || o.model === 'sonnet') throw new AgentRunError('endpoint unavailable', false, { inputTokens: 3 });
         o.onEvent({ type: 'text', text: 'RELAY_MODEL_OK' });
-        return {};
+        return { inputTokens: 7, outputTokens: 0 };
       }
       return real(o);
     });
@@ -76,6 +77,16 @@ describe('a team the lead agent designs', () => {
       expect(tasks.map((task) => task.model)).toEqual(['sonnet', 'haiku']);
       expect(tasks.every((task) => task.cwd !== project && !task.session && !task.prompt.includes('private question'))).toBe(true);
       const plan = conv.messages.find((m) => m.plan)!;
+      const question = conv.messages.find((m) => m.author.kind === 'user')!.id;
+      expect(plan.usageQuestionId).toBe(question);
+      expect(agentMessages(conv).map((m) => m.usageQuestionId)).toEqual([question, question]);
+      expect(plan.plan?.usage).toEqual([
+        { kind: 'planning', costUsd: 0.01 },
+        { kind: 'modelCheck', provider: 'claude', model: 'sonnet', inputTokens: 3 },
+        { kind: 'modelCheck', provider: 'claude', model: 'haiku', inputTokens: 7, outputTokens: 0 },
+      ]);
+      expect(plan.meta).toMatchObject({ inputTokens: 10, outputTokens: 0, costUsd: 0.01 });
+      expect(new Store(db).get(conv.id)?.messages.find((m) => m.plan)?.plan?.usage).toEqual(plan.plan?.usage);
       expect(plan.parts).toEqual(
         expect.arrayContaining([
           { type: 'thinking', text: 'Choosing roles' },
@@ -141,7 +152,7 @@ describe('a team the lead agent designs', () => {
     fake.leadReply = JSON.stringify({ choice: 'keep' });
     const real = runners.claude.run;
     const probe = vi.fn(async () => {
-      throw new Error('check refused');
+      throw new AgentRunError('check refused', false, { outputTokens: 2 });
     });
     const stub = vi.spyOn(runners.claude, 'run').mockImplementation((o) => (o.stateKey ? real(o) : probe()));
     try {
@@ -149,11 +160,15 @@ describe('a team the lead agent designs', () => {
       await finish(conv.id);
       const msg = conv.messages.find((m) => m.plan)!;
       expect(msg.plan).toMatchObject({ status: 'ready', awaitingConfirmation: true, checkOnConfirm: true });
+      expect(msg.plan?.usage).toHaveLength(1);
       expect(probe).not.toHaveBeenCalled();
 
       orchestrator.confirmPlan(conv.id, msg.id);
       await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(1));
       await finish(conv.id);
+      expect(msg.plan?.usage).toHaveLength(2);
+      expect(msg.plan?.usage?.[1]).toMatchObject({ kind: 'modelCheck', provider: 'claude', outputTokens: 2 });
+      expect(msg.meta).toMatchObject({ costUsd: 0.01, outputTokens: 2 });
       expect(msg.plan?.status).toBe('failed');
       expect(agentMessages(conv)).toEqual([]);
     } finally {
@@ -445,6 +460,9 @@ describe('auto team', () => {
     // Auto team stays on: the next question is designed too.
     expect(conv.settings.autoTeam).toBe(true);
 
+    // Simulate an older pending plan that persisted only the combined figures.
+    delete plan!.usageQuestionId;
+    delete plan!.plan!.usage;
     // Nobody answers until the user confirms the team: a message written meanwhile waits for it.
     expect(await orchestrator.send(conv.id, 'Start with monads')).toEqual({ queued: true });
     await expect(orchestrator.send(conv.id, '')).rejects.toThrow(/確認/);
@@ -463,6 +481,7 @@ describe('auto team', () => {
     expect(conv.messages[2]!.queued).toBeUndefined(); // written before the team replied, not added mid-reply
     expect(conv.queue).toEqual([]);
     expect(calls.map((c) => c.name)).toEqual(['lead', 'Alice', 'Bob']);
+    expect(agentMessages(conv).every((m) => m.usageQuestionId === request!.id)).toBe(true);
     // The team sees the question and what waited; never the plan.
     expect(calls[1]!.prompt).toContain('I want to understand functional programming');
     expect(calls[1]!.prompt).toContain('Start with monads');
@@ -494,7 +513,7 @@ describe('auto team', () => {
     // What was said before, and the team that answered it.
     expect(prompt).toContain('[User]: I want to understand functional programming');
     expect(prompt).toContain('[@Alice (Claude Code)]: Alice done');
-    expect(prompt).toMatch(/<current_team>[\s\S]*"name": "Bob"[\s\S]*<\/current_team>/);
+    expect(prompt).toMatch(/<current_team>[\s\S]*"name":\s*"Bob"[\s\S]*<\/current_team>/);
     expect(prompt).toContain('"choice": "keep"');
     expect(plans(conv)[1]!.plan).toMatchObject({ source: 'kept', reason: 'Same topic.', awaitingConfirmation: true });
     expect(conv.agents.map((a) => a.id)).toEqual([alice!.id, bob!.id]);

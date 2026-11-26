@@ -1324,6 +1324,9 @@ describe('the app in the preview, and fixing by itself', () => {
     expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob', 'Alice', 'Alice', 'Alice']);
     expect(conv.messages.filter((m) => m.autoFix).map((m) => m.autoFix!.attempt)).toEqual([1, 2, 3]);
     expect(cards(conv).map((m) => m.checks!.autoFixes ?? 0)).toEqual([0, 1, 2, 3]);
+    expect(new Set(conv.messages.filter((m) => m.author.kind === 'agent').map((m) => m.usageQuestionId))).toEqual(
+      new Set([conv.messages.find((m) => m.author.kind === 'user')!.id]),
+    );
     expect(lastCard(conv).checks!.status).toBe('failed');
     expect(lastCard(conv).checks!.fixBy).toBeUndefined();
     expect(checksHold(conv.messages)).toBe(lastCard(conv));

@@ -25,6 +25,8 @@ import type {
   FileChange,
   LeadReview,
   MessageChanges,
+  PlanUsage,
+  ReportedUsage,
   MessagePart,
   MemoryPartNote,
   HandoverPart,
@@ -371,6 +373,7 @@ function folderLabels(roots: string[]): Map<string, string> {
 }
 
 interface Run {
+  usageQuestionId?: string;
   abort: AbortController;
   active: Set<string>;
   /**
@@ -450,6 +453,8 @@ interface TurnSteer {
 }
 
 interface StartOptions {
+  /** The original question when confirming a plan or retrying one of its replies. */
+  usageQuestionId?: string;
   request?: TaskRequest;
   /** Runs once the workspace is ready and locked, just before the message is posted. */
   beforePost?: () => void;
@@ -556,6 +561,7 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   });
   const ids = new Map(messages.map((m, i) => [m.id, copies[i]!.id]));
   for (const m of copies) {
+    if (m.usageQuestionId) m.usageQuestionId = ids.get(m.usageQuestionId);
     if (m.checks) {
       m.checks.historical = true;
       if (m.checks.replyIds) m.checks.replyIds = m.checks.replyIds.flatMap((id) => ids.get(id) ?? []);
@@ -865,11 +871,14 @@ function takeHandoffBlocks(msg: ChatMessage): HandoffBlock[] {
   return blocks;
 }
 
-/** What two runs of one turn spent together (a reply's turn and the run that asked it for its missing cards). */
-function addUsage(a: RunResult, b: RunResult): RunResult {
+function reportedUsage(result?: ReportedUsage): ReportedUsage {
+  return { costUsd: result?.costUsd, inputTokens: result?.inputTokens, outputTokens: result?.outputTokens };
+}
+
+/** Add the figures reported by distinct CLI calls, leaving unreported metrics unknown. */
+function addUsage(a: ReportedUsage, b: ReportedUsage): ReportedUsage {
   const sum = (x?: number, y?: number) => (x === undefined && y === undefined ? undefined : (x ?? 0) + (y ?? 0));
   return {
-    ...a,
     costUsd: sum(a.costUsd, b.costUsd),
     inputTokens: sum(a.inputTokens, b.inputTokens),
     outputTokens: sum(a.outputTokens, b.outputTokens),
@@ -3558,9 +3567,15 @@ export class Orchestrator {
    * when the schedule sends it: now only what the user wrote meanwhile. Returns whether a run starts.
    */
   startConfirmed(conv: Conversation, refuseApprovals = false): boolean {
-    if (conv.messages.findLast((m) => m.plan?.status === 'ready')?.plan?.forSchedule) return this.startQueued(conv);
+    const design = conv.messages.findLast((m) => m.plan?.status === 'ready');
+    if (design?.plan?.forSchedule) return this.startQueued(conv);
     if (!this.mayStart(conv)) return false;
-    this.startInBackground(conv, { queue: true, keepTeam: true, refuseApprovals });
+    // A plan saved before schema 45 still belongs to the question before it, even if other
+    // messages queued while it waited for confirmation.
+    const question =
+      design?.usageQuestionId ??
+      (design && conv.messages.slice(0, conv.messages.indexOf(design)).findLast((m) => m.author.kind === 'user' && !m.queued)?.id);
+    this.startInBackground(conv, { queue: true, keepTeam: true, refuseApprovals, usageQuestionId: question });
     return true;
   }
 
@@ -3624,7 +3639,12 @@ export class Orchestrator {
     }
     // A reply of a tracking schedule's run: answered again, it reports on the goal too.
     const tracking = target.tracked && { ...target.tracked, due: this.clock(), attempt: 0, retries: false };
-    await this.start(conv, '', { beforePost: () => this.truncateFrom(conv, messageId), only: again, ...(tracking ? { tracking } : {}) });
+    await this.start(conv, '', {
+      beforePost: () => this.truncateFrom(conv, messageId),
+      only: again,
+      usageQuestionId: target.usageQuestionId,
+      ...(tracking ? { tracking } : {}),
+    });
   }
 
   /** The last agent reply in the settled prefix, or a particular reply explicitly chosen in the chat. */
@@ -3897,6 +3917,9 @@ export class Orchestrator {
       if (writes && pending && !conv.worktrees[TEAM_WORKTREE]?.some((w) => !w.needsReset && writes.includes(w.root))) {
         decide(writes, false);
       }
+      // Continue and answers to a waiting member stay with the original question, including after reload.
+      const previous = conv.messages.findLast((m) => m.usageQuestionId || (m.author.kind === 'user' && !m.queued));
+      const previousQuestion = previous?.usageQuestionId ?? previous?.id;
       if (ahead) posted = this.deliverQueued(conv, { ids: ahead });
       const own = this.postUserMessage(
         conv,
@@ -3919,6 +3942,7 @@ export class Orchestrator {
       const pausedChecks = resumed ? this.pendingPauseChecks(conv) : undefined;
       tracking = opts.tracking ?? this.carriedTracking(conv, posted, opts, pausedTracked, planning);
       run = {
+        usageQuestionId: opts.usageQuestionId ?? (resumed || opts.autoFix ? previousQuestion : posted[0]?.id) ?? previousQuestion,
         abort: new AbortController(),
         active: new Set(),
         turns: new Set(),
@@ -4772,7 +4796,7 @@ export class Orchestrator {
     ctx: PlannerContext,
     lead: LeadAgentSettings,
     decision: PlanDecision,
-    usage: RunResult[],
+    usage: PlanUsage[],
     replace = true,
   ): Promise<PlanDecision> {
     const signal = AbortSignal.any([run.abort.signal, AbortSignal.timeout(60_000)]);
@@ -4785,6 +4809,8 @@ export class Orchestrator {
       const id = randomUUID();
       const label = `${PROVIDER_LABEL[a.provider]} · ${assignmentModel(ctx, a) || t().planModelDefault}`;
       this.activity(conv.id, msg, { type: 'tool_start', id, name: t().planCheckModel, detail: label });
+      const entry: PlanUsage = { kind: 'modelCheck', provider: a.provider, model: assignmentModel(ctx, a) };
+      usage.push(entry);
       let ok = false;
       try {
         const account = this.settings.resolveAccount(a.provider, a.account);
@@ -4798,7 +4824,7 @@ export class Orchestrator {
           signal,
         });
         ok = result.ok;
-        if (result.usage) usage.push(result.usage);
+        Object.assign(entry, reportedUsage(result.usage));
       } catch {
         // A failed setup counts like a failed request. Let the other checks settle before fitting again.
       }
@@ -4853,6 +4879,7 @@ export class Orchestrator {
    * run ends).
    */
   private async designTeam(conv: Conversation, run: Run): Promise<void> {
+    const stages: PlanUsage[] = [];
     const lead = this.settings.lead;
     const msg: ChatMessage = {
       id: randomUUID(),
@@ -4860,7 +4887,8 @@ export class Orchestrator {
       createdAt: Date.now(),
       parts: [],
       status: 'streaming',
-      plan: { status: 'planning', lead, ...(run.designFor !== undefined ? { forSchedule: true } : {}) },
+      usageQuestionId: run.designFor === undefined ? run.usageQuestionId : undefined,
+      plan: { status: 'planning', usage: stages, lead, ...(run.designFor !== undefined ? { forSchedule: true } : {}) },
     };
     conv.messages.push(msg);
     this.hub.emit(conv.id, { type: 'message', message: msg });
@@ -4888,7 +4916,6 @@ export class Orchestrator {
     let failure: string | undefined;
     let decision: PlanDecision | undefined;
     let result: RunResult | undefined;
-    const checks: RunResult[] = [];
     const discovery = randomUUID();
     this.activity(conv.id, msg, { type: 'tool_start', id: discovery, name: t().planCheckAccounts });
     try {
@@ -4898,6 +4925,8 @@ export class Orchestrator {
       if (!memberAvailable(ctx, lead)) msg.plan!.leadUnavailable = true;
       if (ctx.staffing && !ctx.available.length) throw new PlanUnavailableError(t().planNoAvailableModel(run.designFor !== undefined));
       if (msg.plan!.leadUnavailable) throw new Error(t().planLeadUnavailable);
+      const planning: PlanUsage = { kind: 'planning' };
+      stages.push(planning);
       const leadRun = runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
         env: this.settings.env(lead.provider, lead.account),
@@ -4924,11 +4953,13 @@ export class Orchestrator {
         },
       });
       result = await leadRun.catch((err: unknown) => {
+        if (err instanceof AgentRunError) Object.assign(planning, reportedUsage(err.usage));
         if (!run.abort.signal.aborted) msg.plan!.leadUnavailable = true;
         throw err;
       });
       // The lead agent's session belongs to this conversation too.
       if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
+      Object.assign(planning, reportedUsage(result));
       decision = decidePlan(leadReply(reply, result.structured), ctx, lead, current);
     } catch (err) {
       if (!run.abort.signal.aborted) {
@@ -4950,21 +4981,14 @@ export class Orchestrator {
     const checkOnConfirm = Boolean(ctx?.staffing && conv.settings.permission === 'full' && !conv.settings.autoConfirm);
     if (decision && ctx?.staffing && !checkOnConfirm && !run.abort.signal.aborted) {
       try {
-        decision = await this.checkTeam(conv, run, msg, ctx, lead, decision, checks);
+        decision = await this.checkTeam(conv, run, msg, ctx, lead, decision, stages);
       } catch (err) {
         decision = undefined;
         failure = (err as Error).message;
       }
     }
     for (const p of msg.parts) if (p.type === 'tool' && p.status === 'running') p.status = 'error';
-    const usage = (key: 'costUsd' | 'inputTokens' | 'outputTokens') =>
-      [result, ...checks].reduce<number | undefined>((total, r) => (r?.[key] === undefined ? total : (total ?? 0) + r[key]), undefined);
-    msg.meta = {
-      durationMs: Date.now() - started,
-      costUsd: usage('costUsd'),
-      inputTokens: usage('inputTokens'),
-      outputTokens: usage('outputTokens'),
-    };
+    msg.meta = { durationMs: Date.now() - started, ...stages.reduce(addUsage, {}) };
     if (run.abort.signal.aborted) {
       msg.status = 'aborted';
     } else if (!decision) {
@@ -5020,6 +5044,7 @@ export class Orchestrator {
       createdAt: Date.now(),
       parts: [],
       status: 'streaming',
+      usageQuestionId: run.usageQuestionId,
       review: { status: 'reviewing', lead, replyIds, ...(material.fromId ? { fromId: material.fromId } : {}) },
     };
     conv.messages.push(msg);
@@ -5061,6 +5086,7 @@ export class Orchestrator {
       if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
       review = parseReviewReply(reply, material.replies, result.structured);
     } catch (err) {
+      if (err instanceof AgentRunError && err.usage) result = err.usage;
       if (!signal.aborted) {
         console.warn('[orchestrator] lead review failed:', (err as Error).message);
         failure = (err as Error).message.trim().slice(0, 500);
@@ -5994,7 +6020,9 @@ export class Orchestrator {
   private async checkConfirmedTeam(conv: Conversation, run: Run, msg: ChatMessage): Promise<void> {
     const plan = msg.plan!;
     const started = Date.now();
-    const usage: RunResult[] = [];
+    const usage: PlanUsage[] = [];
+    // A pending plan saved by an older server has only a combined amount up to confirmation.
+    plan.usage ??= [{ kind: 'combined', ...reportedUsage(msg.meta) }];
     msg.status = 'streaming';
     this.hub.emit(conv.id, { type: 'message', message: msg });
     this.store.saveMessage(conv.id, msg, true);
@@ -6038,11 +6066,8 @@ export class Orchestrator {
       for (const p of msg.parts) if (p.type === 'tool' && p.status === 'running') p.status = 'error';
       msg.meta ??= {};
       msg.meta.durationMs = (msg.meta.durationMs ?? 0) + Date.now() - started;
-      for (const r of usage) {
-        for (const key of ['costUsd', 'inputTokens', 'outputTokens'] as const) {
-          if (r[key] !== undefined) msg.meta[key] = (msg.meta[key] ?? 0) + r[key];
-        }
-      }
+      plan.usage.push(...usage);
+      Object.assign(msg.meta, plan.usage.reduce(addUsage, {}));
       this.store.saveMessage(conv.id, msg, true);
       this.hub.emit(conv.id, { type: 'message', message: msg });
     }
@@ -6636,6 +6661,7 @@ export class Orchestrator {
       createdAt: Date.now(),
       parts: [],
       status: 'streaming',
+      usageQuestionId: run.usageQuestionId,
       meta: info.mode === 'relay' ? {} : { round: info.round },
       // A tracking schedule's run: kept with the reply (also one that fails), so a Retry or Continue of it goes on with the goal.
       ...(run.tracking && this.trackingSource(run) ? { tracked: runOf(run.tracking) } : {}),
@@ -6992,9 +7018,10 @@ export class Orchestrator {
 
     // The tokens RLM's sub-model spent on this turn's questions (`llm_query()`), over both attempts.
     const subModel: SubModelTokens = { inputTokens: 0, outputTokens: 0 };
+    let spent: ReportedUsage = {};
     // `repair`: the turn's reply left out cards it needs (`handoffGaps()`), and this one more run of the same
     // session asks for them, in the same reply: its prompt alone, nothing of the chat delivered nor seen.
-    const attempt = async (fresh: boolean, repair?: string): Promise<RunResult> => {
+    const attempt = async (fresh: boolean, repair?: string): Promise<void> => {
       if (fresh) {
         state.sessionId = undefined;
         state.seen = [];
@@ -7170,9 +7197,10 @@ export class Orchestrator {
           readDirs: tools.skills.map((s) => s.dir),
           ...(onSteer ? { onSteer } : {}),
         });
+        spent = addUsage(spent, result);
         if (result.sessionId) state.sessionId = result.sessionId;
-        return result;
       } catch (err) {
+        if (err instanceof AgentRunError && err.usage) spent = addUsage(spent, err.usage);
         state.seen = seenBefore; // not delivered; offer it again next turn
         throw err;
       } finally {
@@ -7187,9 +7215,8 @@ export class Orchestrator {
     try {
       if (setupError) throw setupError;
       const hadSession = Boolean(state.sessionId);
-      let result: RunResult;
       try {
-        result = await attempt(false);
+        await attempt(false);
       } catch (err) {
         // A stale or missing CLI session (e.g. the working directory changed): start over with full history.
         const aborted = err instanceof AgentRunError && err.aborted;
@@ -7197,7 +7224,7 @@ export class Orchestrator {
         console.warn(`[orchestrator] resume failed for @${agent.name}, retrying fresh:`, (err as Error).message);
         const kept = { sessionId: state.sessionId, seen: state.seen };
         try {
-          result = await attempt(true);
+          await attempt(true);
         } catch (freshErr) {
           // The fresh session failed too before saying anything (rate limit, sign-in, network…): the
           // problem was not the session, so keep it for the next turn.
@@ -7238,7 +7265,7 @@ export class Orchestrator {
         this.store.saveMessage(conv.id, msg, true);
         let failed = false;
         try {
-          result = addUsage(result, await attempt(false, handoffRepairPrompt(gaps)));
+          await attempt(false, handoffRepairPrompt(gaps));
         } catch (err) {
           // Stopped, or its CLI failed: the reply stands as it was, what that run wrote of the hand-off
           // and steps blocks taken out unacted (as from a reply that failed), what it spent added, and
@@ -7246,7 +7273,6 @@ export class Orchestrator {
           failed = true;
           if (!(err instanceof AgentRunError && err.aborted))
             console.warn(`[orchestrator] @${agent.name} gave no missing cards:`, (err as Error).message);
-          if (err instanceof AgentRunError && err.usage) result = addUsage(result, err.usage);
         }
         // Its notes and a schedule it proposed are kept, as from any reply, finished or not.
         this.takeMemory(conv, msg, agent);
@@ -7303,12 +7329,6 @@ export class Orchestrator {
               p.type === 'schedule',
           ));
       msg.status = 'done';
-      msg.meta = {
-        ...msg.meta,
-        durationMs: Date.now() - started,
-        costUsd: result.costUsd,
-        ...withSubModelTokens(result, subModel),
-      };
       // What the user sent into the turn (steering) is in the session now, as the reply is.
       for (const id of steered) if (!state.seen.includes(id)) state.seen.push(id);
       outcome = 'done';
@@ -7339,15 +7359,9 @@ export class Orchestrator {
         if (text.trim()) part.text = text;
         else msg.parts.splice(i, 1);
       }
-      // What the turn spent until then, where its CLI said (a stopped Claude Code turn's result, say).
-      const spent = err instanceof AgentRunError ? err.usage : undefined;
-      msg.meta = {
-        ...msg.meta,
-        durationMs: Date.now() - started,
-        ...(spent ? { costUsd: spent.costUsd, ...withSubModelTokens(spent, subModel) } : {}),
-      };
       for (const p of msg.parts) if (p.type === 'tool' && p.status === 'running') p.status = 'error';
     } finally {
+      msg.meta = { ...msg.meta, durationMs: Date.now() - started, costUsd: spent.costUsd, ...withSubModelTokens(spent, subModel) };
       // The CLI is gone: requests it was still waiting on can no longer be answered, nor can new ones.
       turnOver = true;
       for (const id of waiting) this.approvals.get(id)?.resolve({ allow: false, expired: true });

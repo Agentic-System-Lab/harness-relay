@@ -72,7 +72,7 @@ describe('what a shared page holds', () => {
 
   it("takes one element per message, without a branch's line between them", () => {
     const el = (cls: string) => ({ cls, classList: { contains: (name: string) => cls.split(' ').includes(name) } });
-    const items = [el('msg-user'), el('msg-agent'), el(BETWEEN_MESSAGES), el('msg-user')];
+    const items = [el('msg-user'), el('question-usage'), el('msg-agent'), el(BETWEEN_MESSAGES), el('msg-user')];
     expect(messageElements(items).map((x) => x.cls)).toEqual(['msg-user', 'msg-agent', 'msg-user']);
     expect(SHARE_DROP).toContain(`.${BETWEEN_MESSAGES}`);
   });
