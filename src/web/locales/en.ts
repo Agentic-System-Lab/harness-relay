@@ -929,7 +929,7 @@ export const en: Messages = {
     share: 'Share',
     shareTitle: 'Copy or share the conversation up to this reply',
     branch: 'Branch conversation',
-    branchTitle: 'Copy the conversation up to this reply into a new one and go on from here; this one stays as it is',
+    branchTitle: 'Use the history through this reply in a new topic or child branch',
     continuedFrom: 'Continued from',
     branchGone: ' (deleted)',
     branchGoneTitle: 'The original conversation has been deleted',
@@ -3488,6 +3488,16 @@ export const en: Messages = {
     laterHint: 'You can update later under Settings & sign-in → Version.',
   },
 
+  branchDialog: {
+    title: 'Start a conversation from here',
+    through: 'Copy through this reply',
+    topic: 'Start a new topic',
+    topicHint: 'Keep this history and move the new conversation to any group.',
+    child: 'Create a child branch',
+    childHint: 'Explore another direction in the same sidebar tree.',
+    noReply: 'Once an agent has finished a reply, you can copy the history through it.',
+    copying: 'Copying conversation…',
+  },
   tour: {
     title: 'Guided tour',
     progress: (read: number, n: number) => `${read} of ${n} read`,
@@ -3516,7 +3526,7 @@ export const en: Messages = {
       },
       {
         title: 'Start a chat',
-        body: 'Type your question, pick a working directory and a file permission, and send it. The lead agent builds a team for it.',
+        body: 'Send a question with a working directory and file permission. The lead agent builds your team. From the sidebar or an agent reply, reuse the history in a new topic or a child branch.',
         action: 'Start a new chat',
       },
       {

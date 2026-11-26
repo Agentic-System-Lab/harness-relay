@@ -68,6 +68,7 @@ const SettingsPage = lazyPart(() => import('./components/SettingsPage').then((m)
 const Onboarding = lazyPart(() => import('./components/Onboarding').then((m) => m.Onboarding));
 const SandboxSetupDialog = lazyPart(() => import('./components/SandboxSetupDialog').then((m) => m.SandboxSetupDialog));
 const WithheldEnvDialog = lazyPart(() => import('./components/WithheldEnvDialog').then((m) => m.WithheldEnvDialog));
+const BranchDialog = lazyPart(() => import('./components/BranchDialog').then((m) => m.BranchDialog));
 const InboxDialog = lazyPart(() => import('./components/InboxDialog').then((m) => m.InboxDialog));
 
 type SeenMap = Record<string, number>;
@@ -202,6 +203,11 @@ function RelayApp() {
     setTourOpen(false);
   };
   const [route, setRoute] = useState<Route>(parseHash);
+  const [branchSource, setBranchSource] = useState<{ id: string; title: string; messageId?: string }>();
+  const [focusChat, setFocusChat] = useState<string>();
+  const chooseBranch = useCallback((id: string, title: string, messageId?: string) => {
+    setBranchSource({ id, title, messageId });
+  }, []);
   const [appStatus] = useState(() => new DraftAppStatus());
   const [chatDraft, setChatDraft] = useState(emptyChatDraft);
   const [startingChat, setStartingChat] = useState(false);
@@ -238,6 +244,8 @@ function RelayApp() {
       const next = parseHash();
       if (previous.page === 'settings' && next.page !== 'settings') appStatus.clear();
       setRoute(next);
+      setBranchSource(undefined);
+      setFocusChat((id) => (next.page === 'chat' && next.id === id ? id : undefined));
       if (next.page !== 'settings') setSettingsReturn(undefined);
       else if (previous.page === 'new' || previous.page === 'schedule') setSettingsReturn({ page: previous.page });
       previous = next;
@@ -606,7 +614,22 @@ function RelayApp() {
 
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
+      {branchSource && (
+        <Deferred onClose={() => setBranchSource(undefined)}>
+          <BranchDialog
+            {...branchSource}
+            onClose={() => setBranchSource(undefined)}
+            onCreated={(id) => {
+              setBranchSource(undefined);
+              setFocusChat(id);
+              refreshConversations();
+              navigate({ page: 'chat', id });
+            }}
+          />
+        </Deferred>
+      )}
       <Sidebar
+        onBranch={chooseBranch}
         phoneLink={phoneLink}
         onCollapse={() => setCollapsed(true)}
         inbox={inbox}
@@ -691,6 +714,8 @@ function RelayApp() {
         {route.page === 'chat' && (
           <ChatView
             key={route.id}
+            focusComposer={focusChat === route.id}
+            chooseBranch={chooseBranch}
             id={route.id}
             providers={providers}
             catalog={catalog}

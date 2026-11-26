@@ -3425,12 +3425,25 @@ export interface Conversation {
  * further up (`earlier`), as if it had been branched there.
  */
 export interface ConversationBranch extends BranchPart {
+  /** A new topic keeps its source for context but starts a separate sidebar family. */
+  independent?: true;
+  /** For copied isolated changes, their git branch and the conversation whose worktree holds it. */
+  worktreeSources?: Record<string, string>;
   /**
    * The copied messages before the part `fromId` wrote, when they were written further up: each part
    * with the conversation it was written in and its last message here (`afterId`), nearest first.
    * Branching from one of them makes a branch of the conversation that wrote it.
    */
   earlier?: BranchPart[];
+}
+
+export type ConversationBranchKind = 'child' | 'topic';
+
+/** The exact reply shown before copying history. Its id is also required when creating the copy. */
+export interface BranchPoint {
+  id: string;
+  createdAt: number;
+  excerpt: string;
 }
 
 /** Copied messages of a branch, up to `afterId`, and the conversation they were written in. */
@@ -3490,9 +3503,9 @@ export interface ConversationSummary {
   /**
    * It was branched from another conversation: that one's id, its title when it was branched (shown
    * once it has been deleted), and where that one came from once deleted (`ConversationBranch.via`).
-   * The sidebar shows it under that conversation.
+   * The sidebar shows it under that conversation unless it starts an independent topic.
    */
-  branchFrom?: { id: string; title: string; via?: ConversationBranch['via'] };
+  branchFrom?: { id: string; title: string; independent?: true; via?: ConversationBranch['via'] };
   /**
    * It has a schedule: whether it is on, when it sends next, how the last time went, the time zone its
    * times are shown in (a daily or weekly schedule's own; absent: the browser's), and whether it has

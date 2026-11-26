@@ -546,6 +546,8 @@ export function subagentRules(provider: Provider, nativeOff: readonly NativePart
  */
 function branchRules(conv: Conversation): string {
   if (!conv.branch) return '';
+  if (conv.branch.independent)
+    return '\n- This is a new topic. The copied conversation is background for the user’s new request. Messages marked as copied_history are background. Follow the requests in the current chat. Check the current working files before relying on earlier descriptions.';
   return '\n- This chat was branched from an earlier one: the messages up to the branch point were copied from it, and that chat may have gone on and changed files in the working directory since. Check the files themselves rather than relying on what earlier messages say about them.';
 }
 
@@ -886,6 +888,17 @@ export interface TurnInfo {
   schedule?: string;
 }
 
+/** Everything through this index is background copied into an independent topic. */
+function topicCutoff(conv: Conversation): number {
+  const branch = conv.branch;
+  return branch?.independent ? conv.messages.findIndex((m) => m.id === branch.afterId) : -1;
+}
+
+function topicMessages(conv: Conversation): ChatMessage[] {
+  const cutoff = topicCutoff(conv);
+  return cutoff < 0 ? conv.messages : conv.messages.slice(cutoff + 1);
+}
+
 export function buildTurnPrompt(
   conv: Conversation,
   agent: AgentConfig,
@@ -901,7 +914,17 @@ export function buildTurnPrompt(
       : fresh
         ? 'Here is the group chat so far:'
         : 'New chat messages since your last turn:';
-  const chat = delta.length ? `\n<chat>\n${delta.map((m) => renderMessage(conv, m)).join('\n')}\n</chat>` : '';
+  const cutoff = topicCutoff(conv);
+  const copied = new Set(cutoff < 0 ? [] : conv.messages.slice(0, cutoff + 1).map((m) => m.id));
+  const history: string[] = [];
+  const local: string[] = [];
+  for (const m of delta) {
+    const section = copied.has(m.id) ? history : local;
+    section.push(renderMessage(conv, m));
+  }
+  const chat =
+    (history.length ? `\n<copied_history>\n${history.join('\n')}\n</copied_history>` : '') +
+    (local.length ? `\n<chat>\n${local.join('\n')}\n</chat>` : '');
 
   let cue: string;
   const answered = `You asked the user a question and their reply is among the messages above${
@@ -934,7 +957,7 @@ export function notesForAgent(
   current: string,
   seen: ReadonlySet<string>,
 ): { id?: string; notes: string[] } {
-  const last = conv.messages.findLast((m) => m.id !== current && m.author.kind === 'agent' && m.author.agentId === agentId);
+  const last = topicMessages(conv).findLast((m) => m.id !== current && m.author.kind === 'agent' && m.author.agentId === agentId);
   if (!last || seen.has(`notice:${last.id}`)) return { notes: [] };
   const notes = last.parts.flatMap((p) => (p.type === 'notice' && p.forAgent ? [p.forAgent] : []));
   return notes.length ? { id: last.id, notes } : { notes: [] };
@@ -948,7 +971,7 @@ export function notesForAgent(
 export function outboxNotes(conv: Conversation, agentId: string, seen: ReadonlySet<string>): { ids: string[]; notes: string[] } {
   const ids: string[] = [];
   const notes: string[] = [];
-  for (const m of conv.messages) {
+  for (const m of topicMessages(conv)) {
     if (m.author.kind !== 'agent' || m.author.agentId !== agentId) continue;
     for (const p of m.parts) {
       if (p.type !== 'outbox' || !p.forAgent || seen.has(`outbox:${p.id}`)) continue;
@@ -974,10 +997,11 @@ export function commandRunNotes(conv: Conversation, agentId: string, seen: Reado
   const keys: string[] = [];
   const notes: string[] = [];
   const shared = new Set<string>();
-  for (const m of conv.messages)
+  const messages = topicMessages(conv);
+  for (const m of messages)
     for (const p of m.parts)
       if (p.type === 'command' && p.commandId && p.sharedAt !== undefined) shared.add(`command-run:${p.commandId}:${p.sharedAt}`);
-  for (const m of conv.messages) {
+  for (const m of messages) {
     if (m.author.kind !== 'agent' || m.author.agentId !== agentId) continue;
     for (const p of m.parts) {
       if (p.type !== 'command' || !p.commandId || !p.run || p.run.source !== 'try' || p.run.status === 'running') continue;

@@ -117,6 +117,47 @@ describe('branching a conversation', () => {
     expect(new Store(db).get(branch.id)!.title).toBe('another question');
   });
 
+  it('keeps an independent topic in its own family across edits, moves, reloads and deletion', async () => {
+    store.createGroup({ id: 'research', name: 'Research' });
+    store.createGroup({ id: 'sales', name: 'Sales' });
+    const source = conversation({ mode: 'roundtable', permission: 'read-only' });
+    store.moveToGroup(source.id, 'research');
+    await orchestrator.send(source.id, 'Customer interviews');
+    await finish(source.id);
+    fake.asking = new Set(['Alice']);
+    await orchestrator.send(source.id, 'An open question');
+    await finish(source.id);
+    const reply = agentMessages(source).at(-1)!;
+    const topic = await orchestrator.branch(source.id, reply.id, 'topic');
+    expect(source.pause).toBeDefined();
+    expect(topic.pause).toBeUndefined();
+    expect(topic.messages.map(textOf)).toEqual(source.messages.map(textOf));
+    expect(topic.agentState).toEqual({});
+    expect(store.groupOf(topic.id)).toBe('research');
+    expect(new Store(db).get(topic.id)?.branch).toEqual({ ...topic.branch, independent: true });
+    store.moveToGroup(topic.id, 'sales');
+    expect(store.groupOf(source.id)).toBe('research');
+    const child = await orchestrator.branch(topic.id, agentMessages(topic).at(-1)!.id);
+    expect(child.branch?.fromId).toBe(topic.id);
+    expect(new Store(db).family(topic.id)).toEqual([topic.id, child.id]);
+    expect(store.groupOf(child.id)).toBe('sales');
+    fake.asking.clear();
+    await orchestrator.deleteConversation(source.id);
+    calls.length = 0;
+    await orchestrator.send(topic.id, 'Prepare a sales brief');
+    await finish(topic.id);
+    expect(calls[0]!.prompt).toContain('Customer interviews');
+    expect(calls[0]!.systemPrompt).toContain('new topic');
+    expect(calls[0]!.sessionId).toBeUndefined();
+    expect(topic.title).toBe('Prepare a sales brief');
+    await orchestrator.resend(topic.id, topic.messages[3]!.id, 'Update the notes');
+    await finish(topic.id);
+    expect(new Store(db).get(topic.id)?.branch).toMatchObject({ independent: true, fromId: source.id });
+    await orchestrator.deleteConversation(topic.id);
+    expect(new Store(db).get(child.id)?.branch?.via).toBeUndefined();
+    expect(new Store(db).family(child.id)).toEqual([child.id]);
+  });
+
   it('names a branch after the first message written there only while it has the name it was made with', async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     await orchestrator.send(conv.id, 'first question');
@@ -317,6 +358,7 @@ describe('branching a conversation', () => {
     fake.gates = { Alice: new Promise((r) => (release = r)) };
     await orchestrator.send(conv.id, 'question');
     await vi.waitFor(() => expect(agentMessages(conv).map((m) => m.status)).toEqual(['streaming', 'done']));
+    expect(orchestrator.branchPoint(conv.id)).toBeNull();
     const bob = agentMessages(conv)[1]!;
     await expect(orchestrator.branch(conv.id, bob.id)).rejects.toMatchObject({ status: 409 });
     release();
@@ -326,6 +368,7 @@ describe('branching a conversation', () => {
     fake.gates = { Bob: new Promise(() => {}) }; // Bob only finishes when stopped
     await orchestrator.send(conv.id, 'again');
     await vi.waitFor(() => expect(agentMessages(conv).at(-2)?.status).toBe('done'));
+    expect(orchestrator.branchPoint(conv.id)?.id).toBe(agentMessages(conv).at(-2)!.id);
     const branch = await orchestrator.branch(conv.id, agentMessages(conv).at(-2)!.id);
     expect(kinds(branch)).toEqual(['user', 'agent', 'agent', 'user', 'agent']);
     expect(orchestrator.isRunning(conv.id)).toBe(true);
@@ -645,6 +688,12 @@ describe('branching a conversation', () => {
       const file = resolveMedia('chart.png', mediaRoots(c, m, lookup));
       return file && readFileSync(file, 'utf8');
     };
+
+    const topic = await orchestrator.branch(conv.id, reply.id, 'topic');
+    const child = await orchestrator.branch(topic.id, agentMessages(topic)[0]!.id);
+    await orchestrator.deleteConversation(topic.id);
+    const reloaded = new Store(db).get(child.id)!;
+    expect(chart(reloaded, agentMessages(reloaded)[0]!)).toBe('the original chart');
 
     const branch = await orchestrator.branch(conv.id, reply.id);
     const copied = agentMessages(branch)[0]!;

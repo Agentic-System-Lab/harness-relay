@@ -40,6 +40,7 @@ import { LogoSpinner } from './Logo';
 import { MemberDots } from './MemberDots';
 
 interface Props {
+  onBranch: (id: string, title: string) => void;
   route: Route;
   conversations: ConversationSummary[];
   groups: ConversationGroup[];
@@ -191,7 +192,7 @@ function GroupNameField({
  * groups, then "Other". In a group, each conversation branched from another is under it, and a family
  * of them is dragged between groups as one.
  */
-export function SidebarGroups({ route, conversations, groups, seen, onChanged, onDelete }: Props) {
+export function SidebarGroups({ route, conversations, groups, seen, onChanged, onDelete, onBranch }: Props) {
   const { t, lang } = useI18n();
   const [collapsed, setCollapsed] = useState(readCollapsedGroups);
   const [folded, setFolded] = useState(readCollapsedBranches);
@@ -408,6 +409,20 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
           <PinIcon size={10} upright={isPinned} />
         </button>
         {node && foldButton(node)}
+        <button
+          type="button"
+          className="icon-button conv-branch"
+          aria-label={t.branchDialog.title}
+          title={t.branchDialog.title}
+          aria-haspopup="dialog"
+          onClick={(e) => {
+            // Safari leaves pointer-clicked buttons unfocused; Escape should return here.
+            e.currentTarget.focus();
+            onBranch(c.id, c.title);
+          }}
+        >
+          <BranchIcon size={15} />
+        </button>
         {groups.length > 0 && (
           // A native menu: works with the keyboard and on touch screens, where dragging does not.
           <span className="icon-button conv-move" title={moveLabel}>

@@ -3,6 +3,7 @@ import type { AgentConfig, ChatMessage, Conversation, ScheduleTrigger } from '..
 import {
   buildBriefing,
   buildTurnPrompt,
+  notesForAgent,
   canReadFiles,
   forwardText,
   isForwardable,
@@ -443,6 +444,30 @@ describe('buildBriefing', () => {
 });
 
 describe('asking the user', () => {
+  it('uses the copied prefix as background when a fresh session joins an independent topic', () => {
+    const asked = agentMessage({
+      id: 'old',
+      asked: true,
+      parts: [
+        { type: 'text', text: 'Who should review the interview?' },
+        { type: 'notice', text: 'Old notice', forAgent: 'Recover the missing card' },
+      ],
+    });
+    const task = agentMessage({ id: 'task', author: { kind: 'user' }, parts: [{ type: 'text', text: 'Write the sales brief' }] });
+    const followup = agentMessage({ id: 'followup', author: { kind: 'user' }, parts: [{ type: 'text', text: 'Use two slides' }] });
+    const topic = {
+      ...conv,
+      messages: [asked, task, followup],
+      branch: { independent: true as const, fromId: 'source', fromTitle: 'Interviews', afterId: asked.id },
+    };
+    const turn = { mode: 'roundtable' as const, round: 1, rounds: 1 };
+    const prompt = buildTurnPrompt(topic, team[0]!, topic.messages, true, turn);
+    expect(prompt).toMatch(
+      /<copied_history>[\s\S]*Who should review[\s\S]*<\/copied_history>\s*<chat>[\s\S]*Write the sales brief[\s\S]*Use two slides/,
+    );
+    expect(buildTurnPrompt(topic, team[0]!, [followup], false, turn)).not.toContain('copied_history');
+    expect(notesForAgent(topic, 'b', 'next', new Set()).notes).toEqual([]);
+  });
   it('finds the ask marker at the end of a reply, however it is dressed up', () => {
     expect(splitAsk('Which one, A or B?\n\n[ASK_USER]')).toEqual({ text: 'Which one, A or B?', asks: true });
     expect(splitAsk('Which one? [ASK_USER]')).toEqual({ text: 'Which one?', asks: true });

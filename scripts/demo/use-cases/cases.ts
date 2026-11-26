@@ -698,6 +698,7 @@ const launchCopy: UseCase = {
     await sleep(800);
     mark('branch');
     await moveClick(reply.getByRole('button', { name: T.message.branch, exact: true }).last(), { after: 600 });
+    await moveClick(page.getByRole('dialog').getByRole('button', { name: T.branchDialog.child }));
     await page.waitForURL((u) => /#\/c\//.test(u.hash) && idFromUrl(u.href) !== id, { timeout: 30_000 });
     const branch = idFromUrl(page.url());
     s.log('branch', branch);

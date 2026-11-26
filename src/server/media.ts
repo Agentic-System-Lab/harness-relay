@@ -38,7 +38,8 @@ export function replyWorktrees(
     const holds = (w: AgentWorktree) => w.root === changes.root && w.branch === changes.branch;
     let wt = mine.find(holds);
     const seen = new Set([conv.id]);
-    const queue = wt ? [] : sources(conv);
+    const original = conv.branch?.worktreeSources?.[changes.branch!];
+    const queue = wt ? [] : original ? [original] : sources(conv);
     for (let i = 0; i < queue.length && !wt; i++) {
       const from = !seen.has(queue[i]!) ? lookup(queue[i]!) : undefined;
       seen.add(queue[i]!);

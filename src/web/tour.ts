@@ -4,13 +4,13 @@
 const DONE_KEY = 'relay:onboarded';
 /** The topics read, each at the revision it was read in, and the version a "Not now" answered. */
 const GUIDE_KEY = 'relay:guide';
-export const TOUR_VERSION = 45;
+export const TOUR_VERSION = 46;
 
 /** Ordered like tour.steps in both locales. Each revision is when that topic last changed for readers. */
 export const TOUR_STEPS = [
   { id: 'welcome', revision: 17 },
   { id: 'agents', revision: 39 }, // signing in, the open agents' model connections
-  { id: 'chat', revision: 44 }, // the team the lead agent builds, the file permission
+  { id: 'chat', revision: 46 }, // the team the lead agent builds, the file permission
   { id: 'team', revision: 45 }, // replies as they come, approvals, questions, cards for the user
   { id: 'phone', revision: 23 },
   { id: 'automations', revision: 44 },

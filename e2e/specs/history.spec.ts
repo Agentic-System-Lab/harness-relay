@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures';
-import { chatId, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
+import { acceptNextDialog, chatId, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
 
 test.describe("changing a chat's history", () => {
   test('a message can be edited and sent again: what came after it is replaced', async ({ page, relay }) => {
@@ -46,6 +46,10 @@ test.describe("changing a chat's history", () => {
 
     await reply.hover();
     await reply.getByRole('button', { name: 'Branch conversation' }).click();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: /Create a child branch/ })
+      .click();
     await expect.poll(() => chatId(page)).not.toBe(original);
     const branch = chatId(page);
     await expect(page.locator('.chat-head')).toContainText('Continued from');
@@ -58,5 +62,61 @@ test.describe("changing a chat's history", () => {
     expect(JSON.stringify(trunk.messages)).not.toContain('Only in the branch');
     // In the sidebar, the branch is listed with its original.
     await expect(page.locator('.conv-item')).toHaveCount(2);
+  });
+  test('new topics from the sidebar and from a reply keep the selected history as separate roots', async ({ page, relay }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Customer interviews');
+    const source = page.locator('.conv-item').filter({ has: page.locator(`a[href="#/c/${id}"]`) });
+    const sidebarButton = source.getByRole('button', { name: 'Start a conversation from here' });
+    const dialog = page.getByRole('dialog');
+    await source.hover();
+    await sidebarButton.click();
+    await expect(dialog).toContainText('Once an agent has finished a reply');
+    await page.keyboard.press('Escape');
+    await expect(sidebarButton).toBeFocused();
+    await send(page, 'Interview findings');
+    await finishedReply(page, 'Codex');
+    await settled(relay, id);
+    await send(page, 'Sales objections');
+    await finishedReply(page, 'Codex');
+    await settled(relay, id);
+    await source.hover();
+    await sidebarButton.click();
+    await expect(dialog).toContainText('Sales objections');
+    await dialog.getByRole('button', { name: /Start a new topic/ }).click();
+    await expect.poll(() => chatId(page)).not.toBe(id);
+    await expect(page.locator('.composer-row textarea')).toBeFocused();
+    await expect(page.locator('.msg-user')).toHaveCount(2);
+    await page.locator('.head-branch a').click();
+    const first = replies(page, 'Codex').first();
+    await first.hover();
+    await first.getByRole('button', { name: 'Branch conversation' }).click();
+    await expect(dialog).toContainText('Interview findings');
+    await page.setViewportSize({ width: 667, height: 320 });
+    const childOption = dialog.getByRole('button', { name: /Create a child branch/ });
+    await childOption.scrollIntoViewIfNeeded();
+    await expect(childOption).toBeInViewport({ ratio: 1 });
+    await dialog.getByRole('button', { name: /Start a new topic/ }).click();
+    await expect.poll(() => chatId(page)).not.toBe(id);
+    await expect(page.locator('.msg-user')).toHaveText([/Interview findings/]);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(page.locator('.conv-item')).toHaveCount(3);
+    await expect(page.locator('.conv-children')).toHaveCount(0);
+
+    const topicId = chatId(page);
+    const sales = await relay.api<{ id: string }>('/api/groups', { body: { name: 'Sales' } });
+    await page.reload();
+    const topic = page.locator('.conv-item').filter({ has: page.locator(`a[href="#/c/${topicId}"]`) });
+    await topic.hover();
+    await topic.getByRole('combobox').selectOption(sales.id);
+    await expect(page.getByRole('region', { name: 'Sales', exact: true }).locator('.conv-item')).toHaveCount(1);
+    await expect(page.getByRole('region', { name: 'Other', exact: true }).locator('.conv-item')).toHaveCount(2);
+    await source.hover();
+    acceptNextDialog(page);
+    await source.getByRole('button', { name: 'Delete conversation' }).click();
+    await expect(page.locator('.head-branch')).toContainText('Customer interviews (deleted)');
+    await send(page, 'Prepare a sales brief');
+    await expect(await finishedReply(page, 'Codex')).toContainText('Prepare a sales brief');
+    const saved = await settled(relay, topicId);
+    expect(saved.messages.filter((m) => m.author.kind === 'user')).toHaveLength(2);
   });
 });

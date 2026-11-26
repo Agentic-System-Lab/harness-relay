@@ -946,7 +946,7 @@ export const zhTW = {
     share: '分享',
     shareTitle: '把到這則回覆為止的對話複製或分享出去',
     branch: '分支對話',
-    branchTitle: '把到這則回覆為止的對話複製成新對話，從這裡另外接著聊；原本的對話不受影響',
+    branchTitle: '帶入到這則回覆為止的紀錄，開新議題或建立子分支',
     continuedFrom: '延續自',
     branchGone: '（已刪除）',
     branchGoneTitle: '原本的對話已經刪除了',
@@ -3466,6 +3466,16 @@ export const zhTW = {
     laterHint: '之後可以在「設定與登入 → 版本」更新。',
   },
 
+  branchDialog: {
+    title: '從這裡開對話',
+    through: '複製到這則回覆為止',
+    topic: '帶入紀錄，開新議題',
+    topicHint: '保留對話紀錄，新議題可以單獨移到其他群組。',
+    child: '建立子分支',
+    childHint: '在同一串分支底下探索另一個方向。',
+    noReply: '等 agent 完成一則回覆，就能複製到該則為止的紀錄。',
+    copying: '正在複製對話…',
+  },
   tour: {
     title: '使用導覽',
     progress: (read: number, n: number) => `已看 ${read} / ${n}`,
@@ -3494,7 +3504,7 @@ export const zhTW = {
       },
       {
         title: '開始新對話',
-        body: '輸入問題，選好工作目錄和檔案權限就能送出。首席 agent 會依問題自動組隊。',
+        body: '輸入問題，選好工作目錄和檔案權限就能送出。首席 agent 會依問題自動組隊。從側欄或任一則 agent 回覆，可以帶入紀錄開新議題，也可以建立子分支。',
         action: '開始新對話',
       },
       {

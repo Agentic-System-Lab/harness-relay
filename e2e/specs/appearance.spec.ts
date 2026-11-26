@@ -164,7 +164,7 @@ test.describe('the guided tour', () => {
     // The tour's version before the checklist: nothing to ask.
     await page.evaluate(() => {
       localStorage.removeItem('relay:guide');
-      localStorage.setItem('relay:onboarded', '45');
+      localStorage.setItem('relay:onboarded', '46');
     });
     await page.reload();
     await appShown(page);

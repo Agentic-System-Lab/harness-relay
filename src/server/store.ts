@@ -758,7 +758,18 @@ function branchOf(json: string | null): Pick<Conversation, 'branch'> {
   const main = partOf(b);
   if (!main) return {};
   const earlier = Array.isArray(b?.earlier) ? b.earlier.map(partOf).filter((p) => p !== undefined) : [];
-  return { branch: { ...main, ...(earlier.length ? { earlier } : {}) } };
+  const worktrees =
+    b?.worktreeSources && typeof b.worktreeSources === 'object' && !Array.isArray(b.worktreeSources)
+      ? Object.entries(b.worktreeSources).filter(([, id]) => typeof id === 'string')
+      : [];
+  return {
+    branch: {
+      ...main,
+      ...(worktrees.length ? { worktreeSources: Object.fromEntries(worktrees) } : {}),
+      ...(b?.independent === true ? { independent: true } : {}),
+      ...(earlier.length ? { earlier } : {}),
+    },
+  };
 }
 
 /**
@@ -769,7 +780,10 @@ function branchOf(json: string | null): Pick<Conversation, 'branch'> {
 function partPast<P extends BranchPart>(part: P, deleted: { id: string; title: string; branch?: ConversationBranch }): P | undefined {
   const via = part.via ?? [];
   if ((via.at(-1)?.id ?? part.fromId) !== deleted.id) return undefined;
-  const above = deleted.branch ? [{ id: deleted.branch.fromId, title: deleted.branch.fromTitle }, ...(deleted.branch.via ?? [])] : [];
+  const above =
+    deleted.branch && !deleted.branch.independent
+      ? [{ id: deleted.branch.fromId, title: deleted.branch.fromTitle }, ...(deleted.branch.via ?? [])]
+      : [];
   // A deleted one further up keeps the title it had then.
   const kept = via.length ? [...via.slice(0, -1), { id: deleted.id, title: deleted.title }] : [];
   const next = [...kept, ...above];
@@ -784,6 +798,10 @@ function branchPast(
   branch: ConversationBranch,
   deleted: { id: string; title: string; branch?: ConversationBranch },
 ): ConversationBranch | undefined {
+  // An independent topic remembers its immediate source but never adopts that source's ancestors.
+  if (branch.independent) {
+    return branch.fromId === deleted.id && branch.fromTitle !== deleted.title ? { ...branch, fromTitle: deleted.title } : undefined;
+  }
   const main = partPast(branch, deleted);
   const earlier = branch.earlier?.map((p) => partPast(p, deleted));
   if (!main && !earlier?.some(Boolean)) return undefined;
@@ -1076,7 +1094,16 @@ export class Store {
           ...(r.pinned_at !== null ? { pinnedAt: r.pinned_at } : {}),
           ...(sorting(r.id) ? { sorting: true } : {}),
           ...scheduleOf(live, schedules.get(r.id)),
-          ...(branch ? { branchFrom: { id: branch.fromId, title: branch.fromTitle, ...(branch.via ? { via: branch.via } : {}) } } : {}),
+          ...(branch
+            ? {
+                branchFrom: {
+                  id: branch.fromId,
+                  title: branch.fromTitle,
+                  ...(branch.independent ? { independent: true as const } : {}),
+                  ...(branch.via ? { via: branch.via } : {}),
+                },
+              }
+            : {}),
         };
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -1902,7 +1929,7 @@ export class Store {
         id: r.id,
         createdAt: r.created_at,
         groupId: r.group_id,
-        ...(branch ? { fromId: branch.fromId, ...(branch.via ? { via: branch.via.map((v) => v.id) } : {}) } : {}),
+        ...(branch && !branch.independent ? { fromId: branch.fromId, ...(branch.via ? { via: branch.via.map((v) => v.id) } : {}) } : {}),
       };
     });
   }
@@ -1945,8 +1972,8 @@ export class Store {
   }
 
   /** A new branch goes into its family's group, as the user's choice (so the lead agent does not sort it). */
-  placeBranch(convId: string): void {
-    this.db.prepare("UPDATE conversations SET group_id = ?, group_source = 'user' WHERE id = ?").run(this.familyGroupOf(convId), convId);
+  placeBranch(convId: string, groupFrom = convId): void {
+    this.db.prepare("UPDATE conversations SET group_id = ?, group_source = 'user' WHERE id = ?").run(this.familyGroupOf(groupFrom), convId);
   }
 
   /**

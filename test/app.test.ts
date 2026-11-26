@@ -2842,6 +2842,13 @@ describe('POST /api/conversations/:id/messages/:messageId/branch', () => {
     orchestrator.stop(conv.id);
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
 
+    const pointUrl = `/api/conversations/${conv.id}/branch-point`;
+    const point = await (await get(pointUrl)).json();
+    expect(point).toMatchObject({ id: reply!.id, createdAt: reply!.createdAt });
+    expect((await get(`${pointUrl}?messageId=${question!.id}`)).status).toBe(400);
+    expect((await get(`${pointUrl}?messageId=gone`)).status).toBe(404);
+    expect((await app.request(`/api/conversations/${conv.id}/messages/${reply!.id}/branch?kind=bad`, json('POST', {}))).status).toBe(400);
+
     const res = await branch(reply!.id, { 'X-Relay-Lang': 'en' });
     expect(res.status).toBe(200);
     const made = (await res.json()) as Conversation;
