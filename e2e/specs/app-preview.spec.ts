@@ -346,8 +346,8 @@ test.describe('the app the team made', () => {
     await divider.focus();
     await page.keyboard.press('ArrowLeft');
     await expect.poll(width).toBeCloseTo(narrower + 32, 0);
-    // Never so wide that the chat keeps less than 360 pixels.
-    await drag(-2000);
+    // Drag past the 360px limit, releasing inside the window so the divider gets pointerup.
+    await drag(-main.width / 2);
     await expect.poll(width).toBeCloseTo(main.width - 360, 0);
     await expect(page.locator('.schedule-badge')).toBeVisible();
     const actions = await openChatActions(page);
