@@ -281,7 +281,11 @@ describe('lead agent reply', () => {
       '- claude (Claude Code)\n  Models: opus (efforts low/medium/high; guide: Claude), haiku (efforts low; guide: Claude)\n  Default model opus',
     );
     expect(prompt).not.toContain('- grok');
-    expect(prompt).toContain('"id": "builtin-general"');
+    const catalog = /<templates>\n(.*?)\n<\/templates>/s.exec(prompt)![1]!;
+    const presets = JSON.parse(catalog) as TeamPreset[];
+    expect(presets.some((p) => p.id === 'builtin-general')).toBe(true);
+    expect(catalog).toBe(JSON.stringify(presets));
+    expect(catalog.length).toBeLessThan(JSON.stringify(presets, null, 2).length);
     expect(prompt).toContain('"read-only"');
     expect(prompt).toContain('```json');
   });
@@ -1360,8 +1364,13 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       'Choose the coding agent whose tools (built in, its own skills and MCP servers, and what it gets from the tool library) cover that part',
     );
     // Each member of the current team with what it actually gets: its CLI's defaults with its exceptions.
-    expect(prompt).toContain('"fromToolLibrary": [\n        "mcp:db",\n        "skill:pdf",\n        "memory"\n      ]');
-    expect(prompt).toContain('"fromToolLibrary": [\n        "skill:pdf",\n        "memory",\n        "memory:codex"\n      ]');
+    const currentTeam = /<current_team>\n(.*?)\n<\/current_team>/s.exec(prompt)![1]!;
+    const team = JSON.parse(currentTeam);
+    expect(currentTeam).toBe(JSON.stringify(team));
+    expect(team.agents.map((a: { fromToolLibrary: string[] }) => a.fromToolLibrary)).toEqual([
+      ['mcp:db', 'skill:pdf', 'memory'],
+      ['skill:pdf', 'memory', 'memory:codex'],
+    ]);
     // The lead is never asked for tools.
     expect(prompt).not.toContain('"tools"');
     expect(prompt).not.toContain('/gone');

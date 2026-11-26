@@ -2006,6 +2006,8 @@ export interface LeadAgentSettings {
 
 /** What the lead agent decided for a question in an auto-team conversation (shown as a card in the chat). */
 export interface TeamPlan {
+  /** Per-call usage. Older plans kept only the combined figures on the message. */
+  usage?: PlanUsage[];
   status: 'planning' | 'ready' | 'failed';
   lead: LeadAgentSettings;
   /** The configured lead could not run for this design. */
@@ -2919,6 +2921,9 @@ export interface ApprovalAnswer {
 
 export type MessageStatus = 'streaming' | 'done' | 'error' | 'aborted';
 
+export type ReportedUsage = Pick<MessageMeta, 'costUsd' | 'inputTokens' | 'outputTokens'>;
+export type PlanUsage = ReportedUsage & ({ kind: 'planning' | 'combined' } | { kind: 'modelCheck'; provider: Provider; model?: string });
+
 export interface MessageMeta {
   round?: number;
   durationMs?: number;
@@ -3000,6 +3005,8 @@ export interface ChatMessage {
   checks?: ChecksResult;
   /** A user message sent while the team was replying: it waited in the queue for a later turn. */
   queued?: boolean;
+  /** The initiating message for this stage of a team's answer. */
+  usageQuestionId?: string;
   /**
    * A user message that went into running turns (steering, `ConversationSettings.steer`): the ids of the
    * members whose turn took it, who count it as seen. It is `queued` too (it joined a discussion under way).

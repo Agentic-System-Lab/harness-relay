@@ -3095,6 +3095,42 @@ details.sub .model-picker {
 }
 
 /* A branch: after the messages copied from it, a line naming the conversation it comes from. */
+.question-usage {
+  color: var(--muted);
+  font-size: 0.81rem;
+  align-self: stretch;
+  min-width: 0;
+}
+.question-usage summary {
+  width: fit-content;
+  margin-inline-start: auto;
+  cursor: pointer;
+}
+.question-usage-body {
+  margin-block-start: 0.5rem;
+  overflow-x: auto;
+}
+.question-usage table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.question-usage th,
+.question-usage td {
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: end;
+}
+.question-usage th:first-child {
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.question-usage tbody th {
+  font-weight: normal;
+}
+.question-usage tfoot {
+  color: var(--text);
+}
 .branch-divider {
   display: flex;
   align-items: center;

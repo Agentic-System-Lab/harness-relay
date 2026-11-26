@@ -778,16 +778,12 @@ export function buildPlannerPrompt(
 ): string {
   const guides = roleGuidesForLead(familiesForLead(ctx), settings.permission);
   const agents = agentsForLead(ctx, Boolean(guides));
-  const templates = JSON.stringify(
-    usablePresets(ctx).map((p) => templateForLead(p, ctx.library)),
-    null,
-    2,
-  );
+  const templates = JSON.stringify(usablePresets(ctx).map((p) => templateForLead(p, ctx.library)));
   const current = conv.current?.agents.length ? conv.current : undefined;
   const canKeep = current && current.agents.every((a) => memberAvailable(ctx, a));
   const history = conv.history?.trim();
   // Like a template, without an id: it is not one.
-  const currentTeam = current && JSON.stringify(teamForLead(current.settings, current.agents, ctx.library), null, 2);
+  const currentTeam = current && JSON.stringify(teamForLead(current.settings, current.agents, ctx.library));
   const scheduled = conv.schedule;
   // Names a schedule's message @mentions that no member has yet: the members it is for, most likely.
   // (Only for a schedule: an ordinary question's @-words are as often code, like decorators.)

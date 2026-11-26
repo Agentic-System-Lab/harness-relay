@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { NATIVE_PARTS, nativeOffFor } from '../shared/types';
 import { removeTree } from './fsRemove';
 import { DATA_DIR } from './settings';
-import type { AgentRunner, RunOptions, RunResult } from './agents/types';
+import { AgentRunError, type AgentRunner, type RunOptions, type RunResult } from './agents/types';
 
 export const MODEL_CHECK_REPLY = 'RELAY_MODEL_OK';
 export const MODEL_CHECK_PROMPT = `Reply with exactly ${MODEL_CHECK_REPLY}.`;
@@ -35,8 +35,8 @@ export async function checkModel(
       },
     });
     return { ok: !signal.aborted && reply.trim() === MODEL_CHECK_REPLY, usage };
-  } catch {
-    return { ok: false };
+  } catch (err) {
+    return { ok: false, usage: err instanceof AgentRunError ? err.usage : undefined };
   } finally {
     removeTree(cwd);
   }

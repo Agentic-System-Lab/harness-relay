@@ -76,7 +76,7 @@ export const BETWEEN_MESSAGES = 'branch-divider';
  * them (`BETWEEN_MESSAGES`): what a shared page takes, one element per message.
  */
 export function messageElements<T extends { classList: { contains(name: string): boolean } }>(children: T[]): T[] {
-  return children.filter((el) => !el.classList.contains(BETWEEN_MESSAGES));
+  return children.filter((el) => !el.classList.contains(BETWEEN_MESSAGES) && !el.classList.contains('question-usage'));
 }
 
 /**

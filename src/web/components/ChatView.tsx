@@ -68,6 +68,8 @@ import { Composer } from './Composer';
 import { Deferred, lazyPart } from './Deferred';
 import { ArrowDownIcon, BranchIcon, ClockIcon, FolderIcon, MoreIcon, PreviewIcon, ShareIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
+import { QuestionUsage } from './QuestionUsage';
+import { questionUsage } from '../questionUsage';
 import { QueueTray } from './QueueTray';
 import { RoleText } from './RoleText';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
@@ -753,6 +755,7 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
   const reviewing = running && conv.messages.some((m) => m.review?.status === 'reviewing' && m.status === 'streaming');
   // Where the next review would start reading: a stopped or failed review card before it says its
   // replies are read then, the others nothing of a next review.
+  const usage = questionUsage(conv.messages);
   const nextReview = conv.messages.some((m) => m.review && m.review.status !== 'ready') ? nextReviewStart(conv.messages) : Infinity;
   const latestPlanId = conv.messages.findLast((m) => m.plan?.status === 'ready')?.id;
   const latestChecksId = latestChecks(conv.messages)?.id;
@@ -1030,15 +1033,17 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
             );
             // A branch: a line after the messages copied from the conversation it comes from (a shared
             // page skips it: see messageElements).
-            return conv.branch?.afterId === m.id ? (
+            const stages = usage.get(m.id);
+            return (
               <Fragment key={m.id}>
                 {item}
-                <div className="branch-divider">
-                  <BranchFrom branch={conv.branch} conversations={conversations} className="branch-divider-label" />
-                </div>
+                {stages && <QuestionUsage messages={stages} />}
+                {conv.branch?.afterId === m.id && (
+                  <div className="branch-divider">
+                    <BranchFrom branch={conv.branch} conversations={conversations} className="branch-divider-label" />
+                  </div>
+                )}
               </Fragment>
-            ) : (
-              item
             );
           })}
           {notReadyCard && notReady && (
