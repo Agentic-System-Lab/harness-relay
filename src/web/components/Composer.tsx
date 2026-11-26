@@ -9,6 +9,7 @@ import { AttachmentPicker, AttachmentTray, readUploads, useMessageFiles, type Pe
 import { VoiceButton } from './VoiceInput';
 
 interface Props {
+  autoFocus?: boolean;
   agents: AgentConfig[];
   /** The team is replying: what is sent waits for the next turn, and Stop is offered. */
   running: boolean;
@@ -46,6 +47,7 @@ const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navig
 const TOKEN = /(^|[\s(（])@([\p{L}\p{N}_-]*)$/u;
 
 export function Composer({
+  autoFocus,
   agents,
   running,
   commandRunning = false,
@@ -240,6 +242,7 @@ export function Composer({
         <div className="composer-row">
           <AttachmentPicker addFiles={addFiles} onNotice={setNotice} />
           <textarea
+            autoFocus={autoFocus}
             ref={ref}
             value={text}
             rows={1}

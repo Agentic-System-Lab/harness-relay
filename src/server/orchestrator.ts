@@ -15,6 +15,8 @@ import type {
   ApprovalReview,
   AgentWorktree,
   BranchPart,
+  BranchPoint,
+  ConversationBranchKind,
   ChatMessage,
   Conversation,
   ConversationBranch,
@@ -669,7 +671,7 @@ function branchParts(
   dropped: ReadonlySet<string> = new Set(),
 ): { part: BranchPart; end: number }[] {
   if (!conv.branch) return [];
-  const { earlier = [], ...main } = conv.branch;
+  const { earlier = [], independent: _independent, worktreeSources: _worktrees, ...main } = conv.branch;
   const out: { part: BranchPart; end: number }[] = [];
   for (const part of [...earlier].reverse().concat(main)) {
     const at = conv.messages.findIndex((m) => m.id === part.afterId);
@@ -677,6 +679,19 @@ function branchParts(
     if (end > (out.at(-1)?.end ?? -1)) out.push({ part: { ...part, afterId: conv.messages[end]!.id }, end });
   }
   return out;
+}
+
+/** A copied reply keeps its original worktree even when its intermediate topic is deleted. */
+function copiedWorktrees(conv: Pick<Conversation, 'id' | 'branch' | 'messages'>, copied: readonly ChatMessage[]) {
+  const sources = new Map<string, string>();
+  const parts = branchParts(conv);
+  for (const [index, msg] of copied.entries()) {
+    for (const c of msg.changes ?? []) {
+      if (c.isolated && c.branch)
+        sources.set(c.branch, conv.branch?.worktreeSources?.[c.branch] ?? parts.find((p) => p.end >= index)?.part.fromId ?? conv.id);
+    }
+  }
+  return sources.size ? { worktreeSources: Object.fromEntries(sources) } : {};
 }
 
 /** A branch made of `parts`, oldest first: the last is the one it was branched from (undefined: none). */
@@ -702,7 +717,8 @@ export function branchOrigin(
   titleOf: (id: string) => string | undefined = () => undefined,
 ): ConversationBranch {
   const titled = (p: BranchPart): BranchPart => ({ ...p, fromTitle: titleOf(p.fromId) ?? p.fromTitle });
-  const parts = branchParts(conv);
+  // Copied replies in an independent topic can start children in its new family.
+  const parts = conv.branch?.independent ? [] : branchParts(conv);
   const at = parts.findIndex((p) => p.end >= index);
   const from: BranchPart = at < 0 ? { fromId: conv.id, fromTitle: conv.title, afterId: '' } : titled(parts[at]!.part);
   const before = (at < 0 ? parts : parts.slice(0, at)).map(({ part, end }) => ({ ...titled(part), afterId: copies[end]!.id }));
@@ -719,7 +735,17 @@ export function branchAfterCut(
   conv: Pick<Conversation, 'branch' | 'messages'>,
   dropped: ReadonlySet<string>,
 ): ConversationBranch | undefined {
-  return branchOfParts(branchParts(conv, dropped).map((p) => p.part));
+  const branch = branchOfParts(branchParts(conv, dropped).map((p) => p.part));
+  if (!branch) return undefined;
+  const sources = conv.branch?.worktreeSources;
+  const kept = conv.messages.flatMap((m) =>
+    (m.changes ?? []).flatMap((c) => (c.branch && sources?.[c.branch] ? [[c.branch, sources[c.branch]]] : [])),
+  );
+  return {
+    ...branch,
+    ...(conv.branch?.independent ? { independent: true } : {}),
+    ...(kept.length ? { worktreeSources: Object.fromEntries(kept) } : {}),
+  };
 }
 
 /**
@@ -3601,6 +3627,30 @@ export class Orchestrator {
     await this.start(conv, '', { beforePost: () => this.truncateFrom(conv, messageId), only: again, ...(tracking ? { tracking } : {}) });
   }
 
+  /** The last agent reply in the settled prefix, or a particular reply explicitly chosen in the chat. */
+  branchPoint(convId: string, messageId?: string): BranchPoint | null {
+    const conv = this.store.get(convId);
+    if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
+    const index = this.branchIndex(conv, messageId);
+    if (index < 0) return null;
+    const reply = conv.messages[index]!;
+    return { id: reply.id, createdAt: reply.createdAt, excerpt: textOf(reply).replace(/\s+/g, ' ').slice(0, 160) };
+  }
+
+  private branchIndex(conv: Conversation, messageId?: string): number {
+    const open = this.runs.get(conv.id)?.turns;
+    const unsettled = conv.messages.findIndex((m) => m.status === 'streaming' || open?.has(m.id));
+    if (messageId === undefined) {
+      const end = unsettled < 0 ? conv.messages.length : unsettled;
+      return conv.messages.findLastIndex((m, i) => i < end && m.author.kind === 'agent');
+    }
+    const index = conv.messages.findIndex((m) => m.id === messageId);
+    if (index < 0) throw new HttpError(404, t().messageNotFound);
+    if (conv.messages[index]!.author.kind !== 'agent') throw new HttpError(400, t().branchOnlyReply);
+    if (unsettled >= 0 && unsettled <= index) throw new HttpError(409, t().branchStreaming);
+    return index;
+  }
+
   /**
    * Branch the conversation from one of its agents' replies: a new conversation with a copy of the
    * messages up to and including that reply (new ids, the files attached to them copied, the commits
@@ -3611,21 +3661,13 @@ export class Orchestrator {
    * This conversation stays as it is and may go on replying meanwhile; only the turns up to the reply
    * branched from must be over. Files in the working directory are not rewound.
    */
-  async branch(convId: string, messageId: string): Promise<Conversation> {
+  async branch(convId: string, messageId: string, kind: ConversationBranchKind = 'child'): Promise<Conversation> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     if (this.closing) throw new HttpError(503, t().shuttingDown);
-    const index = conv.messages.findIndex((m) => m.id === messageId);
-    if (index < 0) throw new HttpError(404, t().messageNotFound);
-    if (conv.messages[index]!.author.kind !== 'agent') throw new HttpError(400, t().branchOnlyReply);
-    // A reply still being written (a parallel peer's), or one whose turn still records the files it
-    // changed, would be copied unfinished.
-    const open = this.runs.get(convId)?.turns;
-    if (conv.messages.slice(0, index + 1).some((m) => m.status === 'streaming' || open?.has(m.id))) {
-      throw new HttpError(409, t().branchStreaming);
-    }
+    const index = this.branchIndex(conv, messageId);
     // Deleting this conversation, and shutdown, wait for it: its attached files are being copied.
-    const work = this.makeBranch(conv, index);
+    const work = this.makeBranch(conv, index, kind);
     const pending = this.branching.get(convId) ?? new Set<Promise<Conversation>>();
     this.branching.set(convId, pending.add(work));
     try {
@@ -3636,15 +3678,20 @@ export class Orchestrator {
     }
   }
 
-  private async makeBranch(conv: Conversation, index: number): Promise<Conversation> {
+  private async makeBranch(conv: Conversation, index: number, kind: ConversationBranchKind): Promise<Conversation> {
     const copied = conv.messages.slice(0, index + 1);
     const messages = copyMessages(copied);
-    const pause = branchPause(conv, index);
+    const worktrees = copiedWorktrees(conv, copied);
+    const pause = kind === 'child' ? branchPause(conv, index) : undefined;
     // The branch waits for its own answer: a steps card answered here is to be answered again there.
     for (const m of askingReplies(messages, pause)) if (stepsOfMessage(m)) delete stepsOfMessage(m)!.answer;
     // A branch of the conversation the reply was written in (this one, or one it was copied from).
     const titleOf = (from: string) => this.store.titleOf(from);
-    let branch = branchOrigin(conv, index, messages, titleOf);
+    const origin = (): ConversationBranch =>
+      kind === 'topic'
+        ? { fromId: conv.id, fromTitle: conv.title, afterId: messages[index]!.id, independent: true }
+        : branchOrigin(conv, index, messages, titleOf);
+    let branch = origin();
     const id = randomUUID();
     let chat: Conversation;
     try {
@@ -3653,11 +3700,11 @@ export class Orchestrator {
       // Worked out again in the same step as it is saved, while the copied messages are still here as
       // they were: a conversation it comes from that was deleted meanwhile, which only this
       // conversation waits for, is then known as deleted, with where it came from (`via`).
-      if (copied.every((m, i) => conv.messages[i]?.id === m.id)) branch = branchOrigin(conv, index, messages, titleOf);
+      if (copied.every((m, i) => conv.messages[i]?.id === m.id)) branch = origin();
       const now = Date.now();
       chat = {
         id,
-        title: t().branchTitle(branch.fromTitle).slice(0, 200),
+        title: kind === 'topic' ? t().defaultTitle : t().branchTitle(branch.fromTitle).slice(0, 200),
         createdAt: now,
         updatedAt: now,
         agents: structuredClone(conv.agents),
@@ -3667,14 +3714,14 @@ export class Orchestrator {
         worktrees: {},
         ...(conv.allowRules?.length ? { allowRules: structuredClone(conv.allowRules) } : {}),
         ...(pause ? { pause } : {}),
-        branch,
+        branch: { ...branch, ...worktrees },
       };
       this.store.create(chat);
     } catch (err) {
       removeAttachments(id);
       throw err;
     }
-    this.store.placeBranch(id);
+    this.store.placeBranch(id, kind === 'topic' ? conv.id : id);
     // The diffs of the copied replies stay viewable here, also once the original is deleted.
     const byRoot = new Map<string, string[]>();
     for (const m of messages) {

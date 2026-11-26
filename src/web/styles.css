@@ -478,9 +478,22 @@ p {
 /* A conversation's folder and × buttons take room only while they show: on hover, or while the
    keyboard is on the conversation. Otherwise its title has the whole width, and ends in "…" only when
    it does not fit. Touch screens have no hover: the buttons always show there. */
+.conv-branch {
+  position: absolute;
+  right: 0;
+  opacity: 0;
+  pointer-events: none;
+}
 .conv-delete {
   display: none;
   margin-right: 4px;
+}
+
+.conv-item:hover .conv-branch,
+.conv-item:focus-within .conv-branch {
+  position: static;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .conv-item:hover .conv-delete,
@@ -489,6 +502,11 @@ p {
 }
 
 @media (hover: none) {
+  .conv-branch {
+    position: static;
+    opacity: 1;
+    pointer-events: auto;
+  }
   .conv-delete {
     display: inline-grid;
   }
@@ -11929,4 +11947,54 @@ a.share-action {
 .schedule-fieldset,
 .template-fieldset {
   display: contents;
+}
+
+.branch-dialog {
+  width: min(440px, 100%);
+  overflow-y: auto;
+  padding: 20px;
+}
+.branch-dialog .drawer-head {
+  padding: 0;
+}
+.branch-origin {
+  margin: 12px 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.branch-point {
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+}
+.branch-point p {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.branch-choices {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+.branch-choices button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: start;
+  padding: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.branch-choices button:hover {
+  border-color: var(--muted);
+}
+.branch-choices small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+}
+.branch-choices svg {
+  flex-shrink: 0;
 }

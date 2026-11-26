@@ -3041,9 +3041,12 @@ export function createApp({
 
   // Branch the conversation from an agent's reply: a new conversation with the messages up to and
   // including it, which goes on from there on its own (this one stays as it is). Answers with it.
-  app.post('/api/conversations/:id/messages/:messageId/branch', async (c) =>
-    c.json(forClient(await orchestrator.branch(c.req.param('id'), c.req.param('messageId')))),
-  );
+  app.get('/api/conversations/:id/branch-point', (c) => c.json(orchestrator.branchPoint(c.req.param('id'), c.req.query('messageId'))));
+  app.post('/api/conversations/:id/messages/:messageId/branch', async (c) => {
+    const kind = c.req.query('kind') ?? 'child';
+    if (kind !== 'child' && kind !== 'topic') throw new HttpError(400, t().badBranchKind);
+    return c.json(forClient(await orchestrator.branch(c.req.param('id'), c.req.param('messageId'), kind)));
+  });
 
   // Accept the team the lead agent designed for a question (auto team); that team then answers it.
   app.post('/api/conversations/:id/messages/:messageId/confirm-plan', async (c) => {

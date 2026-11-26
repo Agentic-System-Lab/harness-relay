@@ -939,18 +939,23 @@ A compose file is published when Render's free plan can run it as one service: o
 
 ### Branching a conversation
 
-To try another direction without losing where a conversation went, branch it: **Branch conversation** (a forking line) under an agent's reply makes a new conversation, **Branch · <title>**, and opens it:
+From a sidebar conversation, choose **Start a conversation from here** to copy through its latest settled agent reply. From **Branch conversation** under a reply, the copy ends at that exact reply. Both show the cutoff time and excerpt before you choose.
+
+- **Start a new topic** for a different goal. It opens at the top level of the same group with a link back to the source and its own composer. The copied questions are history. You can move it to another group or delete the source and keep working. For example, take customer interviews from Research into a sales briefing.
+- **Create a child branch** to explore another direction in the same sidebar tree. The child stays with its family when you move it, and a question at the cutoff waits for a new answer.
+
+How the copy works (the nesting rules below apply to child branches):
 
 - It holds a copy of every message up to and including that reply (attached files and the changed files' diffs too), and the team, settings, "always allow" answers and sidebar group the original has now (not as they were at that reply). **Continued from <title>** after the chat's title, and on a line after the copied messages, links back to the original (once that is deleted, its title is shown without the link). When the chat's title and the original's do not both fit, each gets half the room (a short one leaves the rest to the other) and ends in …, so both stay in view.
-- If that reply asked you something, the question waits for your answer in the branch too, even if you answered it in the original: branch from a question to answer it another way. A steps card there waits for an answer of its own, its boxes ticked as they were.
+- In a child branch, a question at the cutoff waits for your answer again, even if you answered it in the original: branch from a question to answer it another way. A steps card there waits for an answer of its own, its boxes ticked as they were.
 - The original stays exactly as it was, and can go on replying meanwhile; only the replies up to the one you branch from must be finished.
 - In parallel mode, the images and files a copied reply shows come from that agent's worktree in the original, so they are gone once the original is deleted (its diff stays). A result can only be applied in the conversation that made it.
 - The agents in the branch start fresh sessions: on their first turn they are given the copied messages, and from there each conversation goes its own way.
 - Both conversations share the working directory, and files are **not** rewound: they are as the original left them, not as they were at that reply. The agents in a branch are told so.
 - Branching is not offered on your own messages: to ask something else after your question, branch from the reply before it, or edit the question (which replaces what came after it).
 - The first message you send in the branch names it, after its first line, so its name says where it went (one you renamed yourself keeps your name; the lead agent names only new chats, not branches). Editing the first copied message makes it a chat of its own (nothing copied is left), named after the edited message.
-- In the sidebar the branch is listed under the original, and they stay together in one group: see [Branches in the sidebar](#branches-in-the-sidebar). You can branch a branch too, as deep as you like.
-- A branch is always one of the conversation the reply was written in. In a branch, the messages up to where it was branched were copied from the original: branching from one of those replies (the last copied one included) makes a branch of the original, as if you had branched there, listed under it and named after it, not under the branch you clicked in. For a branch of a branch, that may be a conversation further up. Retrying or editing in a branch can likewise move it: once nothing written in the conversation it came from is left in it, it is listed under the one further up (and, while it still has the name it was made with, named after that one).
+- In the sidebar a child branch is listed under the original, and they stay together in one group: see [Branches in the sidebar](#branches-in-the-sidebar). You can branch a branch too, as deep as you like.
+- A new topic starts a new tree, so a child made from its copied history belongs to that topic. Within an ordinary branch tree, a child is one of the conversation the reply was written in. In a branch, the messages up to where it was branched were copied from the original: branching from one of those replies (the last copied one included) makes a branch of the original, as if you had branched there, listed under it and named after it, not under the branch you clicked in. For a branch of a branch, that may be a conversation further up. Retrying or editing in a branch can likewise move it: once nothing written in the conversation it came from is left in it, it is listed under the one further up (and, while it still has the name it was made with, named after that one).
 
 ### Sharing a conversation
 

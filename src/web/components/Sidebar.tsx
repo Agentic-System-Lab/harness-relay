@@ -27,6 +27,7 @@ const StarDialog = lazyPart(() => import('./StarDialog').then((m) => m.StarDialo
 const GroupOrganizer = lazyPart(() => import('./GroupOrganizer').then((m) => m.GroupOrganizer));
 
 interface Props {
+  onBranch: (id: string, title: string) => void;
   phoneLink: ReactNode;
   route: Route;
   conversations: ConversationSummary[];
@@ -66,6 +67,7 @@ export function Sidebar({
   inbox,
   onOpenInbox,
   onHome,
+  onBranch,
 }: Props) {
   const t = useT();
   const [searching, setSearching] = useState(false);
@@ -186,7 +188,15 @@ export function Sidebar({
         {searching && query.trim() ? (
           <SearchResults query={query} route={route} groups={groups} />
         ) : (
-          <SidebarGroups route={route} conversations={conversations} groups={groups} seen={seen} onChanged={onChanged} onDelete={remove} />
+          <SidebarGroups
+            onBranch={onBranch}
+            route={route}
+            conversations={conversations}
+            groups={groups}
+            seen={seen}
+            onChanged={onChanged}
+            onDelete={remove}
+          />
         )}
       </nav>
 

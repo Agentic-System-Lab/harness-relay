@@ -71,11 +71,12 @@ describe('guided tour', () => {
     expect(unread(old)).toEqual(['agents', 'chat', 'team', 'phone', 'automations', 'apps']);
     expect(unread(old).every((id) => changed(old, id))).toBe(true);
     expect(guideOnStart(old)).toBe('ask');
-    expect(unread(parseGuide('44', null))).toEqual(['team']);
+    expect(unread(parseGuide('44', null))).toEqual(['chat', 'team']);
+    expect(unread(parseGuide('45', null))).toEqual(['chat']);
     // The tour before it had versions.
     expect(unread(parseGuide('1', null))).toEqual(ALL);
     // A topic read since counts, whatever the old version.
-    expect(unread(parseGuide('20', guide({ seen: { agents: 39, chat: 44 } })))).toEqual(['team', 'phone', 'automations', 'apps']);
+    expect(unread(parseGuide('20', guide({ seen: { agents: 39, chat: 46 } })))).toEqual(['team', 'phone', 'automations', 'apps']);
   });
 
   it('marks a topic read in an earlier revision as changed', () => {
@@ -126,12 +127,12 @@ describe('guided tour', () => {
     } finally {
       vi.unstubAllGlobals();
     }
-    const old = storage({ 'relay:onboarded': '44' });
+    const old = storage({ 'relay:onboarded': '45' });
     try {
       expect(pendingTour()).toBe('ask');
-      markRead('team');
+      markRead('chat');
       expect(pendingTour()).toBeNull();
-      expect(old.get('relay:onboarded')).toBe('44');
+      expect(old.get('relay:onboarded')).toBe('45');
     } finally {
       vi.unstubAllGlobals();
     }
@@ -181,6 +182,6 @@ describe('guided tour', () => {
     // The topics changed? Raise TOUR_VERSION in src/web/tour.ts and give it to each topic changed, so
     // that browsers which read them are asked about them again, then update both values here. For a
     // change not worth asking about again (a typo), update only the fingerprint.
-    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 45, fingerprint: 'e6f9023bd2f9' });
+    expect({ version: TOUR_VERSION, fingerprint }).toEqual({ version: 46, fingerprint: '778229addfbc' });
   });
 });

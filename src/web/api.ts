@@ -30,6 +30,8 @@ import type {
   AuthSessionView,
   HandoverAnswer,
   HandoverInput,
+  BranchPoint,
+  ConversationBranchKind,
   ChatMessage,
   CheckCommand,
   CheckList,
@@ -498,7 +500,16 @@ export const api = {
     request<{ ok: true }>('PUT', `/api/conversations/${id}/messages/${messageId}`, { text }),
   retry: (id: string, messageId: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/retry`),
   /** A new conversation with the messages up to and including this agent reply; returns it. */
-  branch: (id: string, messageId: string) => request<Conversation>('POST', `/api/conversations/${id}/messages/${messageId}/branch`),
+  branchPoint: (id: string, messageId?: string) =>
+    request<BranchPoint | null>(
+      'GET',
+      `/api/conversations/${encodeURIComponent(id)}/branch-point${messageId ? '?' + new URLSearchParams({ messageId }) : ''}`,
+    ),
+  branch: (id: string, messageId: string, kind: ConversationBranchKind = 'child') =>
+    request<Conversation>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/branch?kind=${kind}`,
+    ),
   answerApproval: (id: string, approvalId: string, answer: ApprovalAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
   /** The user's answer to a hand-over of the chat's browser: start it, decline it, hand it back or cancel it. */

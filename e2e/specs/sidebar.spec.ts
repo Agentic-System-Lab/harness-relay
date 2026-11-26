@@ -168,10 +168,15 @@ test.describe('the sidebar', () => {
   test("a branched conversation's family moves between groups as one", async ({ page, relay }) => {
     const trunk = await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Trunk');
     await send(page, 'Start here');
-    const reply = await finishedReply(page, 'Codex');
+    await finishedReply(page, 'Codex');
     await settled(relay, trunk);
-    await reply.hover();
-    await reply.getByRole('button', { name: 'Branch conversation' }).click();
+    const source = page.locator('.conv-item').filter({ has: page.getByRole('link', { name: /Trunk/ }) });
+    await source.hover();
+    await source.getByRole('button', { name: 'Start a conversation from here' }).click();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: /Create a child branch/ })
+      .click();
     await expect.poll(() => chatId(page)).not.toBe(trunk);
     const branch = chatId(page);
     const billing = await newGroup(page, 'Billing');

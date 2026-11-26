@@ -148,6 +148,8 @@ function reducer(s: State, e: ServerEvent): State {
 type PreviewReady = PreviewSuggestion & { request: AppPreviewRequest & { entry: string }; shown: string };
 
 interface Props {
+  chooseBranch: (id: string, title: string, messageId: string) => void;
+  focusComposer: boolean;
   id: string;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
@@ -156,7 +158,7 @@ interface Props {
   onChanged: () => void;
 }
 
-export function ChatView({ id, providers, catalog, conversations, onChanged }: Props) {
+export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, conversations, onChanged }: Props) {
   const { t, lang } = useI18n();
   const [state, dispatch] = useReducer(reducer, { conv: null, running: false, active: [], command: false, held: false });
   const [error, setError] = useState('');
@@ -545,23 +547,13 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
 
   const onShare = useCallback((messageId: string) => setShare({ upTo: messageId }), []);
 
-  // A new conversation with the messages up to and including this reply, opened at once.
-  const branching = useRef(false);
-  const onBranch = useCallback(async (messageId: string) => {
-    const c = convRef.current;
-    if (!c || branching.current) return;
-    branching.current = true;
-    try {
-      setError('');
-      const branch = await api.branch(c.id, messageId);
-      onChangedRef.current();
-      window.location.hash = hashFor({ page: 'chat', id: branch.id });
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      branching.current = false;
-    }
-  }, []);
+  const onBranch = useCallback(
+    (messageId: string) => {
+      const conv = convRef.current;
+      if (conv) chooseBranch(conv.id, conv.title, messageId);
+    },
+    [chooseBranch],
+  );
 
   // Continue: the team goes on without the answer an agent asked for.
 
@@ -1141,6 +1133,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           onWithdraw={withdraw}
         />
         <Composer
+          autoFocus={focusComposer}
           agents={conv.agents}
           running={running}
           commandRunning={command}

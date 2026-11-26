@@ -42,7 +42,9 @@ export interface GroupSection {
 const memberOf = (c: ConversationSummary): FamilyMember => ({
   id: c.id,
   createdAt: c.createdAt,
-  ...(c.branchFrom ? { fromId: c.branchFrom.id, ...(c.branchFrom.via ? { via: c.branchFrom.via.map((v) => v.id) } : {}) } : {}),
+  ...(c.branchFrom && !c.branchFrom.independent
+    ? { fromId: c.branchFrom.id, ...(c.branchFrom.via ? { via: c.branchFrom.via.map((v) => v.id) } : {}) }
+    : {}),
 });
 
 const familiesOf = (conversations: ConversationSummary[]) => families(conversations.map(memberOf));

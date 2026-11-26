@@ -1924,7 +1924,12 @@ function AgentMessage({
                 className="msg-action icon-action"
                 title={t.message.branchTitle}
                 aria-label={t.message.branch}
-                onClick={() => onBranch(msg.id)}
+                aria-haspopup="dialog"
+                onClick={(e) => {
+                  // Safari leaves pointer-clicked buttons unfocused; Escape should return here.
+                  e.currentTarget.focus();
+                  onBranch(msg.id);
+                }}
               >
                 <BranchIcon size={16} />
               </button>
