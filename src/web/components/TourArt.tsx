@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { TopicId } from '../tour';
-import { BellIcon, BranchIcon, ClockIcon, FolderIcon, KeyIcon, MailIcon, UsersIcon } from './icons';
+import { BellIcon, BranchIcon, ClockIcon, FolderIcon, FollowUpIcon, KeyIcon, MailIcon, UsersIcon } from './icons';
 
 /** A CSS animation's start, in seconds from the topic opening (`--at` in styles.css). */
 const at = (s: number) => ({ '--at': `${s}s` }) as CSSProperties;
@@ -214,6 +214,39 @@ const PICTURES: Record<TopicId, () => ReactNode> = {
       </g>
       <circle className="halo alert" cx="364" cy="58" r="8" style={at(1.85)} />
       <circle className="dot alert pop" cx="364" cy="58" r="8" style={at(1.7)} />
+    </svg>
+  ),
+
+  // The usage table beneath your question, then a member's reply and its follow-up button.
+  replies: () => (
+    <svg viewBox="0 0 400 280" focusable="false">
+      <g className="enter">
+        <rect className="tour-art-card surface" x="122" y="18" width="244" height="44" rx="14" />
+        <rect className="line" x="145" y="36" width="172" height="8" rx="4" style={at(0.2)} />
+      </g>
+      <g className="enter" style={at(0.4)}>
+        <rect className="tour-art-card" x="122" y="68" width="244" height="72" rx="12" />
+        <path className="divider" d="M136 104h216M236 80v48M276 80v48M316 80v48" />
+        {[87, 115].map((y) => (
+          <g key={y}>
+            <rect className="line" x="140" y={y} width="74" height="7" rx="3.5" />
+            {[248, 288, 328].map((x) => (
+              <rect key={x} className="line faint" x={x} y={y} width="16" height="7" rx="3.5" />
+            ))}
+          </g>
+        ))}
+      </g>
+      <g className="enter" style={at(0.8)}>
+        <rect className="tour-art-card" x="34" y="157" width="242" height="74" rx="14" />
+        <circle cx="59" cy="180" r="10" fill="var(--codex)" />
+        <rect className="line" x="79" y="176" width="78" height="8" rx="4" />
+        <rect className="line faint" x="50" y="202" width="196" height="8" rx="4" />
+      </g>
+      <g className="pop" style={at(1.2)}>
+        <Glyph x={48} y={240}>
+          <FollowUpIcon size={26} />
+        </Glyph>
+      </g>
     </svg>
   ),
 

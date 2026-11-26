@@ -6,7 +6,7 @@
     <title>Teams and modes · Harness Relay docs</title>
     <meta
       name="description"
-      content="Harness Relay docs: how the lead agent picks a team for each question, the templates and team checks it can write for you, members and the three modes."
+      content="Harness Relay docs: how the lead agent picks a team for a new question, the templates and team checks it can write for you, members and the three modes."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Teams and modes · Harness Relay docs" />
     <meta
       property="og:description"
-      content="How teams work in Harness Relay: the lead agent picks or designs a team for each question from your templates, and writes a template or the team checks for you when you ask; each member has a role, a coding agent and a model, the team takes turns in roundtable, parallel or relay mode, and Harness Relay checks its work against your team checks."
+      content="How teams work in Harness Relay: the lead agent picks or designs a team for a new question from your templates, and writes a template or the team checks for you when you ask; each member has a role, a coding agent and a model, the team takes turns in roundtable, parallel or relay mode, and Harness Relay checks its work against your team checks."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -58,7 +58,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/docs/teams/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/docs/teams/",
         "name": "Teams and modes · Harness Relay docs",
-        "description": "Harness Relay docs: how the lead agent picks a team for each question, the templates and team checks it can write for you, members and the three modes.",
+        "description": "Harness Relay docs: how the lead agent picks a team for a new question, the templates and team checks it can write for you, members and the three modes.",
         "inLanguage": "en",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -231,7 +231,7 @@
         </div>
         <p class="lead">
           A team is a few agents, each with a role, taking turns in a way you choose. The lead agent puts one together
-          for each question from your templates; you can change it whenever you like.
+          for a new question from your templates; you can change it whenever you like.
         </p>
       </header>
 
@@ -287,8 +287,9 @@
           </figure>
           <ul>
             <li>
-              <b>Not every message gets a new team.</b> An answer to an agent's question, a message that
-              <code>@mentions</code> members, <b>Continue</b> and an automation's message go to the team you have.
+              A <a href="../first-chat/#follow-up">follow-up directed to one member</a> gives that member one turn.
+              Answers to an agent's questions, messages that <code>@mention</code> members, <b>Continue</b> and
+              automations also use the current team.
             </li>
             <li>
               <b>Members who stay on remember.</b> A member who stays (same name, same coding agent) keeps what it learned;

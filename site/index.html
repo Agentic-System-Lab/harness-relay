@@ -19,7 +19,7 @@
     <meta property="og:title" content="Harness Relay: any mix of Claude Code, Codex, Grok and nine more coding agents" />
     <meta
       property="og:description"
-      content="The coding agents you already have, any mix of Claude Code, Codex, Grok, Cursor, Antigravity, Copilot, Muse Code and five open-source coding agents on your API keys or your own model, work with you and with each other. One kind is enough for a team. Design it, choose how they take turns, approve what they do."
+      content="The coding agents you already have, any mix of Claude Code, Codex, Grok, Cursor, Antigravity, Copilot, Muse Code and five open-source coding agents on your API keys or your own model, work with you and with each other. One kind is enough for a team. Choose how they take turns, approve their work, follow up with one member and see the tokens and cost reported for each question."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -87,7 +87,7 @@
             "@type": "SoftwareApplication",
             "@id": "https://agentic-system-lab.github.io/harness-relay/#app",
             "name": "Harness Relay",
-            "description": "The coding agents you already have, any mix of Claude Code, Codex, Grok, Cursor, Antigravity, Copilot, Muse Code and five open-source coding agents on your API keys or your own model, work with you and with each other. One kind is enough for a team. Design it, choose how they take turns, approve what they do.",
+            "description": "The coding agents you already have, any mix of Claude Code, Codex, Grok, Cursor, Antigravity, Copilot, Muse Code and five open-source coding agents on your API keys or your own model, work with you and with each other. One kind is enough for a team. Choose how they take turns, approve their work, follow up with one member and see the tokens and cost reported for each question.",
             "url": "https://agentic-system-lab.github.io/harness-relay/",
             "applicationCategory": "DeveloperApplication",
             "operatingSystem": "macOS, Windows, Linux",
@@ -536,8 +536,8 @@
           <div class="section-head">
             <h2 id="modes-title">Choose how they take turns</h2>
             <p class="lead">
-              Each conversation has its own rules: who speaks, in what order, and when it ends. Address anyone with an
-              <code>@mention</code> and only they reply.
+              Choose who speaks, in what order, and when the conversation returns to you. Use an
+              <code>@mention</code> to give a teammate the floor.
             </p>
           </div>
 
@@ -749,7 +749,7 @@
             <div class="tpl auto">
               <span class="members"><span class="spark" aria-hidden="true"><svg><use href="#i-spark" /></svg></span></span>
               <span class="tpl-title">Auto team <span class="chip">You confirm first</span></span>
-              <p>For each question, the lead agent picks a template, adapts one, or designs the team.</p>
+              <p>For a new question, the lead agent picks a template, adapts one, or designs the team.</p>
             </div>
             <div class="tpl">
               <span class="members" aria-hidden="true"
@@ -899,6 +899,8 @@
             </p>
           </div>
           <ul class="more">
+            <li><b><a href="docs/first-chat/#follow-up">Follow up with one member</a></b>Ask about an error code that only one teammate mentioned in the last exchange, or click the question mark under a reply to ask its author directly.</li>
+            <li><b><a href="docs/first-chat/#question-usage">Question usage</a></b>Expand it below your question to compare the tokens and cost reported for planning, model checks, member replies and lead review.</li>
             <li><b>Attach files</b>Paste screenshots or drop files. Every agent gets their paths, and the agents that take images see them directly.</li>
             <li><b>Images and video in the conversation</b>Images and videos an agent saves in the working directory show up right in the conversation.</li>
             <li><b>See what they think and do</b>Reasoning, plans and each tool’s output stream in. Mermaid blocks are drawn as diagrams.</li>

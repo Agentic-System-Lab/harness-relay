@@ -3554,6 +3554,10 @@ export const en: Messages = {
         body: 'Replies show as they are written, and you can step in or stop at any time. When the team needs your approval or an answer, a card shows in the chat and the bell tells you.',
       },
       {
+        title: 'After a reply',
+        body: 'To follow up, ask about an error code only one member cited last time or tap the question-mark bubble under their reply. Open Question usage below your question for tokens and cost by stage.',
+      },
+      {
         title: 'Connect your phone',
         body: 'Hand out tasks and approve requests from your phone, while the agents keep running on this computer.',
         action: 'Connect your phone',

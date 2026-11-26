@@ -19,7 +19,7 @@
     <meta property="og:title" content="Harness Relay：Claude Code、Codex、Grok 等十二種 coding agent，任你搭配" />
     <meta
       property="og:description"
-      content="你手上的 coding agent，不論是 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code，或用你的 API key 或自己的模型執行的五個開源 coding agent，任意搭配，和你一起工作，也彼此溝通。一種就能組隊。設計團隊、決定發言方式，並核准它們的動作。"
+      content="你手上的 coding agent，不論是 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code，或用你的 API key 或自己的模型執行的五個開源 coding agent，任意搭配，和你一起工作，也彼此溝通。一種就能組隊。你可以決定發言順序、核准成員的動作、追問一位成員，也能查看每個問題回報的 token 數與費用。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -84,7 +84,7 @@
             "@type": "SoftwareApplication",
             "@id": "https://agentic-system-lab.github.io/harness-relay/#app",
             "name": "Harness Relay",
-            "description": "你手上的 coding agent，不論是 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code，或用你的 API key 或自己的模型執行的五個開源 coding agent，任意搭配，和你一起工作，也彼此溝通。一種就能組隊。設計團隊、決定發言方式，並核准它們的動作。",
+            "description": "你手上的 coding agent，不論是 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code，或用你的 API key 或自己的模型執行的五個開源 coding agent，任意搭配，和你一起工作，也彼此溝通。一種就能組隊。你可以決定發言順序、核准成員的動作、追問一位成員，也能查看每個問題回報的 token 數與費用。",
             "url": "https://agentic-system-lab.github.io/harness-relay/",
             "applicationCategory": "DeveloperApplication",
             "operatingSystem": "macOS, Windows, Linux",
@@ -522,7 +522,7 @@
           <div class="section-head">
             <h2 id="modes-title">決定他們怎麼輪流發言</h2>
             <p class="lead">
-              每個對話都有自己的規則：誰發言、什麼順序、何時結束。用 <code>@名稱</code> 指定成員，就只有被指定的人回覆。
+              你可以決定誰先發言、成員怎麼輪流，以及何時換你說話。用 <code>@名稱</code> 就能請指定的成員發言。
             </p>
           </div>
 
@@ -720,7 +720,7 @@
             <div class="tpl auto">
               <span class="members"><span class="spark" aria-hidden="true"><svg><use href="#i-spark" /></svg></span></span>
               <span class="tpl-title">自動組隊 <span class="chip">你先確認</span></span>
-              <p>每個問題，首席 agent 都會挑選範本、依範本調整，或設計團隊。</p>
+              <p>遇到新問題，首席 agent 會挑選範本、依範本調整，或設計團隊。</p>
             </div>
             <div class="tpl">
               <span class="members" aria-hidden="true"
@@ -854,6 +854,8 @@
             </p>
           </div>
           <ul class="more">
+            <li><b><a href="docs/first-chat/#follow-up">追問一位成員</a></b>如果上一題只有一位成員提到某個錯誤碼，追問那個錯誤碼就會由該成員回答。也可以按回覆下方的問號，直接問寫下那則回覆的人。</li>
+            <li><b><a href="docs/first-chat/#question-usage">問題用量明細</a></b>在問題下方展開明細，就能比較組隊規劃、模型檢查、成員回覆與首席審閱各自回報的 token 數和費用。</li>
             <li><b>附加檔案</b>貼上截圖或拖曳檔案，每個 agent 都拿得到路徑；能看圖的 agent 直接看到圖。</li>
             <li><b>對話裡的圖片與影片</b>agent 存在工作目錄裡的圖片與影片，會直接顯示在對話中。</li>
             <li><b>看見思考與動作</b>推理過程、計畫與每個工具的輸出即時串流；Mermaid 程式碼區塊會畫成圖表。</li>

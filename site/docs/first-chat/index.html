@@ -6,7 +6,7 @@
     <title>Your first chat · Harness Relay docs</title>
     <meta
       name="description"
-      content="Harness Relay docs: start a chat, ask your question, see (or confirm) the team the lead agent designs, talk with it while it works, and read its review."
+      content="Harness Relay docs for your first chat. Confirm the team, read its review, ask a member a follow-up question and see token use and cost for each stage."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Your first chat · Harness Relay docs" />
     <meta
       property="og:description"
-      content="Your first chat in Harness Relay: choose the folder and the permission, ask, see (or confirm) the team the lead agent designs, add to the discussion while the agents reply, answer their questions, and read the lead agent's review of their replies."
+      content="Start a chat in Harness Relay, confirm the team and join the discussion. Follow up with the member who reported a finding and check how many tokens each stage used."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -58,7 +58,7 @@
         "@id": "https://agentic-system-lab.github.io/harness-relay/docs/first-chat/#webpage",
         "url": "https://agentic-system-lab.github.io/harness-relay/docs/first-chat/",
         "name": "Your first chat · Harness Relay docs",
-        "description": "Harness Relay docs: start a chat, ask your question, see (or confirm) the team the lead agent designs, talk with it while it works, and read its review.",
+        "description": "Harness Relay docs for your first chat. Confirm the team, read its review, ask a member a follow-up question and see token use and cost for each stage.",
         "inLanguage": "en",
         "isPartOf": {
           "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
@@ -261,6 +261,8 @@
               </ol>
             </details>
           </li>
+          <li><a href="#follow-up">Ask one member a follow-up question</a></li>
+          <li><a href="#question-usage">Question usage</a></li>
         </ol>
       </nav>
 
@@ -335,8 +337,8 @@
               images too.
             </li>
             <li>
-              <b>Address members</b>: type <code>@</code> to pick a teammate. When your message mentions members, only
-              they reply; without a mention, the whole team takes part.
+              Type <code>@</code> to choose who answers. In relay mode, a member you mention can hand off to a teammate.
+              You can also <a href="#follow-up">ask a follow-up about a specific reply</a>.
             </li>
             <li>
               <b>Speak instead of typing</b>: press the microphone button next to the send button, speak, and press it
@@ -370,9 +372,9 @@
             </li>
           </ul>
           <p>
-            Whatever you write while the card waits goes to the team together with your question. Only new questions
-            get a new design: an answer to an agent's question, a message that <code>@mentions</code> members, and
-            <b>Continue</b> go to the team you have. <a href="../teams/#auto-team">How the lead agent chooses</a>
+            Whatever you write while the card waits goes to the team together with your question. A follow-up directed
+            to one member, an answer to an agent's question, a message that <code>@mentions</code> members and
+            <b>Continue</b> all use the current team. <a href="../teams/#auto-team">How the lead agent chooses</a>
           </p>
         </section>
 
@@ -527,6 +529,48 @@
           <p>Choose <b>Preview app</b> beside the HTML link in the team’s reply. The page opens in the panel. Try a button, then choose <b>Reload page</b> to try it again in the same run. If it reports an error, choose <b>Add errors to message</b>, describe what you clicked and send the draft. <a href="../conversations/#app-preview">Preview from Files, or a project with npm, a Dockerfile or a compose file</a>. When it works, <b>Publish…</b> puts it online in your own free Render and Neon accounts. <a href="../conversations/#app-publish">Publish an app</a>.</p>
         </section>
 
+        <section id="follow-up" aria-labelledby="follow-up-title">
+          <h2 id="follow-up-title">Ask one member a follow-up question</h2>
+          <p>
+            When the team has finished, select the question-mark bubble under a member's reply and type your question.
+            For example, choose QA's reply and ask “What caused the timeout?” The message box shows <b>Answered by @QA</b>.
+            Send it to give QA one turn. Lead review still runs if enabled.
+          </p>
+          <p>
+            You can also type “What caused <code>LOGIN_TIMEOUT</code>?” directly. If only QA mentioned that error code
+            in the replies to your last question, Relay selects QA for you. A test name, file path or quotation can also identify a
+            member. If several members match, Relay uses the usual team mode. To choose that mode yourself, select
+            <b>Ask the whole team</b> before sending.
+          </p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/first-chat-follow-up-en.webp">
+              <img src="../../assets/media/docs/first-chat-follow-up-en.webp" width="860" height="494" loading="lazy"
+                alt="QA reports LOGIN_TIMEOUT. The message box shows Answered by @QA and the Ask the whole team button above the follow-up question." />
+            </a>
+            <figcaption>Dev replied last, but the question about the timeout goes to QA, who reported it.</figcaption>
+          </figure>
+        </section>
+
+        <section id="question-usage" aria-labelledby="question-usage-title">
+          <h2 id="question-usage-title">Question usage</h2>
+          <p>
+            Expand <b>Question usage</b> below your question to see the input tokens, output tokens and cost in US
+            dollars for each completed stage. Team planning, each model check, each member's turn and lead review
+            have their own rows. Older chats may show planning and model checks together.
+          </p>
+          <p>
+            A figure the agent's CLI did not report appears as <b>Unknown</b>. The <b>Reported subtotal</b> adds
+            the available figures in each column.
+          </p>
+          <figure class="doc-figure">
+            <a href="../../assets/media/docs/first-chat-question-usage-en.webp">
+              <img src="../../assets/media/docs/first-chat-question-usage-en.webp" width="818" height="358" loading="lazy"
+                alt="Expanded Question usage table showing team planning, a Claude Code model check, Claude's turn and lead review. The reported cost subtotal is $0.0048." />
+            </a>
+            <figcaption>For this release checklist, the four stages reported 480 input tokens and 160 output tokens in total.</figcaption>
+          </figure>
+        </section>
+
         <aside class="doc-more" aria-label="Technical details">
           <svg aria-hidden="true"><use href="#i-github" /></svg>
           <div>
@@ -534,6 +578,8 @@
             <ul>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#3-start-a-chat--new-chat-and-templates">Start a chat</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#4-chat">Chat</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#follow-up-with-one-member">Follow up with one member</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#question-usage">Question usage</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#lead-review">Lead review</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#voice-input">Voice input</a></li>
             </ul>
