@@ -16,7 +16,6 @@ import {
   groupSections,
   groupStatus,
   moveFamily,
-  pendingPinTime,
   pinnedAt,
   pinnedConversations,
   readCollapsedBranches,
@@ -24,9 +23,7 @@ import {
   revealIn,
   sectionKey,
   settleMoves,
-  settlePins,
   undoMoves,
-  undoPin,
   writeCollapsedBranches,
   writeCollapsedGroups,
   type ConvNode,
@@ -43,6 +40,8 @@ interface Props {
   onBranch: (id: string, title: string) => void;
   route: Route;
   conversations: ConversationSummary[];
+  pins: PendingPins;
+  onPin: (id: string, pinned: boolean) => void;
   groups: ConversationGroup[];
   seen: Record<string, number>;
   /** Groups or conversations changed: load them again. */
@@ -192,7 +191,7 @@ function GroupNameField({
  * groups, then "Other". In a group, each conversation branched from another is under it, and a family
  * of them is dragged between groups as one.
  */
-export function SidebarGroups({ route, conversations, groups, seen, onChanged, onDelete, onBranch }: Props) {
+export function SidebarGroups({ route, conversations, pins, onPin, groups, seen, onChanged, onDelete, onBranch }: Props) {
   const { t, lang } = useI18n();
   const [collapsed, setCollapsed] = useState(readCollapsedGroups);
   const [folded, setFolded] = useState(readCollapsedBranches);
@@ -202,11 +201,8 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
   /** The section a conversation is dragged over. */
   const [over, setOver] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
-  /** Pins and unpins not yet reported back by the server, so the conversation does not jump back meanwhile. */
-  const [pins, setPins] = useState<PendingPins>({});
 
   useEffect(() => setMoves((m) => settleMoves(m, conversations)), [conversations]);
-  useEffect(() => setPins((p) => settlePins(p, conversations)), [conversations]);
 
   // The conversation opened is in view: hidden branches that hold it open, once, when it is listed
   // (a new branch is listed a moment after it opens).
@@ -254,18 +250,6 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
     } catch (e) {
       setMoves((m) => undoMoves(m, ids, before));
       alert(t.sidebar.moveFailed((e as Error).message));
-    }
-    onChanged();
-  };
-
-  const pin = async (c: ConversationSummary, pinned: boolean) => {
-    const before = pins;
-    setPins((p) => ({ ...p, [c.id]: pinned ? pendingPinTime(conversations, p) : null }));
-    try {
-      await api.pinConversation(c.id, pinned);
-    } catch (e) {
-      setPins((p) => undoPin(p, c.id, before));
-      alert(t.sidebar.pinFailed((e as Error).message));
     }
     onChanged();
   };
@@ -404,7 +388,8 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
           className="icon-button conv-pin"
           aria-label={pinLabel}
           title={pinLabel}
-          onClick={() => void pin(c, !isPinned)}
+          disabled={c.id in pins}
+          onClick={() => onPin(c.id, !isPinned)}
         >
           <PinIcon size={10} upright={isPinned} />
         </button>

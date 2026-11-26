@@ -605,6 +605,14 @@ test.describe('on a phone', () => {
     await pinned.locator('.conv-link').tap();
     await expect(page.locator('.chat-title')).toHaveText('Pin me');
     await expect(page.locator('.sidebar')).not.toBeInViewport();
+    const more = page.getByRole('button', { name: 'More', exact: true });
+    await more.tap();
+    await page.locator('.chat-head').getByRole('button', { name: 'Unpin', exact: true }).tap();
+    await expect(more).toHaveAttribute('aria-expanded', 'false');
+    await expect(more).toBeFocused();
+    await page.getByRole('button', { name: 'Open sidebar' }).tap();
+    await expect(pinned).toHaveCount(0);
+    await expect(item.getByRole('button', { name: 'Pin "Pin me"' })).toBeInViewport();
   });
 
   test('a long message keeps the page from scrolling sideways', async ({ page, relay }) => {

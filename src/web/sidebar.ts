@@ -278,23 +278,6 @@ export function pendingPinTime(conversations: ConversationSummary[], pins: Pendi
   return Math.max(now, ...conversations.map((c) => pinnedAt(c, pins) ?? 0)) + 1;
 }
 
-/** Pins the server now reports, or of conversations gone, are dropped (the same object when nothing changed). */
-export function settlePins(pins: PendingPins, conversations: ConversationSummary[]): PendingPins {
-  const left = Object.entries(pins).filter(([id, at]) => {
-    const c = conversations.find((x) => x.id === id);
-    return c !== undefined && (c.pinnedAt !== undefined) !== (at !== null);
-  });
-  return left.length === Object.keys(pins).length ? pins : Object.fromEntries(left);
-}
-
-/** The pin or unpin of `id` failed: what `before` had for it comes back (nothing, where it had nothing). */
-export function undoPin(pins: PendingPins, id: string, before: PendingPins): PendingPins {
-  const next = { ...pins };
-  if (id in before) next[id] = before[id] ?? null;
-  else delete next[id];
-  return next;
-}
-
 /** Most urgent first. */
 const URGENCY: ConvStatus[] = ['waiting', 'confirm', 'answer', 'blocked', 'running', 'error', 'unread'];
 

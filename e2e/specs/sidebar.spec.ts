@@ -211,7 +211,10 @@ test.describe('the sidebar', () => {
     const pinnedAt = async (id: string) =>
       (await relay.api<ConversationSummary[]>('/api/conversations')).find((c) => c.id === id)?.pinnedAt;
     const pin = (scope: Locator, title: string) => row(page, scope, title).locator('.conv-pin');
+    const headPin = page.locator('.chat-head').getByRole('button', { name: 'Pin', exact: true });
+    const headUnpin = page.locator('.chat-head').getByRole('button', { name: 'Unpin', exact: true });
     await expect(pinnedRegion).toHaveCount(0);
+    await expect(headPin).toBeVisible();
 
     // Hidden until the pointer is on the conversation; then its middle on the row's top-left corner.
     await page.mouse.move(0, 0);
@@ -259,6 +262,7 @@ test.describe('the sidebar', () => {
     await page.keyboard.press('Enter');
     await expect(pinnedRegion.locator('.conv-title-text')).toHaveText(['Newer chat', 'Older chat']);
     await expect.poll(() => pinnedAt(newer)).toBeGreaterThan(0);
+    await expect(headUnpin).toBeVisible();
     // A pinned row's folder menu is its family's group: moved to Billing elsewhere, then back from Pinned.
     await relay.api(`/api/conversations/${older}/group`, { method: 'PUT', body: { groupId: await groupId(relay, 'Billing') } });
     await page.reload();
@@ -291,9 +295,10 @@ test.describe('the sidebar', () => {
     // A pin that fails says so, and the conversation stays as it was.
     await page.route('**/api/conversations/*/pin', (route) => route.fulfill({ status: 500, json: { error: 'disk full' } }));
     const said = new Promise<string>((done) => page.once('dialog', (d) => void d.accept().then(() => done(d.message()))));
-    await pinnedRegion.getByRole('button', { name: 'Unpin "Newer chat"' }).click();
+    await headUnpin.click();
     expect(await said).toBe('Could not change the pin: disk full');
     await expect(pinnedRegion.locator('.conv-title-text')).toHaveText(['Newer chat', 'Older chat']);
+    await expect(headUnpin).toBeVisible();
     await page.unroute('**/api/conversations/*/pin');
 
     // Unpinned from the Pinned section, or from its group.
@@ -305,6 +310,42 @@ test.describe('the sidebar', () => {
     await expect(pinnedRegion).toHaveCount(0);
     await expect.poll(() => pinnedAt(newer)).toBeUndefined();
     await expect(other.locator('.conv-item')).toHaveCount(2);
+
+    await relay.api(`/api/conversations/${newer}/schedule`, {
+      method: 'PUT',
+      body: { text: 'Daily check', repeat: { kind: 'daily', time: '08:00' }, approvals: 'deny', missed: 'skip', enabled: true },
+    });
+    await page.setViewportSize({ width: 911, height: 800 });
+    await expect(page.locator('.schedule-badge')).toBeVisible();
+    await expect(page.locator('.chat-head').getByRole('button', { name: 'Preview', exact: true })).toBeInViewport({ ratio: 1 });
+    const chatTitle = page.locator('.chat-title');
+    expect(await chatTitle.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+
+    // While the header's pin is being saved, neither entry point can send a conflicting write.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route(
+      `**/api/conversations/${newer}/pin`,
+      async (route) => {
+        await held;
+        await route.continue();
+      },
+      { times: 1 },
+    );
+    try {
+      await headPin.click();
+      await expect(pinnedRegion.locator('.conv-title-text')).toHaveText(['Newer chat']);
+      await expect(headUnpin).toBeDisabled();
+      await expect(pin(other, 'Newer chat')).toBeDisabled();
+      await expect(pin(pinnedRegion, 'Newer chat')).toBeDisabled();
+      await expect(pin(other, 'Older chat')).toBeEnabled();
+    } finally {
+      release();
+    }
+    await expect.poll(() => pinnedAt(newer)).toBeGreaterThan(0);
+    await headUnpin.click();
+    await expect(pinnedRegion).toHaveCount(0);
+    await expect.poll(() => pinnedAt(newer)).toBeUndefined();
 
     // A pinned conversation deleted leaves Pinned too.
     await row(page, other, 'Older chat').hover();

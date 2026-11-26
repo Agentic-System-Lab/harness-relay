@@ -45,6 +45,7 @@ import {
 import { EMPTY_INBOX, readOnView, sameSummary } from './inbox';
 import { refreshLimits } from './limits';
 import { latestLoader, newerStatuses } from './refresh';
+import { pendingPinTime, type PendingPins } from './sidebar';
 import { askOnNewChat, readAsked, writeAsked } from './sandboxSetup';
 import { readNoticeSeen, showNotice, withheldByCli, writeNoticeSeen } from './agentEnv';
 import { useSandboxSetup } from './useSandboxSetup';
@@ -217,6 +218,7 @@ function RelayApp() {
   const [scheduleError, setScheduleError] = useState('');
   const [settingsReturn, setSettingsReturn] = useState<SettingsReturn>();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [pins, setPins] = useState<PendingPins>({});
   const [groups, setGroups] = useState<ConversationGroup[]>([]);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [catalog, setCatalog] = useState<ProviderModels[]>([]);
@@ -317,6 +319,23 @@ function RelayApp() {
       unreachable.current = false;
     });
   }, [alerts]);
+
+  const pinConversation = async (id: string, pinned: boolean) => {
+    if (id in pins) return;
+    const at = pinned ? pendingPinTime(conversations, pins) : undefined;
+    setPins((p) => ({ ...p, [id]: at ?? null }));
+    try {
+      await api.pinConversation(id, pinned);
+      // The write is confirmed. Ignore any list requested before it, then refresh for the server's timestamp.
+      shown.current = asked.current + 1;
+      setConversations((list) => list.map((c) => (c.id === id ? { ...c, pinnedAt: at } : c)));
+    } catch (e) {
+      alert(t.sidebar.pinFailed((e as Error).message));
+    } finally {
+      setPins(({ [id]: _done, ...others }) => others);
+    }
+    refreshConversations();
+  };
 
   const showCreated = (page: SettingsReturn['page'], id: string) => {
     refreshConversations();
@@ -637,6 +656,8 @@ function RelayApp() {
         onHome={() => setSidebarOpen(false)}
         route={route}
         conversations={conversations}
+        pins={pins}
+        onPin={pinConversation}
         groups={groups}
         seen={seen ?? {}}
         providers={providers}
@@ -720,6 +741,8 @@ function RelayApp() {
             providers={providers}
             catalog={catalog}
             conversations={loaded ? conversations : undefined}
+            pins={pins}
+            onPin={pinConversation}
             onChanged={refreshConversations}
           />
         )}

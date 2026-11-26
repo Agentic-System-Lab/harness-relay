@@ -66,7 +66,8 @@ import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { Deferred, lazyPart } from './Deferred';
-import { ArrowDownIcon, BranchIcon, ClockIcon, FolderIcon, MoreIcon, PreviewIcon, ShareIcon, UsersIcon } from './icons';
+import { pinnedAt, type PendingPins } from '../sidebar';
+import { ArrowDownIcon, BranchIcon, ClockIcon, FolderIcon, MoreIcon, PinIcon, PreviewIcon, ShareIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QuestionUsage } from './QuestionUsage';
 import { questionUsage } from '../questionUsage';
@@ -157,10 +158,12 @@ interface Props {
   catalog: ProviderModels[];
   /** The sidebar's conversations (undefined until loaded): a branch names the one it comes from by its title now. */
   conversations?: ConversationSummary[];
+  pins: PendingPins;
+  onPin: (id: string, pinned: boolean) => void;
   onChanged: () => void;
 }
 
-export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, conversations, onChanged }: Props) {
+export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, conversations, pins, onPin, onChanged }: Props) {
   const { t, lang } = useI18n();
   const [state, dispatch] = useReducer(reducer, { conv: null, running: false, active: [], command: false, held: false });
   const [error, setError] = useState('');
@@ -774,6 +777,9 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
   // The team checks' card says it already, with its own Fix, when they check the app preview.
   const notReadyCard = !running && !readyCard && notReady !== undefined && notReady.index > lastUser && !conv.settings.checks?.previewApp;
   const previewShown = appPreview !== null && !previewHidden;
+  const summary = conversations?.find((c) => c.id === id);
+  const isPinned = summary !== undefined && pinnedAt(summary, pins) !== undefined;
+  const pinLabel = isPinned ? t.chat.unpin : t.chat.pin;
   const askIds = new Set(questions.map((m) => m.id));
   const askers = questions.map((m) => `@${m.agentName ?? 'agent'}`).join(t.common.listSeparator);
   /** The agents besides this reply's that wait for an answer too ('' when none). */
@@ -868,6 +874,19 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
             <MoreIcon size={18} />
           </button>
           <div className={`chat-head-actions ${menuOpen ? 'open' : ''}`} id={menuId} ref={actionsRef}>
+            <button
+              type="button"
+              className={`ghost small-button head-button pin-head-button ${isPinned ? 'pinned' : ''}`}
+              disabled={!summary || id in pins}
+              title={isPinned ? t.sidebar.unpin(conv.title) : t.sidebar.pin(conv.title)}
+              onClick={() => {
+                if (menuOpen) closeMenu(true);
+                onPin(id, !isPinned);
+              }}
+            >
+              <PinIcon size={16} upright={isPinned} />
+              <span className="button-label">{pinLabel}</span>
+            </button>
             <button
               className="ghost small-button head-button"
               onClick={openFromHead(() => setShare({}))}

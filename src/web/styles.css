@@ -825,8 +825,10 @@ p {
   color: var(--star-edge);
 }
 
-.conv-item.pinned .conv-pin svg {
+.conv-item.pinned .conv-pin svg,
+.head-button.pinned svg {
   fill: var(--star);
+  stroke: var(--star-edge);
 }
 
 .conv-pin:focus-visible {
@@ -2841,6 +2843,10 @@ details.sub .model-picker {
   display: none;
 }
 
+.pin-head-button svg {
+  display: block;
+}
+
 /* A chat the preview panel (or the window) leaves narrow: the header's actions become icons, their
    names kept for screen readers and in their tooltips, so that they all stay on the row. Phones have
    them in the ⋯ menu instead (see the 560px rules). */
@@ -2850,6 +2856,17 @@ details.sub .model-picker {
 
 @media (min-width: 561px) {
   @container chat-head (width < 900px) {
+    /* Keep the title beside the actions even when an automation adds a long badge. */
+    .chat-head-actions {
+      grid-area: 1 / 2 / 2 / 4;
+      justify-self: end;
+    }
+
+    .chat-head-badges {
+      grid-area: 2 / 2 / 3 / 4;
+      justify-self: end;
+    }
+
     .chat-head-actions .head-button {
       padding-inline: 9px;
     }
