@@ -79,16 +79,21 @@ test.describe('the sidebar', () => {
       const warningBox = (await warning.boundingBox())!;
       expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(warningBox.x + 1);
       const hasRoom = await title.evaluate((el) => {
-        const range = document.createRange();
-        range.setStart(el.firstChild!, 0);
-        range.setEnd(el.firstChild!, 45);
+        // WebKit can return the clipped bounds for a text range in an ellipsized button.
+        // Measure the first 45 characters with the same font and padding at their natural width.
+        const prefix = el.cloneNode(false) as HTMLElement;
+        prefix.textContent = el.textContent!.slice(0, 45) + '…';
+        prefix.style.cssText = 'position: fixed; width: max-content; max-width: none; visibility: hidden';
+        el.after(prefix);
+        const pastOldLimit = prefix.offsetWidth <= el.clientWidth;
+        prefix.remove();
         return {
-          pastOldLimit: range.getBoundingClientRect().right <= el.getBoundingClientRect().right,
+          pastOldLimit,
           clipped: el.scrollWidth > el.clientWidth,
           overflow: getComputedStyle(el).textOverflow,
         };
       });
-      if (width !== 390) expect(hasRoom.pastOldLimit).toBe(true);
+      expect(hasRoom.pastOldLimit).toBe(width !== 390);
       if (width === 1600) expect(hasRoom.clipped).toBe(false);
       if (width === 390) expect(hasRoom.clipped && hasRoom.overflow === 'ellipsis').toBe(true);
       await menu.click();
