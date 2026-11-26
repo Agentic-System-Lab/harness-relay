@@ -4,7 +4,7 @@ import { inflateRawSync } from 'node:zlib';
 import type { Download, Locator, Page } from '@playwright/test';
 import { FILE_LIMITS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, finishedReply, openTeamChat, send, settled, startChat, confirmTeam } from '../support/app';
+import { chooseChatAction, acceptNextDialog, finishedReply, openTeamChat, send, settled, startChat, confirmTeam } from '../support/app';
 import { CLIS, eachCli, eachHalf, endsTurnNote, logged, member, needsBelowFull, teamOf, teams } from '../support/clis';
 
 /**
@@ -171,7 +171,7 @@ test.describe('files and changes', () => {
     const card = codex.locator('.changes-card');
     await expect(card).toContainText("in this chat's worktree · relay/");
     expect(existsSync(join(relay.workDir, 'second.txt'))).toBe(false);
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const browser = page.getByRole('dialog', { name: 'Files' });
     await expect(browser.getByRole('combobox', { name: 'Folder' }).locator('option', { hasText: "This chat's worktree" })).toHaveCount(1);
     await page.keyboard.press('Escape');
@@ -194,7 +194,7 @@ test.describe('files and changes', () => {
 
   test('the file browser shows the working directory and previews a file', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const browser = page.getByRole('dialog', { name: 'Files' });
     await expect(browser).toBeVisible();
     const list = browser.locator('.file-list');
@@ -212,7 +212,7 @@ test.describe('files and changes', () => {
   test('a text file is edited and saved in Files, and a save over a newer version offers to reload', async ({ page, relay }) => {
     writeFileSync(join(relay.workDir, 'queue.csv'), 'date,text\r\n2026-11-23,Hello\r\n');
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const browser = page.getByRole('dialog', { name: 'Files' });
     await browser.locator('.file-list .file-name', { hasText: /^queue\.csv$/ }).click();
     await expect(browser.locator('.code-text')).toContainText('2026-11-23,Hello');
@@ -265,7 +265,7 @@ test.describe('files and changes', () => {
 
   test('a new file and uploaded files go into the folder on screen, replacing a file only once confirmed', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const browser = page.getByRole('dialog', { name: 'Files' });
     const list = browser.locator('.file-list');
     await list.locator('.file-name', { hasText: /^src$/ }).click();
@@ -327,7 +327,7 @@ test.describe('files and changes', () => {
   test('a save waits while a run writes in the folder', async ({ page, relay }) => {
     writeFileSync(join(relay.workDir, 'queue.csv'), 'date,text\n');
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const browser = page.getByRole('dialog', { name: 'Files' });
     await browser.locator('.file-list .file-name', { hasText: /^queue\.csv$/ }).click();
     await browser.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -359,7 +359,7 @@ test.describe('files and changes', () => {
     await finishedReply(page, 'Claude');
     expect(existsSync(join(relay.workDir, '.git'))).toBe(true);
 
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const browser = page.getByRole('dialog', { name: 'Files' });
     // The whole working directory, named after its folder.
     const all = await downloadZip(page, browser.getByRole('button', { name: 'Download "Working directory" as a ZIP file' }));
@@ -390,7 +390,7 @@ test.describe('files and changes', () => {
     writeFileSync(join(relay.workDir, 'drafts', 'b.md'), '# B\n');
     writeFileSync(join(relay.workDir, 'scratch.txt'), 'scratch\n');
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const browser = page.getByRole('dialog', { name: 'Files' });
     const list = browser.locator('.file-list');
     const row = (name: string) => list.locator('.file-name', { hasText: new RegExp(`^${name.replace('.', '\\.')}$`) });
@@ -512,7 +512,7 @@ test.describe('files and changes', () => {
     writeFileSync(join(relay.workDir, 'build', 'huge.bin'), '');
     truncateSync(join(relay.workDir, 'build', 'huge.bin'), FILE_LIMITS.zipBytes + 1);
 
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const browser = page.getByRole('dialog', { name: 'Files' });
     const button = browser.getByRole('button', { name: 'Download "Working directory" as a ZIP file' });
     // Declined, nothing is downloaded.

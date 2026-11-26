@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { ChatMessage, Conversation, Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { composer, replies, send } from '../support/app';
+import { chooseChatAction, composer, replies, send } from '../support/app';
 import type { RelayServer } from '../support/relay';
 import {
   CLOUD,
@@ -63,7 +63,7 @@ async function pickAndAsk(page: Page, relay: RelayServer, provider: Provider, mo
   await page.reload();
   await expect(composer(page)).toBeVisible();
   if (model) {
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     const select = drawer.getByRole('combobox', { name: 'Model', exact: true });
     // The menu lists the endpoint's model (asked of the CLI and the endpoints as the drawer opens).

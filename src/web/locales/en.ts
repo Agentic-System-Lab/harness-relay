@@ -421,6 +421,8 @@ export const en: Messages = {
     hops: (n) => `${n} hand-offs`,
     rounds: (n) => (n === 1 ? '1 round' : `${n} rounds`),
     teamSettings: 'Team settings',
+    pin: 'Pin',
+    unpin: 'Unpin',
     files: 'Files',
     filesTitle: 'Browse the files in the working directory',
     more: 'More',

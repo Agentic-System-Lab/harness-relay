@@ -1,7 +1,16 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import { LEAD_REVIEW, acceptNextDialog, chatId, finishedReply, openTeamChat, send, submitFirstQuestion } from '../support/app';
+import {
+  chooseChatAction,
+  LEAD_REVIEW,
+  acceptNextDialog,
+  chatId,
+  finishedReply,
+  openTeamChat,
+  send,
+  submitFirstQuestion,
+} from '../support/app';
 import { chatWith, CLIS, eachCli, endsTurnNote, member, needsBelowFull, writtenBy } from '../support/clis';
 
 /*
@@ -121,7 +130,7 @@ test.describe('several working directories', () => {
   test('the file browser lists every working directory', async ({ page, relay }) => {
     const second = relay.addProject('second');
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { extraCwds: [second] });
-    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
+    await chooseChatAction(page, 'Files');
     const browser = page.getByRole('dialog', { name: 'Files' });
     const root = browser.getByRole('combobox', { name: 'Folder' });
     await expect(root.locator('option')).toHaveCount(2);

@@ -66,7 +66,8 @@ import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { Deferred, lazyPart } from './Deferred';
-import { ArrowDownIcon, BranchIcon, ClockIcon, FolderIcon, MoreIcon, PreviewIcon, ShareIcon, UsersIcon } from './icons';
+import { pinnedAt, type PendingPins } from '../sidebar';
+import { ArrowDownIcon, BranchIcon, ClockIcon, FolderIcon, MoreIcon, PinIcon, PreviewIcon, ShareIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QuestionUsage } from './QuestionUsage';
 import { questionUsage } from '../questionUsage';
@@ -157,10 +158,12 @@ interface Props {
   catalog: ProviderModels[];
   /** The sidebar's conversations (undefined until loaded): a branch names the one it comes from by its title now. */
   conversations?: ConversationSummary[];
+  pins: PendingPins;
+  onPin: (id: string, pinned: boolean) => void;
   onChanged: () => void;
 }
 
-export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, conversations, onChanged }: Props) {
+export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, conversations, pins, onPin, onChanged }: Props) {
   const { t, lang } = useI18n();
   const [state, dispatch] = useReducer(reducer, { conv: null, running: false, active: [], command: false, held: false });
   const [error, setError] = useState('');
@@ -238,16 +241,12 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
     row.scrollTo({ left: chip.offsetLeft - (row.clientWidth - chip.offsetWidth) / 2, behavior: 'smooth' });
   }, [state.active]);
 
-  // On phones the header's actions are a menu under ⋯ (.more-button in styles.css); wider screens
-  // show them in a row and never open it.
   const [menuOpen, setMenuOpen] = useState(false);
   const menuId = useId();
   const moreRef = useRef<HTMLButtonElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
-  const menuTimer = useRef<number | undefined>(undefined);
   /** Closes the menu; with `refocus`, focus goes to ⋯ (the menu's buttons are about to be hidden). */
   const closeMenu = useCallback((refocus: boolean) => {
-    window.clearTimeout(menuTimer.current);
     if (refocus) moreRef.current?.focus();
     setMenuOpen(false);
   }, []);
@@ -261,32 +260,37 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
       if (e.type === 'focusin' && !app?.contains(target)) return;
       if (!moreRef.current?.contains(target) && !actionsRef.current?.contains(target)) closeMenu(false);
     };
+    // Clicks inside a preview iframe stay in its document. Check after focus has moved into it.
+    let frameCheck: number | undefined;
+    const onBlur = () => {
+      window.clearTimeout(frameCheck);
+      frameCheck = window.setTimeout(() => {
+        if (document.activeElement instanceof HTMLIFrameElement) closeMenu(false);
+      }, 0);
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.preventDefault();
       closeMenu(true);
     };
-    // Same width as the @media rule that makes it a menu: past it the row is shown instead.
-    const phone = window.matchMedia('(max-width: 560px)');
-    const onWidth = () => closeMenu(false);
     document.addEventListener('pointerdown', onOutside);
     document.addEventListener('focusin', onOutside);
     document.addEventListener('keydown', onKey);
-    phone.addEventListener('change', onWidth);
+    window.addEventListener('blur', onBlur);
     return () => {
       document.removeEventListener('pointerdown', onOutside);
       document.removeEventListener('focusin', onOutside);
       document.removeEventListener('keydown', onKey);
-      phone.removeEventListener('change', onWidth);
+      window.removeEventListener('blur', onBlur);
+      window.clearTimeout(frameCheck);
     };
   }, [menuOpen, closeMenu]);
-  useEffect(() => () => window.clearTimeout(menuTimer.current), []);
   /**
    * Opens a drawer from the header. From the menu, focus moves to ⋯ first: the drawer gives focus
    * back on close to whatever had it, and the button that was clicked is hidden by then.
    */
   const openFromHead = (open: (value: boolean) => void) => () => {
-    if (menuOpen) closeMenu(true);
+    closeMenu(true);
     open(true);
   };
 
@@ -774,6 +778,9 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
   // The team checks' card says it already, with its own Fix, when they check the app preview.
   const notReadyCard = !running && !readyCard && notReady !== undefined && notReady.index > lastUser && !conv.settings.checks?.previewApp;
   const previewShown = appPreview !== null && !previewHidden;
+  const summary = conversations?.find((c) => c.id === id);
+  const isPinned = summary !== undefined && pinnedAt(summary, pins) !== undefined;
+  const pinLabel = isPinned ? t.chat.unpin : t.chat.pin;
   const askIds = new Set(questions.map((m) => m.id));
   const askers = questions.map((m) => `@${m.agentName ?? 'agent'}`).join(t.common.listSeparator);
   /** The agents besides this reply's that wait for an answer too ('' when none). */
@@ -833,9 +840,6 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
       ref={chatRef}
       style={previewWidth === undefined ? undefined : { ['--preview-width' as string]: `${previewWidth}px` }}
     >
-      {/* Wide screens: title over the team, badges and actions on the right. Phones and tablets:
-          only the title and actions, plus a warning beside the title for full access; on phones the
-          actions are a menu under ⋯ (see .chat-head and .more-button in styles.css). */}
       <header className="chat-head">
         <div className="chat-head-top">
           {/* The title and a branch's "Continued from" share the row by what they need (styles.css). */}
@@ -850,7 +854,7 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
               </span>
             )}
           </div>
-          {/* Phones only; a dot while a schedule is on, as the clock is blue then. */}
+          {/* The dot on ⋯ reflects the active automation while its action is hidden. */}
           <button
             ref={moreRef}
             type="button"
@@ -859,15 +863,21 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
             title={t.chat.more}
             aria-expanded={menuOpen}
             aria-controls={menuId}
-            onClick={() => {
-              if (menuOpen) return closeMenu(false);
-              window.clearTimeout(menuTimer.current);
-              setMenuOpen(true);
-            }}
+            onClick={() => setMenuOpen((open) => !open)}
           >
             <MoreIcon size={18} />
           </button>
-          <div className={`chat-head-actions ${menuOpen ? 'open' : ''}`} id={menuId} ref={actionsRef}>
+          <div className="chat-head-actions" id={menuId} ref={actionsRef} hidden={!menuOpen}>
+            <button
+              type="button"
+              className={`ghost small-button head-button ${isPinned ? 'pinned' : ''}`}
+              disabled={!summary || id in pins}
+              title={isPinned ? t.sidebar.unpin(conv.title) : t.sidebar.pin(conv.title)}
+              onClick={openFromHead(() => onPin(id, !isPinned))}
+            >
+              <PinIcon size={16} upright={isPinned} />
+              <span className="button-label">{pinLabel}</span>
+            </button>
             <button
               className="ghost small-button head-button"
               onClick={openFromHead(() => setShare({}))}

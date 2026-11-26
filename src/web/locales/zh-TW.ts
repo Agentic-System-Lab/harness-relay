@@ -442,6 +442,8 @@ export const zhTW = {
     hops: (n: number) => `${n} 棒`,
     rounds: (n: number) => `${n} 輪`,
     teamSettings: '團隊設定',
+    pin: '釘選',
+    unpin: '取消釘選',
     files: '檔案',
     filesTitle: '瀏覽工作目錄的檔案',
     more: '更多',

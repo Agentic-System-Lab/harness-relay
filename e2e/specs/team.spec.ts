@@ -2,6 +2,7 @@ import type { Locator } from '@playwright/test';
 import { PROVIDERS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import {
+  chooseChatAction,
   awaitingPlan,
   finishedReply,
   heightWithoutAddCard,
@@ -18,7 +19,7 @@ test.describe("changing a chat's team", () => {
   test('the lead agent changes the team when asked, and the new member answers once it is saved', async ({ page, relay }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await expect(page.getByRole('heading', { name: 'The team is ready' })).toBeVisible();
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await drawer.getByRole('textbox', { name: 'Ask the lead agent' }).fill('Add a second opinion e2e:add=grok e2e:slowrevise=2');
     await drawer.getByRole('button', { name: 'Ask the lead agent' }).click();
@@ -138,7 +139,7 @@ test.describe("changing a chat's team", () => {
     // Tall enough to show the whole card above the drawer's buttons.
     await page.setViewportSize({ width: 1280, height: 1300 });
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     const members = drawer.locator('.agent-card:not(.add-card)');
     const add = drawer.locator('.add-card');

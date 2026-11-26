@@ -825,8 +825,10 @@ p {
   color: var(--star-edge);
 }
 
-.conv-item.pinned .conv-pin svg {
+.conv-item.pinned .conv-pin svg,
+.head-button.pinned svg {
   fill: var(--star);
+  stroke: var(--star-edge);
 }
 
 .conv-pin:focus-visible {
@@ -2750,6 +2752,8 @@ details.sub .model-picker {
 /* Title, with the team on one row beneath it; badges and actions on the right. The markup's two
    rows (.chat-head-top, .chat-head-sub) join one grid here; phones and tablets show only the top one. */
 .chat-head {
+  position: relative;
+  container: chat-head / inline-size;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   grid-template-areas:
@@ -2821,57 +2825,89 @@ details.sub .model-picker {
   margin-left: 4px;
 }
 
-.chat-head-actions {
-  grid-area: actions;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-/* Copy chat, files, schedule, team settings: text in a row, icon and text in the phone menu. */
-.head-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.head-button svg {
-  display: none;
-}
-
-/* A chat the preview panel (or the window) leaves narrow: the header's actions become icons, their
-   names kept for screen readers and in their tooltips, so that they all stay on the row. Phones have
-   them in the ⋯ menu instead (see the 560px rules). */
-.chat-head {
-  container: chat-head / inline-size;
-}
-
-@media (min-width: 561px) {
-  @container chat-head (width < 900px) {
-    .chat-head-actions .head-button {
-      padding-inline: 9px;
-    }
-
-    .chat-head-actions .head-button svg {
-      display: block;
-    }
-
-    .chat-head-actions .head-button .button-label {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-      white-space: nowrap;
-    }
+/* A wide preview can leave only 360px of chat. Give the badges their own row so ⋯ stays reachable. */
+@container chat-head (width < 580px) {
+  .chat-head-badges {
+    grid-area: 3 / 1 / 4 / -1;
+    min-width: 0;
+    margin-left: 0;
   }
 }
 
-/* ⋯ opens those actions as a menu on phones (see the 560px rules). */
+.chat-head:has(.chat-head-actions:not([hidden])) {
+  /* Above the message controls, below the buttons that open the sidebar and inbox. */
+  z-index: 11;
+}
+
 .more-button {
+  position: relative;
+  grid-area: actions;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  margin-left: auto;
+  border-radius: 10px;
+}
+
+.more-button[aria-expanded='true'] {
+  background: var(--surface);
+}
+
+/* A schedule is on (the clock in the menu is blue then). */
+.more-button.schedule-on::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--info);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.chat-head-actions {
+  display: flex;
+  position: absolute;
+  top: calc(100% - 6px);
+  right: 12px;
+  z-index: 25;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 190px;
+  max-height: calc(100dvh - 64px);
+  overflow-y: auto;
+  margin-left: 0;
+  padding: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.chat-head-actions[hidden] {
   display: none;
+}
+
+.chat-head-actions .head-button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 9px;
+  font-size: 14px;
+}
+
+.chat-head-actions .head-button svg {
+  display: block;
+  flex-shrink: 0;
 }
 
 /* Full access, beside the title on phones and tablets (the badges row shows it on wide screens). */
@@ -6016,10 +6052,6 @@ details.sub summary {
     flex-shrink: 0;
   }
 
-  .chat-head-top .chat-head-actions {
-    margin-left: auto;
-  }
-
   .sidebar {
     padding-top: env(safe-area-inset-top);
   }
@@ -6068,80 +6100,8 @@ details.sub summary {
   }
 }
 
-/* Phones: the chat header's actions in a menu under ⋯, a slimmer message box. */
+/* Phones: a slimmer message box. */
 @media (max-width: 560px) {
-  /* The header keeps the title, the full access tag and ⋯; ⋯ opens the actions below it, each
-     with its icon and name. The menu hangs from the header, over the messages. */
-  .chat-head {
-    position: relative;
-  }
-
-  .more-button {
-    position: relative;
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    margin-left: auto;
-    border-radius: 10px;
-  }
-
-  .more-button[aria-expanded='true'] {
-    background: var(--surface);
-  }
-
-  /* A schedule is on (the clock in the menu is blue then). */
-  .more-button.schedule-on::after {
-    content: '';
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--info);
-    box-shadow: 0 0 0 2px var(--bg);
-  }
-
-  .chat-head-top .chat-head-actions {
-    display: none;
-    position: absolute;
-    top: calc(100% - 6px);
-    right: 12px;
-    z-index: 25;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 2px;
-    min-width: 190px;
-    margin-left: 0;
-    padding: 6px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    box-shadow: var(--shadow);
-  }
-
-  .chat-head-top .chat-head-actions.open {
-    display: flex;
-  }
-
-  .chat-head-actions .head-button {
-    justify-content: flex-start;
-    gap: 10px;
-    min-height: 40px;
-    padding: 0 12px;
-    border: none;
-    border-radius: 9px;
-    font-size: 14px;
-  }
-
-  .chat-head-actions .head-button svg {
-    display: block;
-    flex-shrink: 0;
-  }
-
   .composer {
     padding: 6px;
   }

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { devices, type Download, type Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, composer, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
+import { chooseChatAction, acceptNextDialog, composer, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
 import type { RelayServer } from '../support/relay';
 import { FAKE_OWNER, fakeGithub, openShared, writeGist } from '../support/share';
 import { shareViewerUrl } from '../../src/shared/share';
@@ -16,7 +16,7 @@ const gistOfLink = (link: string) => link.split('/').pop()!;
 
 /** Opens the share dialog of the whole conversation, from the chat's header. */
 async function shareChat(page: Page) {
-  await page.locator('.chat-head').getByRole('button', { name: 'Share', exact: true }).click();
+  await chooseChatAction(page, 'Share');
   const dialog = page.getByRole('dialog', { name: 'Share conversation' });
   await expect(dialog).toBeVisible();
   return dialog;

@@ -7,7 +7,7 @@ import { PROVIDER_LABEL, PROVIDERS, type Provider, type ToolLibraryView } from '
 import { en } from '../../src/web/locales/en';
 import { emptyLibraryText, noneForCliText, toolsHintText } from '../../src/web/tools';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, finishedReply, openTeamChat, openToolCategory, replies, send, settled } from '../support/app';
+import { chooseChatAction, acceptNextDialog, finishedReply, openTeamChat, openToolCategory, replies, send, settled } from '../support/app';
 import { belowFull, chatOf, eachHalf, libraryEnv, logged, skillReadAsks, teamOf, withClis, type Cli } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
@@ -89,7 +89,7 @@ test("with an empty tool library, or one with nothing for its CLI, each member's
     await held;
     await route.continue();
   });
-  await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+  await chooseChatAction(page, 'Team settings');
   await expect(memberCard(page, 0).locator('.agent-tools')).toBeVisible();
   await expect(memberCard(page, 0).locator('.agent-tools')).toHaveText('Tools');
   release();
@@ -108,7 +108,7 @@ test("with an empty tool library, or one with nothing for its CLI, each member's
   await page.unroute('**/api/tools');
   await relay.api('/api/tools', { method: 'PUT', body: { memory: { codex: 'Run the tests first.' } } });
   await page.reload();
-  await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+  await chooseChatAction(page, 'Team settings');
   for (const [index, provider] of [
     [0, 'claude'],
     [1, 'goose'],
@@ -205,7 +205,7 @@ eachHalf((half) =>
       await settled(relay, id);
 
       // A member's Tools: given to the member of the CLI it is off for after all, taken away from the next.
-      await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+      await chooseChatAction(page, 'Team settings');
       // Over the items, what the member's own CLI loads by itself (an open agent: not its config folder in the home folder).
       const tools = memberCard(page, 1).locator('.agent-tools');
       await tools.getByRole('button', { name: 'Change' }).click();
@@ -301,7 +301,7 @@ eachHalf((half) =>
         .toEqual(PROVIDERS.filter((p) => p !== off.provider));
 
       const id = await teamChat(page, relay, TEAM);
-      await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+      await chooseChatAction(page, 'Team settings');
       await setMemberTool(page, 0, 'release-notes', false);
       await page.getByRole('dialog', { name: 'Team settings' }).getByRole('button', { name: 'Save', exact: true }).click();
       await expect(page.getByRole('dialog', { name: 'Team settings' })).toBeHidden();
@@ -358,7 +358,7 @@ eachHalf((half) =>
         }
         await settled(relay, id);
 
-        await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+        await chooseChatAction(page, 'Team settings');
         await setMemberTool(page, 2, 'Shared memory', false);
         await page.getByRole('dialog', { name: 'Team settings' }).getByRole('button', { name: 'Save', exact: true }).click();
         await expect(page.getByRole('dialog', { name: 'Team settings' })).toBeHidden();

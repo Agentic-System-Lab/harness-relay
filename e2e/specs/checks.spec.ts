@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import type { Conversation, SettingsView } from '../../src/shared/types';
 import {
+  chooseChatAction,
   acceptNextDialog,
   chatId,
   composer,
@@ -65,7 +66,7 @@ test.describe('team checks', () => {
 
   test('set in Team settings; Check again passes once the file is gone, and a member is asked to fix it', async ({ page, relay }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     const editor = lastTeamField(page);
     const summary = editor.locator('summary');
@@ -112,7 +113,7 @@ test.describe('team checks', () => {
     relay,
   }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await lastTeamField(page).locator('summary').click();
     await drawer.getByRole('checkbox', { name: 'The app the team builds must open in the preview' }).check();
@@ -141,7 +142,7 @@ test.describe('team checks', () => {
       permission: 'edit',
       checks: { protectedPaths: ['first-note.txt'] },
     });
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     const paths = drawer.getByLabel('Protected paths');
     await expect(paths).toHaveValue('first-note.txt');
@@ -164,7 +165,7 @@ test.describe('team checks', () => {
 
   test('Team settings requires a valid hook folder and time limit before saving', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await drawer.locator('.checks-editor summary').click();
     await drawer.getByRole('button', { name: 'Add a hook' }).click();
@@ -188,7 +189,7 @@ test.describe('team checks', () => {
   }) => {
     test.skip(process.platform === 'win32', 'Hooks do not run on native Windows yet');
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'full' });
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await drawer.locator('.checks-editor summary').click();
     await drawer.getByRole('button', { name: 'Add a hook' }).click();
@@ -251,7 +252,7 @@ test.describe('team checks', () => {
     await settled(relay, id);
 
     // Team settings: a second command, tried on the working directory as it is.
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await drawer.getByRole('button', { name: 'Add a command' }).click();
     const added = drawer.locator('.checks-command-row').last();

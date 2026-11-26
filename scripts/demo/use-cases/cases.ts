@@ -187,10 +187,17 @@ async function readBack(s: Session, up = 1400): Promise<void> {
   await sleep(900);
 }
 
+/** Use the same ⋯ menu the viewer sees in the recording. */
+async function chatAction(s: Session, name: string): Promise<void> {
+  const head = s.page.locator('.chat-head');
+  await s.moveClick(head.getByRole('button', { name: M(s).chat.more, exact: true }));
+  await s.moveClick(head.getByRole('button', { name, exact: true }), { after: 900 });
+}
+
 /** Opens a file in the Files panel by the folders on its path, and holds on its preview. */
 async function openFile(s: Session, path: string[], hold = 3500): Promise<void> {
   const { page, moveClick } = s;
-  await moveClick(page.getByRole('button', { name: new RegExp(`^${re(M(s).chat.files)}$`) }), { after: 900 });
+  await chatAction(s, M(s).chat.files);
   await page.waitForSelector('.file-browser');
   for (const name of path) {
     await moveClick(page.locator('.file-list .file-name', { hasText: new RegExp(`^${re(name)}$`) }), { after: 800 });
@@ -371,7 +378,7 @@ async function runNow(s: Session, mark: string): Promise<void> {
   const { page, moveClick } = s;
   const T = M(s);
   s.mark(mark);
-  await moveClick(page.getByRole('button', { name: new RegExp(`^${re(T.schedule.button)}$`) }), { after: 900 });
+  await chatAction(s, T.schedule.button);
   await page.waitForSelector('.schedule-drawer');
   await sleep(1200);
   await moveClick(page.locator('.schedule-drawer').getByRole('button', { name: T.schedule.runNow }), { after: 1200 });
@@ -383,7 +390,7 @@ async function runNow(s: Session, mark: string): Promise<void> {
 async function checkNow(s: Session, mark: string): Promise<void> {
   const { page, moveClick } = s;
   const T = M(s);
-  await moveClick(page.getByRole('button', { name: new RegExp(`^${re(T.schedule.button)}$`) }), { after: 900 });
+  await chatAction(s, T.schedule.button);
   await page.waitForSelector('.schedule-drawer');
   await sleep(1200);
   s.mark(mark);
@@ -923,7 +930,7 @@ const collectPayments: UseCase = {
     mark('q2-read');
 
     // What the automation keeps of the goal, run by run.
-    await moveClick(page.getByRole('button', { name: new RegExp(`^${re(T.schedule.button)}$`) }), { after: 900 });
+    await chatAction(s, T.schedule.button);
     const progress = page.locator('.schedule-drawer .schedule-progress');
     if (await progress.count()) {
       await progress.scrollIntoViewIfNeeded().catch(() => {});

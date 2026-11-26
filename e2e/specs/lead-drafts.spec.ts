@@ -1,7 +1,7 @@
 import type { Conversation } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { en } from '../../src/web/locales/en';
-import { finishedReply, openNewChat, openTeamChat, send, startChat } from '../support/app';
+import { chooseChatAction, finishedReply, openNewChat, openTeamChat, send, startChat } from '../support/app';
 import { needsRelaySandbox, withClis } from '../support/clis';
 
 /*
@@ -80,7 +80,7 @@ test.describe("the lead agent's drafts in the editors", () => {
 
   test("writes a chat's team checks after reading its project, kept once the team is saved", async ({ page, relay }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await drawer.locator('.checks-editor > summary').click();
     await drawer.getByRole('textbox', { name: en.checksDraft.title }).fill('Run the tests, and keep the secrets out');

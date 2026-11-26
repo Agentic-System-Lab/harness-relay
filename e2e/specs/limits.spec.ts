@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures';
-import { awaitingPlan, openNewChat, openTeamChat, replies, settled, startChat } from '../support/app';
+import { chooseChatAction, awaitingPlan, openNewChat, openTeamChat, replies, settled, startChat } from '../support/app';
 
 test.describe('limits the environment sets', () => {
   test.use({ serverEnv: { RELAY_MAX_TEAM_AGENTS: '2', RELAY_MAX_ACCOUNTS: '2', RELAY_TURN_TIMEOUT_MIN: '90' } });
@@ -7,7 +7,7 @@ test.describe('limits the environment sets', () => {
   test('the team editor stops adding members at RELAY_MAX_TEAM_AGENTS, and the server refuses more', async ({ page, relay }) => {
     expect(await relay.api('/api/limits')).toEqual({ maxAccounts: 2, maxTeamAgents: 2, turnTimeoutMinutes: 90 });
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     const addCodex = drawer.getByRole('button', { name: '＋ Codex' });
     await expect(addCodex).toBeEnabled();

@@ -13,7 +13,7 @@ import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { hashFor, settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
-import { branchCount, readHealthNames, readyCount, writeHealthNames } from '../sidebar';
+import { branchCount, readHealthNames, readyCount, writeHealthNames, type PendingPins } from '../sidebar';
 import { Deferred, lazyPart } from './Deferred';
 import { InboxButton } from './InboxButton';
 import { ChevronIcon, FolderPlusIcon, PanelIcon, PlusIcon, ReportIcon, SearchIcon, SettingsIcon, StarIcon, ZapIcon } from './icons';
@@ -31,6 +31,8 @@ interface Props {
   phoneLink: ReactNode;
   route: Route;
   conversations: ConversationSummary[];
+  pins: PendingPins;
+  onPin: (id: string, pinned: boolean) => void;
   groups: ConversationGroup[];
   /** When the user last saw each conversation (its updatedAt then). */
   seen: Record<string, number>;
@@ -58,6 +60,8 @@ export function Sidebar({
   phoneLink,
   route,
   conversations,
+  pins,
+  onPin,
   groups,
   seen,
   providers,
@@ -192,6 +196,8 @@ export function Sidebar({
             onBranch={onBranch}
             route={route}
             conversations={conversations}
+            pins={pins}
+            onPin={onPin}
             groups={groups}
             seen={seen}
             onChanged={onChanged}

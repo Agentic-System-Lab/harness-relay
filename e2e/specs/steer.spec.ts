@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures';
-import { composer, finishedReply, replies, settled } from '../support/app';
+import { chooseChatAction, composer, finishedReply, replies, settled } from '../support/app';
 import { chatWith, cli, eachCli } from '../support/clis';
 
 /*
@@ -61,7 +61,7 @@ test.describe('steering', () => {
       await expect(replies(page, c.name).last()).toContainText('You said: “Work on it”.');
       await expect(replies(page, c.name).last().locator('.live-tag')).toBeVisible();
 
-      await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+      await chooseChatAction(page, 'Team settings');
       const drawer = page.getByRole('dialog', { name: 'Team settings' });
       const box = drawer.getByRole('checkbox', { name: 'Send messages into running turns while the team works' });
       await expect(box).not.toBeChecked();

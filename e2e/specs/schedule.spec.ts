@@ -5,14 +5,14 @@ import { join } from 'node:path';
 import { expect, test } from '../fixtures';
 import type { Conversation, VoiceStatus } from '../../src/shared/types';
 import { en } from '../../src/web/locales/en';
-import { confirmTeam, finishedReply, openTeamChat, send } from '../support/app';
+import { chooseChatAction, confirmTeam, finishedReply, openTeamChat, send } from '../support/app';
 import { syntheticMicrophone } from '../support/voice';
 
 test.describe('schedules', () => {
   test("a chat's schedule is saved, and running it once sends its message to the team", async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Daily check');
     await syntheticMicrophone(page, await relay.api<VoiceStatus>('/api/voice'));
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     const drawer = page.getByRole('dialog', { name: 'Automation' });
     await expect(drawer).toBeVisible();
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
@@ -31,7 +31,7 @@ test.describe('schedules', () => {
     await expect(drawer).toBeHidden();
     await expect(page.locator('.conv-item.active .conv-schedule')).toBeVisible();
 
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await expect(drawer.locator('.schedule-status')).toContainText('Every day at');
     await drawer.getByRole('button', { name: 'Run once now' }).click();
     await drawer.getByRole('button', { name: 'Close' }).click();
@@ -41,14 +41,14 @@ test.describe('schedules', () => {
     const attached = sent.getByRole('link', { name: /build.txt/ });
     await expect(attached).toBeVisible();
     await finishedReply(page, 'Codex');
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await drawer.getByRole('button', { name: en.composer.removeFile('build.txt') }).click();
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(drawer).toBeHidden();
     const download = await page.request.get(await attached.evaluate((link: HTMLAnchorElement) => link.href));
     expect(await download.text()).toBe('build instructions');
     // A slow attachment read from a dismissed draft cannot reinstate an automation deleted afterwards.
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await drawer
       .locator('input[type=file]:not([webkitdirectory])')
       .setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('late') });
@@ -73,7 +73,7 @@ test.describe('schedules', () => {
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(drawer.getByRole('button', { name: en.schedule.remove })).toBeDisabled();
     await drawer.getByRole('button', { name: 'Close', exact: true }).click();
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     page.once('dialog', (dialog) => dialog.accept());
     await drawer.getByRole('button', { name: en.schedule.remove }).click();
     await expect(drawer).toBeHidden();
@@ -90,14 +90,13 @@ test.describe('schedules', () => {
 
   test('deleting a reopened automation waits for its pending attachment upload', async ({ page, relay }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }]);
-    const open = page.locator('.chat-head').getByRole('button', { name: 'Automation' });
     const drawer = page.getByRole('dialog', { name: 'Automation' });
-    await open.click();
+    await chooseChatAction(page, 'Automation');
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Pending upload');
     await drawer.getByRole('radio', { name: 'Every day' }).click();
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(drawer).toBeHidden();
-    await open.click();
+    await chooseChatAction(page, 'Automation');
     await drawer
       .locator('input[type=file]:not([webkitdirectory])')
       .setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('late') });
@@ -120,7 +119,7 @@ test.describe('schedules', () => {
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect.poll(() => calls.jsonValue()).toEqual(['PUT']);
     await drawer.getByRole('button', { name: 'Close', exact: true }).click();
-    await open.click();
+    await chooseChatAction(page, 'Automation');
     page.once('dialog', (dialog) => dialog.accept());
     await drawer.getByRole('button', { name: en.schedule.remove }).click();
     expect(await calls.jsonValue()).toEqual(['PUT']);
@@ -132,7 +131,7 @@ test.describe('schedules', () => {
 
   test('a schedule that tracks a goal shows the progress a reply reports, and switches off once it is reached', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Track the build');
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     const drawer = page.getByRole('dialog', { name: 'Automation' });
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build e2e:progress=done');
     await drawer.getByRole('textbox', { name: 'Goal to track (optional)' }).fill('The build passes');
@@ -140,7 +139,7 @@ test.describe('schedules', () => {
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(drawer).toBeHidden();
 
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     const progress = drawer.getByRole('region', { name: 'Progress on the goal' });
     await expect(progress).toContainText('No progress yet');
     await drawer.getByRole('button', { name: 'Run once now' }).click();
@@ -154,7 +153,7 @@ test.describe('schedules', () => {
     await expect(reply).not.toContainText('<progress');
     await expect(page.locator('.msg-system', { hasText: 'says the goal is reached; the automation is off now' })).toBeVisible();
 
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await expect(progress).toContainText('Done');
     await expect(progress.locator('.progress-note')).toHaveCount(1);
     await expect(drawer.getByRole('checkbox', { name: 'On' })).not.toBeChecked();
@@ -165,13 +164,13 @@ test.describe('schedules', () => {
     relay,
   }) => {
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Held up');
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     const drawer = page.getByRole('dialog', { name: 'Automation' });
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build e2e:progress=blocked');
     await drawer.getByRole('textbox', { name: 'Goal to track (optional)' }).fill('The build passes');
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(drawer).toBeHidden();
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await drawer.getByRole('button', { name: 'Run once now' }).click();
     await drawer.getByRole('button', { name: 'Close' }).click();
 
@@ -181,7 +180,7 @@ test.describe('schedules', () => {
     // The sidebar says so, and the tab's title counts it, until a later reply says otherwise.
     await expect(page.locator('.conv-item.active .conv-status')).toHaveText('Goal held up');
     await expect(page).toHaveTitle(/\(1\)/);
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await expect(drawer.getByRole('region', { name: 'Progress on the goal' })).toContainText('Blocked');
     await drawer.getByRole('button', { name: 'Close' }).click();
 
@@ -192,7 +191,7 @@ test.describe('schedules', () => {
 
   test("a schedule's webhook shows its token once, and a program's call sends the message with what it posted", async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Hooked');
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     const drawer = page.getByRole('dialog', { name: 'Automation' });
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('CI reported');
     // No set times: only Run once now and the webhook send it, so there is nothing to switch on or off,
@@ -207,7 +206,7 @@ test.describe('schedules', () => {
       'Automation: no set times (Run once now or its webhook)',
     );
 
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await expect(drawer.locator('.schedule-status')).toContainText('No set times · sent by Run once now or its webhook');
     // Folded away under words anyone can read until there is a webhook.
     const hook = drawer.getByRole('region', { name: 'Let another program start it (webhook)' });
@@ -241,7 +240,7 @@ test.describe('schedules', () => {
     await expect(await finishedReply(page, 'Codex')).toContainText('You said: “CI reported');
 
     // Shown once: opened again, the drawer has no token, only the way to make a new one.
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await expect(hook.locator('.hook-example')).toHaveCount(0);
     await expect(hook.getByRole('button', { name: 'New token' })).toBeVisible();
   });
@@ -400,7 +399,7 @@ test.describe('schedules', () => {
     await drawer.getByRole('button', { name: 'Close' }).click();
     await expect(drawer).toBeHidden();
     // Shown once: opened again, no token.
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await expect(hook).toContainText('Not called yet');
     await expect(hook.locator('.hook-example')).toHaveCount(0);
     await drawer.getByRole('button', { name: 'Close' }).click();
@@ -435,7 +434,7 @@ test.describe('schedules', () => {
         },
       });
       await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Mail watch');
-      await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+      await chooseChatAction(page, 'Automation');
       const drawer = page.getByRole('dialog', { name: 'Automation' });
       await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Triage the new mail');
       await drawer.getByRole('radio', { name: 'When something happens' }).click();
@@ -449,7 +448,7 @@ test.describe('schedules', () => {
       await expect(page.locator('.conv-item.active .conv-schedule')).toHaveAccessibleName('Automation: when a new mail from carol arrives');
 
       // Check now: the first check notes the mail already there, and sends nothing.
-      await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+      await chooseChatAction(page, 'Automation');
       await drawer.getByRole('button', { name: 'Check now' }).click();
       await expect(drawer.locator('.schedule-status')).toContainText('When a new mail from carol arrives · Checked');
       expect(imap.logins()).toBeGreaterThan(0);
@@ -484,7 +483,7 @@ test.describe('schedules', () => {
     mkdirSync(join(relay.workDir, 'reports'), { recursive: true });
     writeFileSync(join(relay.workDir, 'reports', 'jan.csv'), 'month,total\njan,1\n');
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Report watch');
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     const drawer = page.getByRole('dialog', { name: 'Automation' });
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Summarize the new report');
     await drawer.getByRole('radio', { name: 'When something happens' }).click();
@@ -500,7 +499,7 @@ test.describe('schedules', () => {
     );
 
     // Check now: the first check notes jan.csv, and sends nothing.
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await drawer.getByRole('button', { name: 'Check now' }).click();
     await expect(drawer.locator('.schedule-status')).toContainText('Checked');
     await expect(page.locator('.msg-user', { hasText: 'Summarize the new report' })).toHaveCount(0);
@@ -538,7 +537,7 @@ test.describe('schedules', () => {
     writeFileSync(join(relay.workDir, 'reports', 'jan.csv'), 'month,total\njan,1\n');
     writeFileSync(join(relay.workDir, 'invoices', 'old.pdf'), 'an old invoice');
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Two watches');
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     const drawer = page.getByRole('dialog', { name: 'Automation' });
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('File what came in');
     await drawer.getByRole('radio', { name: 'When something happens' }).click();
@@ -565,7 +564,7 @@ test.describe('schedules', () => {
     );
 
     // Check now: each notes the files already there, on a line of its own, and nothing is sent.
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await expect(drawer.getByRole('group', { name: 'Thing 1 to wait for' }).getByRole('textbox', { name: 'File pattern' })).toHaveValue(
       'reports/*.csv',
     );
@@ -593,7 +592,7 @@ test.describe('schedules', () => {
     // A new invoice: the other trigger sends the message again, in a message of its own.
     writeFileSync(join(relay.workDir, 'invoices', 'inv-7.pdf'), 'invoice 7');
     utimesSync(join(relay.workDir, 'invoices', 'inv-7.pdf'), minuteAgo(), minuteAgo());
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await drawer.getByRole('button', { name: 'Check now' }).click();
     await expect(sent).toHaveCount(2);
     await drawer.getByRole('button', { name: 'Close' }).click();
@@ -610,11 +609,11 @@ test.describe('schedules', () => {
     const both =
       'When a file matching reports/*.csv appears or changes in the working directory, or when a file matching invoices/*.pdf appears or changes in the working directory';
     const status = drawer.locator('.schedule-status-text strong');
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await drawer.getByRole('checkbox', { name: 'On' }).uncheck();
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(drawer).toBeHidden();
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await expect(status).toHaveText(`${both} · paused`);
     await expect(states).toHaveCount(0);
     // Remove takes that one away and leaves the other, alone, with nothing to remove.
@@ -624,7 +623,7 @@ test.describe('schedules', () => {
     await expect(drawer.getByRole('button', { name: /^Remove thing/ })).toHaveCount(0);
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(drawer).toBeHidden();
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await expect(status).toHaveText('When a file matching invoices/*.pdf appears or changes in the working directory · paused');
   });
 
@@ -638,7 +637,7 @@ test.describe('schedules', () => {
     const pulls = (list: Record<string, unknown>[]) => writeFileSync(join(repo, 'pulls.json'), JSON.stringify(list));
     pulls([{ number: 41, title: 'Old work', url: 'https://github.com/octo/app/pull/41', author: { login: 'ann' } }]);
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'PR watch');
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     const drawer = page.getByRole('dialog', { name: 'Automation' });
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Review the new pull request');
     await drawer.getByRole('radio', { name: 'When something happens' }).click();
@@ -655,7 +654,7 @@ test.describe('schedules', () => {
     );
 
     // Check now: the first check notes #41, and sends nothing.
-    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await chooseChatAction(page, 'Automation');
     await drawer.getByRole('button', { name: 'Check now' }).click();
     await expect(drawer.locator('.schedule-status')).toContainText('Checked');
     await expect(page.locator('.msg-user', { hasText: 'Review the new pull request' })).toHaveCount(0);

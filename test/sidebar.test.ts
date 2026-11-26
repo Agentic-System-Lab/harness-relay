@@ -16,9 +16,7 @@ import {
   pinnedConversations,
   revealIn,
   settleMoves,
-  settlePins,
   undoMoves,
-  undoPin,
   type ConvNode,
   HEALTH_NAMES_KEY,
   readHealthNames,
@@ -124,19 +122,12 @@ describe('pinned conversations in the sidebar', () => {
     ]);
   });
 
-  it('shows pins and unpins the server has not reported yet, and forgets them once it has, or the conversation is gone', () => {
+  it('shows pending pins and unpins over the server’s conversation list', () => {
     const pins = { b: 50, a: null };
     expect(pinnedAt(list[0]!, pins)).toBeUndefined();
     expect(pinnedAt(list[1]!, pins)).toBe(50);
     expect(pinnedAt(list[2]!, pins)).toBe(30);
     expect(ids(pinnedConversations(list, pins))).toEqual(['b', 'c', 'd']);
-
-    expect(settlePins(pins, list)).toBe(pins);
-    const after = list.map((c) => (c.id === 'b' ? { ...c, pinnedAt: 45 } : c));
-    expect(settlePins(pins, after)).toEqual({ a: null });
-    const unpinned = after.map((c) => (c.id === 'a' ? { ...c, pinnedAt: undefined } : c));
-    expect(settlePins(pins, unpinned)).toEqual({});
-    expect(settlePins({ gone: 1 }, list)).toEqual({});
   });
 
   it("takes a pin not reported yet to be the latest, whatever this device's clock says", () => {
@@ -147,12 +138,6 @@ describe('pinned conversations in the sidebar', () => {
     // A clock ahead: its own time.
     expect(pendingPinTime(list, {}, 1000)).toBe(1001);
     expect(pendingPinTime([], {}, 7)).toBe(8);
-  });
-
-  it('undoes a pin that failed back to what was pending before it', () => {
-    expect(undoPin({ a: null, b: 50 }, 'b', {})).toEqual({ a: null });
-    expect(undoPin({ b: null }, 'b', { b: 50 })).toEqual({ b: 50 });
-    expect(undoPin({ b: 50 }, 'b', { b: null })).toEqual({ b: null });
   });
 });
 

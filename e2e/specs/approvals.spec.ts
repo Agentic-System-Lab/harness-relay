@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Conversation } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { finishedReply, openTeamChat, replies, send } from '../support/app';
+import { chooseChatAction, finishedReply, openTeamChat, replies, send } from '../support/app';
 import { CLIS, eachCli, endsTurnNote, member, needsBelowFull } from '../support/clis';
 
 /*
@@ -95,7 +95,7 @@ test.describe('approvals', () => {
     relay,
   }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
-    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    await chooseChatAction(page, 'Team settings');
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await expect(drawer.getByRole('radiogroup', { name: 'Actions beyond the permission' })).toBeVisible();
     await drawer.getByRole('button', { name: 'Approve for me', exact: true }).click();

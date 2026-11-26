@@ -1,7 +1,19 @@
 import type { Locator, Page } from '@playwright/test';
 import { PROVIDERS, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, chatId, finishedReply, homePage, openTeamChat, send, settled, startChat, confirmTeam } from '../support/app';
+import {
+  chooseChatAction,
+  openChatActions,
+  acceptNextDialog,
+  chatId,
+  finishedReply,
+  homePage,
+  openTeamChat,
+  send,
+  settled,
+  startChat,
+  confirmTeam,
+} from '../support/app';
 import type { RelayServer } from '../support/relay';
 import { REPO, REPO_URL } from '../../src/web/star';
 
@@ -199,10 +211,13 @@ test.describe('the sidebar', () => {
   });
 
   test("the pin in a conversation's top-left corner shows on hover, lists it under Pinned above the groups, the one pinned last first, and unpins it", async ({
+    browserName,
     page,
     relay,
   }) => {
     test.setTimeout(90_000);
+    // macOS WebKit uses Option+Tab to include buttons in keyboard navigation.
+    const tabToButton = browserName === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab';
     const older = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {}, 'Older chat');
     const newer = await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Newer chat');
     const billing = await newGroup(page, 'Billing');
@@ -211,7 +226,24 @@ test.describe('the sidebar', () => {
     const pinnedAt = async (id: string) =>
       (await relay.api<ConversationSummary[]>('/api/conversations')).find((c) => c.id === id)?.pinnedAt;
     const pin = (scope: Locator, title: string) => row(page, scope, title).locator('.conv-pin');
+    const headPin = page.locator('.chat-head').getByRole('button', { name: 'Pin', exact: true });
+    const headUnpin = page.locator('.chat-head').getByRole('button', { name: 'Unpin', exact: true });
     await expect(pinnedRegion).toHaveCount(0);
+    const more = page.locator('.chat-head').getByRole('button', { name: 'More', exact: true });
+    await expect(more).toHaveAttribute('aria-expanded', 'false');
+    await expect(headPin).toBeHidden();
+    await more.focus();
+    await page.keyboard.press('Enter');
+    const actions = page.locator('.chat-head-actions');
+    await expect(actions.getByRole('button')).toHaveText(['Pin', 'Share', 'Files', 'Automation', 'Team settings', 'Preview']);
+    await page.keyboard.press(tabToButton);
+    await expect(headPin).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(actions).toBeHidden();
+    await expect(more).toBeFocused();
+    await more.click();
+    await page.locator('.messages').click({ position: { x: 5, y: 5 } });
+    await expect(actions).toBeHidden();
 
     // Hidden until the pointer is on the conversation; then its middle on the row's top-left corner.
     await page.mouse.move(0, 0);
@@ -253,12 +285,14 @@ test.describe('the sidebar', () => {
     // pinned last comes first, whatever was active last; kept by the server.
     await page.mouse.move(0, 0);
     await row(page, other, 'Newer chat').locator('.conv-link').focus();
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(tabToButton);
     await expect(pin(other, 'Newer chat')).toBeFocused();
     await expect(pin(other, 'Newer chat')).toHaveCSS('opacity', '1');
     await page.keyboard.press('Enter');
     await expect(pinnedRegion.locator('.conv-title-text')).toHaveText(['Newer chat', 'Older chat']);
     await expect.poll(() => pinnedAt(newer)).toBeGreaterThan(0);
+    await openChatActions(page);
+    await expect(headUnpin).toBeVisible();
     // A pinned row's folder menu is its family's group: moved to Billing elsewhere, then back from Pinned.
     await relay.api(`/api/conversations/${older}/group`, { method: 'PUT', body: { groupId: await groupId(relay, 'Billing') } });
     await page.reload();
@@ -291,9 +325,11 @@ test.describe('the sidebar', () => {
     // A pin that fails says so, and the conversation stays as it was.
     await page.route('**/api/conversations/*/pin', (route) => route.fulfill({ status: 500, json: { error: 'disk full' } }));
     const said = new Promise<string>((done) => page.once('dialog', (d) => void d.accept().then(() => done(d.message()))));
-    await pinnedRegion.getByRole('button', { name: 'Unpin "Newer chat"' }).click();
+    await chooseChatAction(page, 'Unpin');
     expect(await said).toBe('Could not change the pin: disk full');
     await expect(pinnedRegion.locator('.conv-title-text')).toHaveText(['Newer chat', 'Older chat']);
+    await openChatActions(page);
+    await expect(headUnpin).toBeVisible();
     await page.unroute('**/api/conversations/*/pin');
 
     // Unpinned from the Pinned section, or from its group.
@@ -305,6 +341,45 @@ test.describe('the sidebar', () => {
     await expect(pinnedRegion).toHaveCount(0);
     await expect.poll(() => pinnedAt(newer)).toBeUndefined();
     await expect(other.locator('.conv-item')).toHaveCount(2);
+
+    await relay.api(`/api/conversations/${newer}/schedule`, {
+      method: 'PUT',
+      body: { text: 'Daily check', repeat: { kind: 'daily', time: '08:00' }, approvals: 'deny', missed: 'skip', enabled: true },
+    });
+    await page.setViewportSize({ width: 911, height: 800 });
+    await expect(page.locator('.schedule-badge')).toBeVisible();
+    await openChatActions(page);
+    await expect(actions.getByRole('button', { name: 'Preview', exact: true })).toBeInViewport({ ratio: 1 });
+    const chatTitle = page.locator('.chat-title');
+    expect(await chatTitle.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+
+    // While the header's pin is being saved, neither entry point can send a conflicting write.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route(
+      `**/api/conversations/${newer}/pin`,
+      async (route) => {
+        await held;
+        await route.continue();
+      },
+      { times: 1 },
+    );
+    try {
+      await headPin.click();
+      await expect(actions).toBeHidden();
+      await openChatActions(page);
+      await expect(pinnedRegion.locator('.conv-title-text')).toHaveText(['Newer chat']);
+      await expect(headUnpin).toBeDisabled();
+      await expect(pin(other, 'Newer chat')).toBeDisabled();
+      await expect(pin(pinnedRegion, 'Newer chat')).toBeDisabled();
+      await expect(pin(other, 'Older chat')).toBeEnabled();
+    } finally {
+      release();
+    }
+    await expect.poll(() => pinnedAt(newer)).toBeGreaterThan(0);
+    await chooseChatAction(page, 'Unpin');
+    await expect(pinnedRegion).toHaveCount(0);
+    await expect.poll(() => pinnedAt(newer)).toBeUndefined();
 
     // A pinned conversation deleted leaves Pinned too.
     await row(page, other, 'Older chat').hover();

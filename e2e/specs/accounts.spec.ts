@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { Locator, Page, Request } from '@playwright/test';
 import type { Provider, SettingsView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
+import { chooseChatAction, acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
 import { defaultHome, eachCli, homeIn, logoutArgs, sessionFile, SIGNED_IN, statusInOwnFolder, type Cli } from '../support/clis';
 import type { FakeLogEntry, RelayServer } from '../support/relay';
 
@@ -133,7 +133,7 @@ test.describe('more than one account', () => {
         { name: cli.name, provider: cli.provider },
         { name: `${cli.name}2`, provider: cli.provider },
       ]);
-      await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+      await chooseChatAction(page, 'Team settings');
       const drawer = page.getByRole('dialog', { name: 'Team settings' });
       const card = drawer.locator('.agent-card').filter({ has: page.locator(`input[aria-label="Agent name"][value="${cli.name}"]`) });
       // With a second account, each member picks one; the default one is picked until then.
