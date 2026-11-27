@@ -2480,6 +2480,13 @@ export interface ComputerView {
   folder?: string;
   /** Cua is installed here, so the computer can be started. */
   available: boolean;
+  /**
+   * Its first start waits for the desktop image Settings is downloading (`starting`): how much of it is
+   * downloaded (bytes), of how much when that is known.
+   */
+  image?: { done: number; total?: number };
+  /** The desktop image is already here (`starting`): it starts in seconds, with nothing to download. */
+  imageReady?: true;
 }
 
 /** What the computer's panel is told (`GET /api/conversations/:id/computer/screen`): a frame of its screen, or its state. */
@@ -2520,6 +2527,13 @@ export interface ComputerSettingsView {
   tooOld?: { version?: string; path: string };
   /** The version Settings installs. */
   installs: string;
+  /**
+   * Cua's Linux desktop image, which computers are made from (with `cua`): when it was downloaded here
+   * (Settings, or a computer's first start), so that the first start takes seconds (Cua may still clear it
+   * from its cache to make room), and Settings' download of it (`POST /api/computer/image`, also started once
+   * Settings installed Cua), while it runs and once it ended.
+   */
+  image?: { downloadedAt?: number; job?: CliInstallJobView };
   /** Whether a Linux computer can run here, in `cua runtime doctor`'s words; undefined until checked. */
   runtime?: { ready: boolean; detail: string };
   /** Removing Cua (Settings' Remove Cua): its steps, while it runs and once it ended. */

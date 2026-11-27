@@ -1,4 +1,4 @@
-import { copyFileSync, linkSync, mkdirSync } from 'node:fs';
+import { copyFileSync, linkSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
@@ -9,11 +9,14 @@ import type { RelayServer } from '../support/relay';
 /*
  * The chat's computer (Cua): Settings' Computer row, an agent's screenshot of it (Claude Code's fake,
  * `e2e:mcp`), its panel beside the chat (the screen, taking control, the user's clicks and keys, handing it
- * back), an agent refused while the user has it, the agent's hand-over through its card, and deleting it.
+ * back), an agent refused while the user has it, the agent's hand-over through its card, and deleting it;
+ * Settings' download of the desktop image, with its progress.
  * The fake Cua CLI (`e2e/fake-cli/fake-cua.cjs`) stands in for cua and its computer: it is linked into the
  * server's own Cua folder, as Settings' install puts it there; each of its starts and tool calls is in the
  * fake log. Installing Cua itself downloads from GitHub, which these tests never do: test/computer.test.ts
- * covers it.
+ * covers it. Remove Cua's last step asks Docker to take Cua's images out (on Linux): the fake Docker CLI
+ * (`e2e/fake-cli/fake-docker.cjs`) comes first on each server's PATH here, so the host's Docker is never
+ * touched.
  */
 
 /** Cua installed in the server's own folder (`<data>/clis/cua`), as Settings' install puts it: the fake, linked there. */
@@ -28,12 +31,18 @@ function installFakeCua(relay: RelayServer, fakeBinDir: string): void {
   }
 }
 
+// Remove Cua must never reach the Docker of the computer the tests run on.
+test.use({ fakeDocker: true });
+
 /** What the fake Cua was asked: its command lines, and the tools its MCP server was called with. */
 const cuaLog = (relay: RelayServer) =>
   relay.fakeLog().filter((e) => (e as { cli?: string }).cli === 'cua') as unknown as {
     args?: string[];
     tool?: string;
     arguments?: Record<string, unknown>;
+    /** `image pull`: the image, and what cua was asked to log. */
+    pull?: string;
+    cuaLog?: string;
   }[];
 
 /** The computer's panel, opened from the chat's header. */
@@ -126,6 +135,24 @@ test.describe('the chat’s computer', () => {
     await expect(settings).toContainText('Removed Cua.');
     expect(cuaLog(relay).map((e) => e.args?.slice(0, 3).join(' '))).toEqual(expect.arrayContaining(['--json cache prune']));
     expect(cuaLog(relay).some((e) => e.args?.includes('host'))).toBe(false);
+    // With no Cua sandbox left, Cua's own runtime goes too: on Linux, its helper container and images in
+    // Docker (the fake's), never an image that is not Cua's; macOS and Windows ask Docker nothing.
+    const docker = relay
+      .fakeLog()
+      .filter((e) => (e as { cli?: string }).cli === 'docker')
+      .map((e) => ((e as { args?: string[] }).args ?? []).join(' '));
+    if (process.platform === 'linux') {
+      expect(docker).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/^ps -a --filter label=ai\.cua\.managed=true/),
+          'rm --force cua-runsc-helper',
+          expect.stringMatching(/^images --digests/),
+          `rmi ghcr.io/trycua/linux@sha256:${'3c'.repeat(32)}`,
+          'rmi cua-vmm/helper:1',
+        ]),
+      );
+      expect(docker.filter((a) => a.startsWith('rmi'))).toHaveLength(2);
+    } else expect(docker.filter((a) => /^(rm|rmi) /.test(a))).toEqual([]);
     await expect(settings.getByRole('button', { name: 'Install Cua' })).toBeVisible();
   });
 
@@ -152,6 +179,50 @@ test.describe('the chat’s computer', () => {
       'The computer_hand_over tool said: The user took control of the computer and handed it back, saying: "Signed in".',
     );
     await expect(reply.locator('.handover-done')).toContainText('Handed back (computer): Signed in');
+  });
+
+  test('Settings downloads the desktop image with its progress, again after it failed or was cancelled, and says it is downloaded', async ({
+    page,
+    relay,
+    fakeBinDir,
+  }) => {
+    installFakeCua(relay, fakeBinDir);
+    // The fake cua's pull fails while this file says so, as cua does without a container engine.
+    const steer = join(relay.home, '.cua', 'fake-cua-pull.json');
+    mkdirSync(join(relay.home, '.cua'), { recursive: true });
+    writeFileSync(steer, JSON.stringify({ fail: 'a container engine is not available' }));
+    await page.goto(`${relay.base}/#/settings/apps`);
+    const row = page.locator('.app-row').filter({ hasText: 'Computer (Cua)' });
+    await row.locator('summary').first().click();
+    const image = row.locator('.computer-image');
+    await expect(image).toContainText("Not downloaded yet: a computer's first start would download it");
+    await image.getByRole('button', { name: 'Download the desktop image' }).click();
+    await expect(image.getByRole('alert')).toContainText(
+      'Could not download the desktop image: cua: provider not configured: a container engine is not available',
+    );
+    // Slowly, then cancelled on the user's word: back to where it was.
+    writeFileSync(steer, JSON.stringify({ stepMs: 1000 }));
+    await image.getByRole('button', { name: 'Download again' }).click();
+    await expect(image.locator('progress')).toBeVisible();
+    await image.getByRole('button', { name: 'Cancel' }).click();
+    await expect(image).toContainText("Not downloaded yet: a computer's first start would download it");
+    rmSync(steer);
+    await image.getByRole('button', { name: 'Download the desktop image' }).click();
+    // Docker's progress, as cua logs it: how much of the image, with a bar; then downloaded.
+    await expect(image).toContainText('Downloading the desktop image…');
+    await expect(image).toContainText(/Downloading: \d+ of 324 MB \(\d+%\)/);
+    await expect(image.locator('progress')).toBeVisible();
+    await expect(image).toContainText('The desktop image is downloaded: computers start in seconds, the first one too.', {
+      timeout: 15_000,
+    });
+    const pulls = cuaLog(relay).filter((e) => e.pull);
+    expect(pulls.map((e) => e.pull)).toEqual(Array(3).fill('ghcr.io/trycua/linux:24.04'));
+    expect(pulls[2]!.cuaLog).toBe('info,bollard::read=debug');
+    // Kept: a later visit says the same, with nothing to download.
+    await page.reload();
+    await row.locator('summary').first().click();
+    await expect(image).toContainText('The desktop image is downloaded');
+    await expect(image.getByRole('button')).toHaveCount(0);
   });
 
   test('without Cua, Settings offers to install it and the panel says it is missing', async ({ page, relay }) => {

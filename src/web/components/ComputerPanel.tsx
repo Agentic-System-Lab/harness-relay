@@ -9,6 +9,7 @@ import {
   isDouble,
   mergeComputerInputs,
   pressInput,
+  startingNote,
   viewerReachable,
   wheelInput,
   type Press,
@@ -16,6 +17,7 @@ import {
 import { framePoint } from '../handover';
 import { useT } from '../i18n';
 import { isAppWindow } from '../update';
+import { DownloadProgress } from './AppDependencyInstall';
 import { PanelDivider } from './PanelDivider';
 import { useDialog } from './useDialog';
 
@@ -208,6 +210,8 @@ export function ComputerPanel({
     });
 
   const status = view?.status ?? 'off';
+  // Under "Starting…": the desktop image Settings is downloading, or the first start's own download.
+  const startNote = status === 'starting' && view ? startingNote(view) : undefined;
   const showViewer = status === 'ready' && viewerReachable({ desktop: isAppWindow(navigator.userAgent), hostname: location.hostname });
 
   return (
@@ -300,8 +304,21 @@ export function ComputerPanel({
             {status === 'off' && <p className="muted small computer-note">{c.off}</p>}
             {status === 'starting' && (
               <p className="muted small computer-note" role="status">
-                {view?.startedAt ? c.startingFor(Math.floor((Date.now() - view.startedAt) / 60_000)) : c.starting} {c.firstTime}
+                {view?.startedAt ? c.startingFor(Math.floor((Date.now() - view.startedAt) / 60_000)) : c.starting}
+                {startNote === 'first-time' ? ' ' + c.firstTime : ''}
               </p>
+            )}
+            {(startNote === 'preparing' || typeof startNote === 'object') && (
+              <div className="computer-note">
+                <p className="muted small">{c.waitingImage}</p>
+                {startNote === 'preparing' ? (
+                  <p className="muted small" role="status">
+                    {c.waitingPreparing}
+                  </p>
+                ) : (
+                  <DownloadProgress done={startNote.image.done} total={startNote.image.total} />
+                )}
+              </div>
             )}
             {status === 'failed' && view?.error && (
               <p className="error-line computer-note" role="alert">

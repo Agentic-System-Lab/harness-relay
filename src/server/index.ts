@@ -557,7 +557,7 @@ process.on('SIGINT', () => void shutdown());
 process.on('SIGTERM', () => void shutdown());
 // The desktop app asks over its port: on Windows it has no signal to send.
 parent?.onShutdown(() => void shutdown());
-// Before it updates, the app waits until no conversation has agents at work, and no CLI (nor what the sandboxes need) is being installed.
+// Before it updates, the app waits until no conversation has agents at work, and no CLI (nor what the sandboxes need, nor Cua's desktop image) is being installed.
 parent?.onBusy(
   () =>
     orchestrator.busy() +
@@ -565,6 +565,7 @@ parent?.onBusy(
     sandboxSetup.running() +
     gitInstall.running() +
     appDependencies.running() +
+    computer.busy() +
     teams.running() +
     publisher.busy(),
 );

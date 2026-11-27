@@ -1,11 +1,20 @@
 /*
  * The chat's computer in the page (src/web/computer.ts): what a key becomes, what a press and release are,
  * when two clicks are a double click, what the wheel scrolls, how waiting input is merged, what the stream
- * says, and where Cua's viewer can open.
+ * says, where Cua's viewer can open, and what it says while a computer starts.
  */
 import { describe, expect, it } from 'vitest';
 import { COMPUTER_LIMITS, type ComputerInput } from '../src/shared/types';
-import { computerEvent, computerKey, isDouble, mergeComputerInputs, pressInput, viewerReachable, wheelInput } from '../src/web/computer';
+import {
+  computerEvent,
+  computerKey,
+  isDouble,
+  mergeComputerInputs,
+  pressInput,
+  startingNote,
+  viewerReachable,
+  wheelInput,
+} from '../src/web/computer';
 
 const key = (
   k: string,
@@ -100,5 +109,14 @@ describe('the computer panel in the page', () => {
     expect(viewerReachable({ desktop: false, hostname: '127.0.0.1' })).toBe(true);
     expect(viewerReachable({ desktop: false, hostname: 'localhost' })).toBe(true);
     expect(viewerReachable({ desktop: false, hostname: 'relay.tail.ts.net' })).toBe(false);
+  });
+
+  it('says, while a computer starts, how far Settings’ download of the image is, or the first start’s own, or nothing once it is here', () => {
+    expect(startingNote({})).toBe('first-time');
+    expect(startingNote({ imageReady: true })).toBeUndefined();
+    // Waiting for Settings' download: nothing counted yet, then its bytes.
+    expect(startingNote({ image: { done: 0 } })).toBe('preparing');
+    expect(startingNote({ image: { done: 0, total: 1000 } })).toEqual({ image: { done: 0, total: 1000 } });
+    expect(startingNote({ image: { done: 250 } })).toEqual({ image: { done: 250 } });
   });
 });
