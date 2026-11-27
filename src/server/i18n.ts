@@ -1566,6 +1566,7 @@ const zhTW = {
     notRepository: (path: string) =>
       `${path} 在，但 git 不把它當成 Harness Relay 能用的 repository（不是 repository，或不屬於你），所以保持原樣`,
     noWorktreeBranch: (branch: string) => `找不到 worktree 的分支 ${branch}`,
+    linkOut: (path: string) => `${path} 是連結，會把 agent 帶出它的 worktree`,
   },
 
   noAutoRepo: (dir: string) => `不會在 ${dir} 自動建立 git repository，請改選一個專案資料夾作為工作目錄。`,
@@ -3145,6 +3146,7 @@ const en: ServerMessages = {
     notRepository: (path) =>
       `${path} is there, but git does not take it as a repository Harness Relay can use (not one, or not yours): Harness Relay leaves it as it is`,
     noWorktreeBranch: (branch) => `The worktree's branch ${branch} is not there`,
+    linkOut: (path) => `${path} is a link, which would take the agent out of its worktree`,
   },
 
   noAutoRepo: (dir) => `Will not create a git repository in ${dir}; pick a project folder as the working directory.`,

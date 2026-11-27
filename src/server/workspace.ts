@@ -15,6 +15,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -41,11 +42,14 @@ import { DATA_DIR } from './settings';
  * every object of its snapshots and results itself, the refs that keep them and each parallel
  * worktree's branch. Every command that writes names it (`GIT_DIR`) and the folder it works on
  * (`GIT_WORK_TREE`), never a git folder found in a folder an agent writes, and none of them looks at
- * the working repository's objects (`inStore()` reads them only for a commit an older Harness Relay
- * kept there). The working repository is only read: its HEAD (a snapshot's parent), its `info/exclude`,
- * and for the team checks its branches and commits; its index is not read at all (an agent could make
- * it claim any content for a file). A parallel worktree or a check tree is a repository of its own for
- * whoever works there (`checkout()`), never written by Harness Relay once made: its result is its files.
+ * the working repository's objects: what an older Harness Relay kept there, and the HEAD a fixed
+ * command's first Save compares with, are copied in as from a remote, every object checked
+ * (`importLegacy()`, `committedBase()`). The working repository is only read:
+ * its HEAD (a snapshot's parent), its `info/exclude`, the names of the files its index tracks that an
+ * ignore rule matches (never what it says a file holds: an agent could make it claim any content), and
+ * for the team checks its branches and commits. A parallel worktree or a check tree is a repository of
+ * its own for whoever works there (`checkout()`), never written by Harness Relay once made: its result
+ * is its files.
  */
 
 // `protocol.allow=never`: these commands never need a remote, so none (ssh, ext::, a lazy fetch of a
@@ -67,6 +71,9 @@ const CONFIG = [
   'core.autocrlf=false',
   '-c',
   'protocol.allow=never',
+  // No signature checked (`git log` would run the `gpg.program` a repository's config names).
+  '-c',
+  'log.showSignature=false',
   // Nothing git does by itself: reuse a recorded resolution (rerere), or clean up after itself (gc, maintenance).
   '-c',
   'rerere.enabled=false',
@@ -176,10 +183,19 @@ function submoduleEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
  * tree and the index): those of the repositories at its index's submodules, which it runs `git status`
  * in. The store's own config names no driver.
  */
-async function submoduleGuards(cwd: string, env: NodeJS.ProcessEnv, bin: string): Promise<string[]> {
+async function submoduleGuards(cwd: string, env: NodeJS.ProcessEnv, bin: string, entries?: IndexEntry[]): Promise<string[]> {
   const out: string[] = [];
-  for (const sub of await submoduleRepos(cwd, env, bin)) out.push(...(await repoDriverGuards(sub, submoduleEnv(env), true, 1, bin)));
+  const subs = entries ? reposAt(cwd, entries) : await submoduleRepos(cwd, env, bin);
+  for (const sub of subs) out.push(...(await repoDriverGuards(sub, submoduleEnv(env), true, 1, bin)));
   return out;
+}
+
+/** The folders of the submodules (gitlinks) among an index's entries that hold a repository (a `.git`). */
+function reposAt(cwd: string, entries: IndexEntry[]): string[] {
+  return entries
+    .filter((e) => e.mode === '160000')
+    .map((e) => resolve(cwd, e.path))
+    .filter((sub) => existsSync(join(sub, '.git')));
 }
 
 /** Refuses a repository whose `core.worktree` is not the folder holding its `.git` (a submodule's points back through its `.git` file). */
@@ -262,6 +278,8 @@ interface GitOptions {
   complete?: boolean;
   /** Keep the first `maxCapture` bytes instead of the last. */
   keepStart?: boolean;
+  /** For `git add`: the index's entries, already listed (its submodules' guards come from them). */
+  entries?: IndexEntry[];
 }
 
 /** The most a small file Harness Relay reads itself (a `.git` file, `info/exclude`, a worktree's `gitdir`) may hold. */
@@ -273,17 +291,33 @@ const SMALL_MAX = 1024 * 1024;
  * its place would block the server's every request), then looked at as opened.
  */
 function regularFile(path: string, max = SMALL_MAX): Buffer | undefined {
+  return readRegular(path, max)?.bytes;
+}
+
+/** `regularFile()`, with the file's times as it was opened. */
+function readRegular(path: string, max = SMALL_MAX): { bytes: Buffer; atime: Date; mtime: Date } | undefined {
   let fd: number | undefined;
   try {
+    // Windows has no O_NOFOLLOW: a link (a junction too) looked for first.
+    if (constants.O_NOFOLLOW === undefined && lstatSync(path).isSymbolicLink()) return undefined;
     fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
     const st = fstatSync(fd);
     if (!st.isFile() || st.size > max) return undefined;
-    return readFileSync(fd);
+    return { bytes: readFileSync(fd), atime: st.atime, mtime: st.mtime };
   } catch {
     return undefined;
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
+}
+
+/**
+ * Writes a copy of an index with the time it was written: git takes a file changed in the same moment
+ * as the index was written as possibly changed (racily clean), from that time alone.
+ */
+function copyIndex(to: string, from: { bytes: Buffer; atime: Date; mtime: Date }, flag?: string): void {
+  writeFileSync(to, from.bytes, flag ? { flag } : undefined);
+  utimesSync(to, from.atime, from.mtime);
 }
 
 const smallFile = (path: string): string | undefined => regularFile(path)?.toString('utf8');
@@ -344,27 +378,97 @@ async function storeOf(root: string): Promise<string> {
 
 /**
  * A bare repository of Harness Relay's own, with the working repository's object format. It holds every
- * object of its snapshots and results itself: no git command that writes one looks at the working
- * repository's objects (finding one there, git would only touch it, through a link an agent put in its
- * place, and take it as written). Those are read only for a commit an older Harness Relay kept there
- * (`inStore()`).
+ * object it uses itself: no git command of Harness Relay's looks at the working repository's objects
+ * (git, finding there one it was to write, would only touch it, through a link an agent put in its
+ * place, and take it as written; and a pack there would be read before its own loose objects). What an
+ * older Harness Relay kept in the working repository is copied in once (`importLegacy()`). What a server
+ * that stopped in the middle left (temporary indexes, their locks) goes.
  */
 async function makeStore(root: string, store: string): Promise<string> {
-  // Its common git folder (whose objects are read for older commits), and its object format (a git that
-  // does not know `--show-object-format` prints it as it is: SHA-1 then).
-  const r = await git(root, ['rev-parse', '--git-common-dir', '--show-object-format'], { allowFail: true });
-  const [common, format] = (r.code === 0 ? linesOf(r.stdout, 2) : undefined) ?? [];
-  if (common) noteObjects(store, root, common);
+  const here = existsSync(root);
   if (!existsSync(join(store, 'HEAD'))) {
+    // Its object format (a git that does not know `--show-object-format` prints it as it is: SHA-1 then).
+    const r = here ? await git(root, ['rev-parse', '--show-object-format'], { allowFail: true }) : undefined;
+    const format = r?.code === 0 ? linesOf(r.stdout, 1)?.[0] : undefined;
     mkdirSync(dirname(store), { recursive: true });
+    // Its refs as files (git 2.45 and later could make them a reftable): `keepIndex()` writes one.
     await git(dirname(store), ['init', '-q', '--bare', '--template=', store], {
-      env: { GIT_DEFAULT_HASH: format === 'sha256' ? 'sha256' : 'sha1' },
+      env: { GIT_DEFAULT_HASH: format === 'sha256' ? 'sha256' : 'sha1', GIT_DEFAULT_REF_FORMAT: 'files' },
     });
   }
+  const caches = join(store, 'relay-index');
+  for (const name of existsSync(caches) ? readdirSync(caches) : []) if (name.includes('.')) rmSync(join(caches, name), { force: true });
+  if (here) await importLegacy(root, store);
   return store;
 }
 
-/** The working repository's objects folder, for each of Harness Relay's repositories (`noteObjects()`). */
+/** The refs an older Harness Relay kept in the working repository: the commits its messages link to, its parallel-mode branches. */
+const LEGACY_REFS = ['refs/harness-relay/', 'refs/heads/relay/'];
+
+/**
+ * Copies into Harness Relay's repository, once, the refs an older version kept in the working repository
+ * (`LEGACY_REFS`), so that old messages' diffs and the worktrees it made still read: fetched as from a
+ * remote (`importRefs()`). Those it copied are listed in `relay-imported`, so that one dropped since (its
+ * conversation deleted) is not copied again; one that could not be is tried again at the next start.
+ */
+async function importLegacy(root: string, store: string): Promise<void> {
+  const listed = await git(root, ['for-each-ref', '--format=%(refname)', ...LEGACY_REFS], {
+    allowFail: true,
+    maxCapture: MAX_OUTPUT_BYTES,
+  });
+  const theirs = listed.code === 0 ? listed.stdout.split('\n').filter(Boolean) : [];
+  if (!theirs.length) return;
+  const record = join(store, 'relay-imported');
+  const done = new Set((regularFile(record, MAX_OUTPUT_BYTES)?.toString('utf8') ?? '').split('\n'));
+  const fresh = theirs.filter((ref) => !done.has(ref));
+  if (!fresh.length) return;
+  const ours = await git(store, ['for-each-ref', '--format=%(refname)', ...LEGACY_REFS], { gitDir: store, maxCapture: MAX_OUTPUT_BYTES });
+  const have = new Set(ours.stdout.split('\n'));
+  // A ref of the same name made here since (a worktree's branch carried on) is left as it is.
+  const want = fresh.filter((ref) => !have.has(ref));
+  if (
+    want.length &&
+    !(await importRefs(
+      root,
+      store,
+      want.map((ref) => `${ref}:${ref}`),
+    ))
+  )
+    return;
+  appendFileSync(record, fresh.map((ref) => `${ref}\n`).join(''));
+}
+
+/**
+ * Fetches `refspecs` from the working repository into Harness Relay's, their commits alone
+ * (`--depth=1`: not the history behind them), as from a remote: git checks every object as it comes, so
+ * one an agent put there under another's name is refused. git's `upload-pack` reads the working
+ * repository there, and runs nothing its config names (its one hook is taken from the user's own config
+ * alone). False when it could not.
+ */
+async function importRefs(root: string, store: string, refspecs: string[]): Promise<boolean> {
+  const where = await git(root, ['rev-parse', '--git-common-dir'], { allowFail: true });
+  const common = where.code === 0 ? linesOf(where.stdout, 1)?.[0] : undefined;
+  if (!common) return false;
+  const r = await git(
+    store,
+    [
+      '-c',
+      'protocol.file.allow=always',
+      'fetch',
+      '-q',
+      '--depth=1',
+      '--no-tags',
+      '--no-recurse-submodules',
+      '--stdin',
+      resolve(root, common),
+    ],
+    { gitDir: store, stdin: refspecs.map((s) => `${s}\n`).join(''), allowFail: true },
+  );
+  if (r.code !== 0) console.warn(`[workspace] could not copy ${refspecs.length} ref(s) of ${root}:`, tail(r.stderr, 300));
+  return r.code === 0;
+}
+
+/** The working repository's objects folder, for each of Harness Relay's repositories (`noteObjects()`): a checkout's own repository reads its history there. */
 const workObjects = new Map<string, string>();
 
 /** Remembers where the working repository's objects are (from its common git folder). */
@@ -372,71 +476,158 @@ function noteObjects(store: string, root: string, common: string): void {
   workObjects.set(store, realOr(join(resolve(root, common), 'objects')));
 }
 
-/** A folder as a line of git's alternates (its file, or `GIT_ALTERNATE_OBJECT_DIRECTORIES`): quoted as C quotes when it has to be. */
-function alternateEntry(dir: string, sep: string): string {
-  return dir.includes(sep) || /^"|[\n\r]/.test(dir)
-    ? `"${dir.replace(/[\\"]/g, '\\$&').replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"`
-    : dir;
+/** A folder as a line of git's alternates file: quoted as C quotes when it has to be. */
+function alternateEntry(dir: string): string {
+  return /^"|[\n\r]/.test(dir) ? `"${dir.replace(/[\\"]/g, '\\$&').replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"` : dir;
 }
 
-/** What git says when an object it needs is not there (in Harness Relay's repository: one of an older version's commits). */
-const MISSING_OBJECT =
-  /bad object|bad revision|unknown revision|not a valid object|unable to read|invalid object|could not read|does not point to a valid object|missing (blob|tree|commit|object)/i;
-
-/**
- * Runs a git command on Harness Relay's own repository for `root`. Its own objects alone; only when one
- * is not there (a commit an older Harness Relay kept in the working repository), again with the working
- * repository's objects to read from too.
- */
+/** Runs a git command on Harness Relay's own repository for `root`, with its own objects alone. */
 async function inStore(root: string, args: string[], o: GitOptions = {}) {
   const store = await storeOf(root);
-  const r = await git(store, args, { ...o, gitDir: store, allowFail: true });
-  const theirs = workObjects.get(store);
-  if (r.code === 0 || !theirs || !MISSING_OBJECT.test(r.stderr)) {
-    if (r.code !== 0 && !o.allowFail) throw new GitError(t().gitFailed(String(args[0]), tail(r.stderr || r.stdout, 500)));
-    return r;
-  }
-  const env = { ...o.env, GIT_ALTERNATE_OBJECT_DIRECTORIES: alternateEntry(theirs, process.platform === 'win32' ? ';' : ':') };
-  return git(store, args, { ...o, env, gitDir: store });
+  return git(store, args, { ...o, gitDir: store });
 }
 
 /** The largest index of its own Harness Relay keeps for a folder (a larger one, it does without: git hashes every file again). */
 const INDEX_MAX = 512 * 1024 * 1024;
+
+/** An index's entry (`ls-files --stage`): its path from the folder's top, and its mode. */
+interface IndexEntry {
+  path: string;
+  mode: string;
+}
+
+/** `ls-files -z --stage`'s output: `<mode> <object> <stage>\t<path>\0` for each. */
+function indexEntries(stdout: string): IndexEntry[] {
+  return stdout
+    .split('\0')
+    .filter(Boolean)
+    .map((e) => ({ mode: e.slice(0, e.indexOf(' ')), path: e.slice(e.indexOf('\t') + 1) }));
+}
+
+/** Whether `path` (from the top, with `/`) is one of `folders` or inside one. */
+const under = (path: string, folders: readonly string[]) => folders.some((f) => path === f || path.startsWith(`${f}/`));
+
+/** How a folder's files are staged (`stagedTree()`). */
+interface Staging {
+  /** `git add`'s arguments. */
+  add: string[];
+  /** The name of the ref that keeps what the index holds (`keepIndex()`). */
+  keep: string;
+  /** The folders (from the top, with `/`) never taken in: what the index holds under them is dropped. */
+  leftOut?: string[];
+  /** Drop a submodule's entry whose folder holds no `.git` (nothing can say what is in it). */
+  dropEmptyGitlinks?: boolean;
+  /** An index a new one starts from, for the times and hashes it holds, when there is none of its own yet. */
+  previous?: string;
+  /**
+   * What a new index holds before `add` (a commit of Harness Relay's repository: a worktree's last
+   * result), read with `read-tree -m` from the one it starts from, which keeps the times of each file
+   * whose content it holds.
+   */
+  seed?: string;
+  /**
+   * For a new index of a working directory: the files its repository tracks that an ignore rule matches
+   * (their names alone, from its index), which `add -A` would not take in. Hashed from the folder.
+   */
+  trackedIgnored?: () => Promise<string[]>;
+}
 
 /**
  * The tree of `workTree`'s files (tracked and untracked, honouring the repository's ignores) as `add`
  * stages them in Harness Relay's own repository, from `cache`, its own index of that folder (what it
  * hashed there last: a file whose size, times and inode are as they were is not hashed again). A copy of
  * it for each command, put back after, so that two at once each start from a whole one. Every object is
- * written in Harness Relay's repository.
+ * written in Harness Relay's repository. One it cannot use (an object of it pruned since, a cut-short
+ * file) is made again from nothing, once.
  */
-async function stagedTree(store: string, workTree: string, cache: string, add: string[], seed?: string): Promise<string> {
+async function stagedTree(store: string, workTree: string, cache: string, s: Staging): Promise<string> {
   mkdirSync(dirname(cache), { recursive: true });
   const index = `${cache}.${process.pid}.${randomBytes(4).toString('hex')}`;
+  const at = { gitDir: store, workTree, env: { GIT_INDEX_FILE: index } };
   try {
-    const cached = regularFile(cache, INDEX_MAX);
-    if (cached) writeFileSync(index, cached);
-    const at = { gitDir: store, workTree, env: { GIT_INDEX_FILE: index } };
-    // A new one starts from the files `seed` holds (the working repository's HEAD, read from its
-    // objects): git keeps a file it tracks even where an ignore rule matches it. Their names alone: with
-    // no times of their own, every one of them is hashed again from the folder.
-    const theirs = workObjects.get(store);
-    if (!cached && seed && theirs) {
-      const env = { ...at.env, GIT_ALTERNATE_OBJECT_DIRECTORIES: alternateEntry(theirs, process.platform === 'win32' ? ';' : ':') };
-      const read = await git(workTree, ['read-tree', seed], { ...at, env, allowFail: true });
-      if (read.code !== 0) rmSync(index, { force: true });
-    }
-    const added = await git(workTree, add, { ...at, allowFail: existsSync(index) });
-    // One it cannot take (cut short when the server stopped, say): again from nothing.
-    if (added.code !== 0) {
+    for (const again of [false, true]) {
       rmSync(index, { force: true });
-      await git(workTree, add, at);
+      const cached = again ? undefined : readRegular(cache, INDEX_MAX);
+      const start = cached ?? (again || !s.previous ? undefined : readRegular(s.previous, INDEX_MAX));
+      if (start) copyIndex(index, start);
+      try {
+        const tree = await stageOnce(workTree, at, s, !cached, Boolean(start));
+        renameSync(index, cache);
+        keepIndex(store, s.keep, tree);
+        return tree;
+      } catch (err) {
+        if (again) throw err;
+      }
     }
-    const tree = out(await git(workTree, ['write-tree'], at));
-    renameSync(index, cache);
-    return tree;
+    throw new GitError(t().gitFailed('add', 'unreachable'));
   } finally {
     rmSync(index, { force: true });
+  }
+}
+
+async function stageOnce(
+  workTree: string,
+  at: { gitDir: string; workTree: string; env: { GIT_INDEX_FILE: string } },
+  s: Staging,
+  fresh: boolean,
+  from: boolean,
+): Promise<string> {
+  const leftOut = s.leftOut ?? [];
+  if (fresh && s.seed) await git(workTree, ['read-tree', ...(from ? ['-m'] : []), s.seed], at);
+  const drop = new Set<string>();
+  const force: string[] = [];
+  if (fresh && s.trackedIgnored) {
+    const theirs = new Set(await s.trackedIgnored());
+    const ignored = await git(workTree, ['ls-files', '-z', '--cached', '--ignored', '--exclude-standard'], {
+      ...at,
+      maxCapture: MAX_OUTPUT_BYTES,
+      complete: true,
+    });
+    const ours = new Set(ignored.stdout.split('\0').filter(Boolean));
+    for (const p of ours) if (!theirs.has(p)) drop.add(p);
+    for (const p of theirs) if (!ours.has(p) && addable(workTree, p, leftOut)) force.push(p);
+  }
+  // Its entries: what to drop, and the submodules `git add` runs `git status` in (`entries`: their guards).
+  const listed = await git(workTree, ['ls-files', '-z', '--stage', '--', ':/'], { ...at, maxCapture: MAX_OUTPUT_BYTES, complete: true });
+  const entries = indexEntries(listed.stdout);
+  for (const e of entries)
+    if (under(e.path, leftOut) || (s.dropEmptyGitlinks && e.mode === '160000' && !existsSync(join(workTree, e.path, '.git'))))
+      drop.add(e.path);
+  if (drop.size)
+    await git(workTree, ['update-index', '-z', '--force-remove', '--stdin'], { ...at, stdin: [...drop].map((p) => `${p}\0`).join('') });
+  const kept = entries.filter((e) => !drop.has(e.path));
+  if (force.length)
+    await git(workTree, ['add', '-f', '--pathspec-from-file=-', '--pathspec-file-nul'], {
+      ...at,
+      env: { ...at.env, GIT_LITERAL_PATHSPECS: '1' },
+      stdin: force.map((p) => `${p}\0`).join(''),
+      entries: kept,
+    });
+  await git(workTree, s.add, { ...at, entries: kept });
+  return out(await git(workTree, ['write-tree'], at));
+}
+
+/**
+ * Keeps what one of Harness Relay's own indexes holds from being pruned (its tree, `refs/relay/index/`):
+ * `write-tree` takes an index whose trees it knows as they are, without looking whether their objects
+ * are still there. Its ref written as a file of its own repository, put in place whole.
+ */
+function keepIndex(store: string, name: string, tree: string): void {
+  const file = join(store, 'refs', 'relay', 'index', name);
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  writeFileSync(tmp, `${tree}\n`);
+  renameSync(tmp, file);
+}
+
+/** A file (or a link) a tracked name can be added as: not in a folder left out, nor in a `.git`. */
+function addable(workTree: string, path: string, leftOut: readonly string[]): boolean {
+  if (under(path, leftOut) || path.split('/').some((part) => part.toLowerCase() === '.git')) return false;
+  try {
+    const st = lstatSync(join(workTree, path));
+    return st.isFile() || st.isSymbolicLink();
+  } catch {
+    return false;
   }
 }
 
@@ -455,20 +646,100 @@ async function makeCommit(store: string, tree: string, parents: string[], messag
 }
 
 /**
+ * When `tidyStore()` packs: past `guess` loose objects in one of their 256 folders, and `auto` in all
+ * (git's own guess and limit); `auto` 0 packs every time, and prunes what no ref reaches at once (for tests).
+ */
+const TIDY = { guess: 27, auto: 6700 };
+
+/** For tests: when `tidyStore()` packs (none: as git does). */
+export function setTidyLimits(guess = 27, auto = 6700): void {
+  TIDY.guess = guess;
+  TIDY.auto = auto;
+}
+
+/**
  * Packs Harness Relay's repository now and then, as `git gc --auto` would (past about 6,700 loose
  * objects, which it guesses from one of their folders, as git does), dropping after two weeks what no
- * kept ref reaches. It runs in that repository alone, in this process (never detached).
+ * ref reaches. It runs in that repository alone, in this process (never detached). Its commits whose
+ * parents it does not hold (a snapshot's, the working repository's HEAD) are marked shallow first, so
+ * that git stops there.
  */
 async function tidyStore(store: string): Promise<void> {
   let loose: number;
   try {
     loose = readdirSync(join(store, 'objects', '17')).length;
   } catch {
+    loose = 0;
+  }
+  if (loose <= TIDY.guess) return;
+  try {
+    await markShallow(store);
+  } catch (err) {
+    console.warn(`[workspace] could not pack ${store}:`, (err as Error).message);
     return;
   }
-  if (loose <= 27) return;
-  await git(store, ['-c', 'gc.auto=6700', '-c', 'gc.autoDetach=false', 'gc', '--auto', '--quiet'], { gitDir: store, allowFail: true });
+  const when = TIDY.auto ? ['-c', `gc.auto=${TIDY.auto}`] : [];
+  const r = await git(store, [...when, '-c', 'gc.autoDetach=false', 'gc', ...(TIDY.auto ? ['--auto'] : ['--prune=now']), '--quiet'], {
+    gitDir: store,
+    allowFail: true,
+  });
+  if (r.code !== 0) console.warn(`[workspace] could not pack ${store}:`, tail(r.stderr, 300));
 }
+
+/** Lists in Harness Relay's repository's `shallow` file its commits with a parent it does not hold. */
+async function markShallow(store: string): Promise<void> {
+  const at = { gitDir: store, maxCapture: 4 * MAX_OUTPUT_BYTES, complete: true };
+  const all = await git(store, ['cat-file', '--batch-all-objects', '--batch-check=%(objecttype) %(objectname)'], at);
+  const commits = all.stdout
+    .split('\n')
+    .filter((l) => l.startsWith('commit '))
+    .map((l) => l.slice(7));
+  if (!commits.length) return;
+  const bodies = (await git(store, ['cat-file', '--batch'], { ...at, stdin: commits.map((c) => `${c}\n`).join('') })).stdoutBytes;
+  // `<object> <type> <size>\n<content>\n` for each; a commit's parents are in its header, before a blank line.
+  const parents = new Map<string, string[]>();
+  for (let at = 0; at < bodies.length;) {
+    const nl = bodies.indexOf(10, at);
+    if (nl < 0) break;
+    const [sha, , size] = bodies.subarray(at, nl).toString('latin1').split(' ');
+    const content = bodies.subarray(nl + 1, nl + 1 + Number(size)).toString('latin1');
+    const header = content.slice(0, content.indexOf('\n\n') < 0 ? content.length : content.indexOf('\n\n'));
+    parents.set(
+      sha!,
+      header
+        .split('\n')
+        .filter((l) => l.startsWith('parent '))
+        .map((l) => l.slice(7)),
+    );
+    at = nl + 1 + Number(size) + 1;
+  }
+  const wanted = [...new Set([...parents.values()].flat())];
+  if (!wanted.length) return;
+  const check = await git(store, ['cat-file', '--batch-check=%(objectname)'], { ...at, stdin: wanted.map((p) => `${p}\n`).join('') });
+  const missing = new Set(
+    check.stdout
+      .split('\n')
+      .filter((l) => l.endsWith(' missing'))
+      .map((l) => l.slice(0, -' missing'.length)),
+  );
+  const file = join(store, 'shallow');
+  const known = (regularFile(file, MAX_OUTPUT_BYTES)?.toString('utf8') ?? '').split('\n').filter(Boolean);
+  const next = [...new Set([...known, ...commits.filter((c) => parents.get(c)!.some((p) => missing.has(p)))])];
+  if (next.length === known.length) return;
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, next.map((c) => `${c}\n`).join(''));
+  renameSync(tmp, file);
+}
+
+/** The git command `args` run: the first argument that is not a `-c` setting. */
+function commandOf(args: string[]): string {
+  let i = 0;
+  while (args[i] === '-c') i += 2;
+  return args[i] ?? '';
+}
+
+/** Commands that may take long on a large folder (hashing every file, the first time). */
+const LONG_COMMANDS = new Set(['add', 'read-tree', 'write-tree', 'update-index', 'fetch', 'gc']);
 
 async function git(cwd: string, args: string[], o: GitOptions = {}) {
   // Never a repository from the server's own environment: the one named here, or the one found from `cwd`.
@@ -480,6 +751,7 @@ async function git(cwd: string, args: string[], o: GitOptions = {}) {
     'GIT_OBJECT_DIRECTORY',
     'GIT_ALTERNATE_OBJECT_DIRECTORIES',
     'GIT_INDEX_FILE',
+    'GIT_LITERAL_PATHSPECS',
   ])
     delete env[k];
   Object.assign(env, IDENTITY, o.env);
@@ -488,12 +760,15 @@ async function git(cwd: string, args: string[], o: GitOptions = {}) {
   // Never fetch an object that is missing: a partial clone's remote, which the repository's config
   // names, would be reached through a command it names too (`core.sshCommand`, say).
   env.GIT_NO_LAZY_FETCH = '1';
-  // Nor rewrite an index it only reads (`git status` refreshes one when it can).
+  // Nor rewrite an index it only reads (`git status` refreshes one when it can), nor read a commit as
+  // another one its replace refs name.
   env.GIT_OPTIONAL_LOCKS = '0';
+  env.GIT_NO_REPLACE_OBJECTS = '1';
+  const command = commandOf(args);
   const bin = await gitCommand(env);
   // `git add` on a working tree runs `git status` in its submodules: their drivers emptied first. A diff
   // runs no external diff or textconv either.
-  const guards = args[0] === 'add' && o.workTree ? await submoduleGuards(cwd, env, bin) : [];
+  const guards = command === 'add' && o.workTree ? await submoduleGuards(cwd, env, bin, o.entries) : [];
   const safe = args[0] === 'diff' ? ['diff', '--no-ext-diff', '--no-textconv', ...args.slice(1)] : args;
   const r = await captureGit(
     [...CONFIG, ...guards, ...safe],
@@ -501,16 +776,16 @@ async function git(cwd: string, args: string[], o: GitOptions = {}) {
     {
       cwd,
       stdin: o.stdin,
-      timeoutMs: 120_000,
+      timeoutMs: LONG_COMMANDS.has(command) ? 15 * 60_000 : 120_000,
       maxCapture: o.maxCapture,
       keepStart: o.keepStart,
     },
     bin,
   );
   if (r.code !== 0 && !o.allowFail) {
-    throw new GitError(t().gitFailed(String(args[0]), tail(r.stderr || r.stdout, 500)));
+    throw new GitError(t().gitFailed(command, tail(r.stderr || r.stdout, 500)));
   }
-  if (o.complete && r.stdoutTruncated) throw new GitError(t().outputTooLarge(String(args[0])));
+  if (o.complete && r.stdoutTruncated) throw new GitError(t().outputTooLarge(command));
   return r;
 }
 
@@ -594,19 +869,33 @@ function realOr(path: string): string {
 }
 
 /**
- * Pathspecs that leave `folders` out of `git add`, for those inside `root` (links resolved, so a
- * folder reached through a link is still found). Paths outside it need nothing.
+ * Of `folders`, those inside `root` (links resolved, so a folder reached through a link is still found),
+ * from its top with `/`. Paths outside it need nothing.
  */
-export function excludePathspecs(root: string, folders: string[]): string[] {
+function excludedFolders(root: string, folders: string[]): string[] {
   const top = realOr(root);
-  const specs: string[] = [];
+  const rels: string[] = [];
   for (const folder of folders) {
     if (!folder) continue;
     const rel = relative(top, realOr(folder));
     if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
-    specs.push(`:(exclude,literal)${rel.split(sep).join('/')}`);
+    rels.push(rel.split(sep).join('/'));
   }
-  return specs;
+  return rels;
+}
+
+/** Pathspecs that leave `folders` out of `git add`, for those inside `root` (`excludedFolders()`). */
+export function excludePathspecs(root: string, folders: string[]): string[] {
+  return excludedFolders(root, folders).map((rel) => `:(exclude,literal)${rel}`);
+}
+
+/** A file's modification time in milliseconds, or 0. */
+function mtimeOf(path: string): number {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -620,37 +909,75 @@ export function excludePathspecs(root: string, folders: string[]): string[] {
 export async function snapshot(root: string, exclude: string[] = []): Promise<{ commit: string; tree: string }> {
   const store = await storeOf(root);
   // What it reads of the working repository, in one git command (on Windows a git process costs about
-  // half a second): its common git folder (its `info/exclude`) and the commit HEAD names. Two lines, or
-  // one on an unborn branch (exit code 1). Five processes in all, which test/workspace.test.ts counts.
-  const where = await git(root, ['rev-parse', '--git-common-dir', '--verify', '-q', 'HEAD'], { allowFail: true });
-  const lines = linesOf(where.stdout, where.code === 0 ? 2 : 1);
+  // half a second): its common git folder (its `info/exclude`), its index's path and the commit HEAD
+  // names. Three lines, or two on an unborn branch (exit code 1). Five processes in all, which
+  // test/workspace.test.ts counts.
+  const where = await git(root, ['rev-parse', '--git-common-dir', '--git-path', 'index', '--verify', '-q', 'HEAD'], { allowFail: true });
+  const lines = linesOf(where.stdout, where.code === 0 ? 3 : 2);
   if (!lines) throw new GitError(t().gitFailed('rev-parse', tail(where.stderr || where.stdout, 500) || `exit code ${where.code}`));
-  const [common, head] = lines;
+  const [common, indexPath, head] = lines;
   noteObjects(store, root, common!);
   // Its excludes (Harness Relay's DEFAULT_EXCLUDES among them), as the store's: read as a small regular
-  // file (never through a link, never waiting on a pipe), never written.
+  // file (never through a link, never waiting on a pipe), never written; the store's put in place whole
+  // (another command may be reading it), and only when they changed.
   const excludes = regularFile(join(resolve(root, common!), 'info', 'exclude')) ?? Buffer.alloc(0);
   const ownExclude = join(store, 'info', 'exclude');
-  mkdirSync(dirname(ownExclude), { recursive: true });
-  writeFileSync(ownExclude, excludes);
-  const skip = excludePathspecs(root, exclude);
-  // Its own index of the folder, one for each set of folders left out and of the repository's top
-  // ignore rules (its `info/exclude` and `.gitignore`): what it holds stays in it while it is there, so
-  // a folder left out since, or a file ignored since, would stay in the snapshots. A rule changed in a
-  // `.gitignore` deeper in is seen once one of those changes. The others for the same folders go.
-  const leftOut = createHash('sha256').update(skip.join('\0')).digest('hex').slice(0, 12);
+  if (!regularFile(ownExclude)?.equals(excludes)) {
+    mkdirSync(dirname(ownExclude), { recursive: true });
+    const tmp = `${ownExclude}.${process.pid}.${randomBytes(4).toString('hex')}`;
+    writeFileSync(tmp, excludes);
+    renameSync(tmp, ownExclude);
+  }
+  const folders = excludedFolders(root, exclude);
+  const skip = folders.map((rel) => `:(exclude,literal)${rel}`);
+  // Its own index of the folder, one for each set of folders left out, and made again from the one
+  // before when the repository's top ignore rules (its `info/exclude` and `.gitignore`) or its HEAD
+  // change: what an index holds stays in it while the file is there, so a file ignored or no longer
+  // tracked since is dropped then (a rule changed in a `.gitignore` deeper in is seen at the next of
+  // those), and the files the repository tracks that an ignore rule matches are taken in.
+  const leftOut = createHash('sha256').update(folders.join('\0')).digest('hex').slice(0, 12);
   const rules = createHash('sha256')
     .update(excludes)
     .update('\0')
     .update(regularFile(join(root, '.gitignore')) ?? '')
+    .update('\0')
+    .update(where.code === 0 ? (head ?? '') : '')
     .digest('hex')
     .slice(0, 12);
   const caches = join(store, 'relay-index');
+  mkdirSync(caches, { recursive: true });
   const cache = join(caches, `work-${leftOut}-${rules}`);
-  const add = ['add', '-A', ...(skip.length ? ['--', '.', ...skip] : [])];
-  const tree = await stagedTree(store, root, cache, add, where.code === 0 ? head : undefined);
-  for (const name of readdirSync(caches))
-    if (name.startsWith(`work-${leftOut}-`) && name !== basename(cache) && !name.includes('.')) rmSync(join(caches, name), { force: true });
+  const others = readdirSync(caches).filter((n) => n.startsWith(`work-${leftOut}-`) && !n.includes('.') && n !== basename(cache));
+  const newest = others.sort((a, b) => mtimeOf(join(caches, b)) - mtimeOf(join(caches, a)))[0];
+  const tree = await stagedTree(store, root, cache, {
+    add: ['add', '-A', ...(skip.length ? ['--', '.', ...skip] : [])],
+    keep: `work-${leftOut}`,
+    leftOut: folders,
+    dropEmptyGitlinks: true,
+    previous: newest ? join(caches, newest) : undefined,
+    // Their names alone, from a copy of its index (read as a regular file: never through a link, never
+    // waiting on a pipe), matched with its rules by Harness Relay's repository: what each holds is
+    // hashed from the folder. None from an index it cannot read (a split one, say).
+    trackedIgnored: async () => {
+      const copy = `${cache}.${process.pid}.${randomBytes(4).toString('hex')}.theirs`;
+      try {
+        const theirs = readRegular(resolve(root, indexPath!), INDEX_MAX);
+        if (!theirs) return [];
+        copyIndex(copy, theirs);
+        const r = await git(root, ['ls-files', '-z', '--cached', '--ignored', '--exclude-standard'], {
+          gitDir: store,
+          workTree: root,
+          env: { GIT_INDEX_FILE: copy },
+          allowFail: true,
+          maxCapture: MAX_OUTPUT_BYTES,
+        });
+        return r.code === 0 && !r.stdoutTruncated ? r.stdout.split('\0').filter(Boolean) : [];
+      } finally {
+        rmSync(copy, { force: true });
+      }
+    },
+  });
+  for (const name of others) rmSync(join(caches, name), { force: true });
   const parent = where.code === 0 && head ? head : undefined;
   const commit = await makeCommit(store, tree, parent ? [parent] : [], 'Harness Relay snapshot');
   return { commit, tree };
@@ -914,14 +1241,26 @@ export async function repoGitState(
   return { settings, hooksDir, includes };
 }
 
+/** Where Harness Relay's repository keeps the working repository's HEAD it copied in last (`committedBase()`). */
+const HEAD_REF = 'refs/relay/head';
+
 /**
- * What a fixed command's first Save compares its code with: the repository's HEAD commit, or its empty
- * tree when it has none yet (every file is new then).
+ * What a fixed command's first Save compares its code with: the repository's HEAD commit, copied into
+ * Harness Relay's repository (`importRefs()`: its objects checked as they come), or the empty tree when
+ * it has none yet, or it could not be copied (every file is new then).
  */
 export async function committedBase(root: string): Promise<string> {
-  const head = await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], { allowFail: true });
-  if (head.code === 0 && out(head)) return out(head);
   const store = await storeOf(root);
+  const head = await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], { allowFail: true });
+  const sha = head.code === 0 ? out(head) : '';
+  if (sha) {
+    const there = await git(store, ['cat-file', '-e', `${sha}^{commit}`], { gitDir: store, allowFail: true });
+    if (there.code === 0) return sha;
+    if (await importRefs(root, store, [`+HEAD:${HEAD_REF}`])) {
+      const got = await git(store, ['rev-parse', '--verify', '--quiet', `${HEAD_REF}^{commit}`], { gitDir: store, allowFail: true });
+      if (got.code === 0 && out(got)) return out(got);
+    }
+  }
   return out(await git(store, ['mktree'], { gitDir: store, stdin: '' }));
 }
 
@@ -977,10 +1316,13 @@ async function checkout(root: string, path: string, commit: string, o: { branch?
     const alternates = join(own, 'objects', 'info', 'alternates');
     mkdirSync(dirname(alternates), { recursive: true });
     const theirs = workObjects.get(store);
-    writeFileSync(alternates, [join(store, 'objects'), ...(theirs ? [theirs] : [])].map((d) => `${alternateEntry(d, '\n')}\n`).join(''));
+    // Made new (`wx`: never over a file, nor through a link, a process left from an earlier run put there).
+    writeFileSync(alternates, [join(store, 'objects'), ...(theirs ? [theirs] : [])].map((d) => `${alternateEntry(d)}\n`).join(''), {
+      flag: 'wx',
+    });
     await git(path, ['update-ref', ...(o.branch ? [] : ['--no-deref']), 'HEAD', commit], { gitDir: own, workTree: path });
     // The index of the files just written, so that its git finds them as they are (`git status` clean).
-    writeFileSync(join(own, 'index'), readFileSync(index));
+    copyIndex(join(own, 'index'), readRegular(index, INDEX_MAX)!, 'wx');
   } finally {
     if (tmp) rmSync(tmp, { recursive: true, force: true });
   }
@@ -1001,12 +1343,18 @@ export async function createWorktree(root: string, path: string, branch: string,
   await git(store, ['update-ref', `refs/heads/${branch}`, base], { gitDir: store });
 }
 
-/** Removes a worktree or a check tree: its folder, Harness Relay's index of it, and its branch in Harness Relay's repository. */
+/**
+ * Removes a worktree or a check tree: its folder, Harness Relay's index of it (and the ref that kept what
+ * it holds), and its branch in Harness Relay's repository.
+ */
 export async function removeWorktree(root: string, path: string, branch?: string): Promise<void> {
   try {
-    rmSync(worktreeIndex(repoStore(root), path), { force: true });
-    if (branch && existsSync(join(repoStore(root), 'HEAD')))
-      await inStore(root, ['update-ref', '-d', `refs/heads/${branch}`], { allowFail: true });
+    const index = worktreeIndex(repoStore(root), path);
+    const kept = existsSync(join(repoStore(root), 'refs', 'relay', 'index', basename(index)));
+    rmSync(index, { force: true });
+    const gone = [...(branch ? [`refs/heads/${branch}`] : []), ...(kept ? [`refs/relay/index/${basename(index)}`] : [])];
+    if (gone.length && existsSync(join(repoStore(root), 'HEAD')))
+      await inStore(root, ['update-ref', '--stdin'], { stdin: gone.map((ref) => `delete ${ref}\n`).join(''), allowFail: true });
   } finally {
     // Harness Relay's own folder (in its data folder): gone even when git could not remove it.
     rmSync(path, { recursive: true, force: true });
@@ -1027,18 +1375,16 @@ export async function applyPatchIn(dir: string, p: CheckedPatch): Promise<void> 
 }
 
 /**
- * Where a worktree's branch is: its commit and tree, in Harness Relay's repository, or for a worktree an
- * older Harness Relay made (its branch in the working repository), there, read only.
+ * Where a worktree's branch is, in Harness Relay's repository: its commit and tree. A worktree an older
+ * Harness Relay made (a git worktree of the working repository) has its branch copied there too
+ * (`importLegacy()`).
  */
-async function worktreeTip(root: string, branch: string): Promise<{ commit: string; tree: string; own: boolean }> {
+async function worktreeTip(root: string, branch: string): Promise<{ commit: string; tree: string }> {
   const ref = `refs/heads/${branch}`;
-  for (const own of [true, false]) {
-    const args = ['rev-parse', ref, `${ref}^{tree}`];
-    const r = own ? await inStore(root, args, { allowFail: true }) : await git(root, args, { allowFail: true });
-    const lines = r.code === 0 ? linesOf(r.stdout, 2) : undefined;
-    if (lines) return { commit: lines[0]!, tree: lines[1]!, own };
-  }
-  throw new GitError(t().gitFailed('rev-parse', t().gitGuard.noWorktreeBranch(branch)));
+  const r = await inStore(root, ['rev-parse', ref, `${ref}^{tree}`], { allowFail: true });
+  const lines = r.code === 0 ? linesOf(r.stdout, 2) : undefined;
+  if (!lines) throw new GitError(t().gitFailed('rev-parse', t().gitGuard.noWorktreeBranch(branch)));
+  return { commit: lines[0]!, tree: lines[1]! };
 }
 
 /** The commit a worktree's result is at: its branch in Harness Relay's repository. */
@@ -1051,9 +1397,12 @@ export async function worktreeHead(root: string, branch: string): Promise<string
  * repository's excludes (the working repository's, `snapshot()`): never the worktree's own `.git`,
  * which whoever works there writes, and git never takes in.
  */
-async function folderTree(root: string, path: string): Promise<string> {
+async function folderTree(root: string, path: string, tip: string): Promise<string> {
   const store = await storeOf(root);
-  return stagedTree(store, path, worktreeIndex(store, path), ['add', '-A']);
+  // A new index of it (a worktree an older Harness Relay made, or one it could not use) starts from its
+  // last result, as Harness Relay recorded it: a file it tracks that an ignore rule matches stays in.
+  const index = worktreeIndex(store, path);
+  return stagedTree(store, path, index, { add: ['add', '-A'], keep: basename(index), seed: tip });
 }
 
 /**
@@ -1063,7 +1412,7 @@ async function folderTree(root: string, path: string): Promise<string> {
 export async function worktreeChanged(root: string, path: string, branch: string, base: string): Promise<boolean> {
   const tip = await worktreeTip(root, branch);
   if (tip.commit !== base) return true;
-  return (await folderTree(root, path)) !== tip.tree;
+  return (await folderTree(root, path, tip.commit)) !== tip.tree;
 }
 
 /**
@@ -1073,14 +1422,12 @@ export async function worktreeChanged(root: string, path: string, branch: string
  */
 export async function commitWorktree(root: string, path: string, branch: string, message: string): Promise<string | null> {
   const tip = await worktreeTip(root, branch);
-  const tree = await folderTree(root, path);
+  const tree = await folderTree(root, path, tip.commit);
   if (tree === tip.tree) return null;
   const store = await storeOf(root);
   const commit = await makeCommit(store, tree, [tip.commit], message);
-  // Its branch, only from the commit it was on (made, for a worktree an older Harness Relay made).
-  await git(store, ['update-ref', '-m', `commit: ${message}`, `refs/heads/${branch}`, commit, tip.own ? tip.commit : ''], {
-    gitDir: store,
-  });
+  // Its branch, only from the commit it was on.
+  await git(store, ['update-ref', '-m', `commit: ${message}`, `refs/heads/${branch}`, commit, tip.commit], { gitDir: store });
   return commit;
 }
 
@@ -1134,9 +1481,19 @@ export function worktreeDir(root: string, cwd: string, worktreePath: string): st
   return rel && !rel.startsWith('..') ? join(worktreePath, rel) : worktreePath;
 }
 
-/** Where the agent should run inside its worktree (created if missing). */
+/**
+ * Where the agent should run inside its worktree (created if missing). Refused through a link the agent
+ * made there on an earlier turn (a folder of it pointing at its home, say), where its next turn would
+ * start, and its sandbox give it that folder: each folder from the worktree's top is looked at first.
+ */
 export function worktreeCwd(root: string, cwd: string, worktreePath: string): string {
   const dir = worktreeDir(root, cwd, worktreePath);
+  let at = worktreePath;
+  for (const part of relative(worktreePath, dir).split(sep).filter(Boolean)) {
+    at = join(at, part);
+    if (!existsSync(at) && !isLink(at)) break;
+    if (isLink(at) || !statSync(at).isDirectory()) throw new GitError(t().gitGuard.linkOut(at));
+  }
   mkdirSync(dir, { recursive: true });
   return dir;
 }

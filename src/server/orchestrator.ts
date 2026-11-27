@@ -7510,7 +7510,7 @@ export class Orchestrator {
     agent: AgentConfig,
   ): Promise<MessageChanges | undefined> {
     if (wt) {
-      // An agent that committed by itself leaves nothing staged: its commits are the turn's result.
+      // Its worktree's files as they are, whatever the agent did with git there (`commitWorktree()`).
       const head =
         (await commitWorktree(wt.root, wt.path, wt.branch, `@${agent.name} (Harness Relay)`)) ?? (await worktreeHead(wt.root, wt.branch));
       if (head === before.commit) return undefined;
