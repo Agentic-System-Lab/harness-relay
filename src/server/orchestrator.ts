@@ -259,6 +259,7 @@ import {
   repoRoot,
   trackingReady,
   warmUp,
+  wouldWarm,
   removeWorktree,
   snapshot,
   worktreeChanged,
@@ -1088,6 +1089,8 @@ export class Orchestrator {
   private folderHolds = new Map<string, number>();
   /** For each conversation, how many of its working directories are being prepared for change tracking (`warmTracking()`). */
   private preparingTracking = new Map<string, number>();
+  /** Working directories whose change tracking is known ready (`warmTracking()`): no git process to look again. */
+  private trackedCwds = new Set<string>();
   /**
    * Each folder a conversation holds (`holdFolder()`): how many holds it has, and whether the
    * conversation had a lock on it before (left to it once they end). Each folder is let go when its own
@@ -4251,10 +4254,14 @@ export class Orchestrator {
     if (this.closing || conv.settings.permission === 'read-only') return;
     if (relayFolderRefusal(conv.settings, agentFolderOptions(this.settings))) return;
     const exclude = this.snapshotExcludes();
+    const key = (cwd: string) => `${cwd}\0${exclude.join('\0')}`;
     void (async () => {
       for (const cwd of cwdsOf(conv.settings)) {
+        if (this.trackedCwds.has(key(cwd))) continue;
         const root = await repoRoot(cwd).catch(() => null);
-        if (root && !trackingReady(root, exclude)) await this.preparing(conv.id, () => warmUp(root, exclude));
+        if (!root) continue;
+        if (wouldWarm(root, exclude)) await this.preparing(conv.id, () => warmUp(root, exclude));
+        if (trackingReady(root, exclude)) this.trackedCwds.add(key(cwd));
       }
     })().catch(() => undefined);
   }

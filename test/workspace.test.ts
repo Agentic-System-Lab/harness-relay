@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   appendFileSync,
+  chmodSync,
   closeSync,
   constants,
   existsSync,
@@ -55,6 +56,7 @@ import {
   treePaths,
   unignoredFiles,
   warmUp,
+  wouldWarm,
   worktreeChanged,
   worktreeCwd,
   worktreeHead,
@@ -1135,9 +1137,73 @@ describe("Harness Relay's own repository, and the working repository's .git it n
     ).toEqual(['README.md', 'src/app.ts']);
     // Another set of folders left out has an index of its own.
     expect(trackingReady(repo, [join(repo, 'src')])).toBe(false);
-    // One it cannot take fails nothing.
+    // A folder that is not there fails nothing.
     await warmUp(join(dir, 'missing'));
   });
+
+  /** The git commands run while `work` runs, by name. */
+  const commandsOf = async (work: () => Promise<unknown>): Promise<string[]> => {
+    const started: string[] = [];
+    recordSpawns({
+      start: ({ bin, args }) => {
+        if (/^git(\.exe)?$/i.test(basename(bin))) started.push(args[args.findIndex((a, n) => a !== '-c' && args[n - 1] !== '-c')]!);
+        return undefined;
+      },
+    });
+    try {
+      await work();
+    } finally {
+      recordSpawns(undefined);
+    }
+    return started;
+  };
+
+  it('hashes every file once when a turn and a warm-up both start a first snapshot: the later one waits for the first', async () => {
+    await committed();
+    // A warm-up, then a turn's snapshot: the turn's starts once the warm-up is done (its commit written).
+    let started = await commandsOf(() => Promise.all([warmUp(repo), snapshot(repo)]));
+    expect(started.indexOf('rev-parse', started.indexOf('hash-object'))).toBeGreaterThan(started.indexOf('hash-object'));
+    expect(started.filter((c) => c === 'add')).toHaveLength(2);
+    // A turn's own first snapshot, then a warm-up: the warm-up waits for it, and hashes nothing itself.
+    rmSync(join(repoStore(repo), 'relay-index'), { recursive: true, force: true });
+    started = await commandsOf(() => Promise.all([snapshot(repo), warmUp(repo)]));
+    expect(started.filter((c) => c === 'add')).toHaveLength(1);
+  });
+
+  it('prepares nothing for a repository too broad to snapshot (the home folder), as a turn there is refused', async () => {
+    const home = join(dir, 'home');
+    mkdirSync(join(home, 'code'), { recursive: true });
+    git(home, 'init', '-q');
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    Object.assign(process.env, { HOME: home, USERPROFILE: home });
+    try {
+      expect(wouldWarm(realpathSync(home))).toBe(false);
+      expect(await commandsOf(() => warmUp(realpathSync(home)))).toEqual([]);
+      expect(existsSync(repoStore(home))).toBe(false);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'tries a folder whose first snapshot failed again only a while later, not at each look',
+    async () => {
+      await committed();
+      const locked = join(repo, 'locked.txt');
+      writeFileSync(locked, 'x\n');
+      chmodSync(locked, 0o000);
+      try {
+        await warmUp(repo);
+        expect(wouldWarm(repo)).toBe(false);
+        expect(await commandsOf(() => warmUp(repo))).toEqual([]);
+      } finally {
+        chmodSync(locked, 0o644);
+      }
+    },
+  );
 
   it('takes a turn in a worktree in six git processes', async () => {
     await committed();

@@ -30,6 +30,7 @@ import {
   withLang,
 } from './orchestrator-harness';
 import { repoStore, trackingReady } from '../src/server/workspace';
+import { recordSpawns } from '../src/server/process';
 
 describe("Harness Relay's own folder", () => {
   it('refuses an edit-mode turn there, also for a conversation saved before the check', async () => {
@@ -63,9 +64,21 @@ describe('change tracking prepared ahead of the first turn', () => {
     orchestrator.warmTracking(conv);
     await vi.waitFor(() => expect(seen).toEqual([true, false]));
     expect(trackingReady(realpathSync(project), [])).toBe(true);
-    // Opened again: nothing more to prepare.
-    orchestrator.warmTracking(conv);
-    await new Promise((r) => setTimeout(r, 200));
+    // Opened again: nothing more to prepare, and no git process to look.
+    const started: string[] = [];
+    recordSpawns({
+      start: ({ bin }) => {
+        if (/^git(\.exe)?$/i.test(basename(bin))) started.push(bin);
+        return undefined;
+      },
+    });
+    try {
+      orchestrator.warmTracking(conv);
+      await new Promise((r) => setTimeout(r, 200));
+    } finally {
+      recordSpawns(undefined);
+    }
+    expect(started).toEqual([]);
     expect(seen).toEqual([true, false]);
     // A turn needs no first snapshot of its own then.
     await orchestrator.send(conv.id, 'go');

@@ -469,9 +469,12 @@ async function importLegacy(root: string, store: string): Promise<boolean> {
   const have = new Set(ours.stdout.split('\n'));
   // A ref of the same name made here since (a worktree's branch carried on) is left as it is.
   const want = fresh.filter((r) => !have.has(r.ref));
-  const whole = want.length ? await copyCommits(root, store, [...new Set(want.map((r) => r.sha))]) : new Set<string>();
-  if (whole === undefined) return false;
-  // Not one deleted while it copied; one deleted while they were made, deleted again.
+  const result = want.length
+    ? await copyCommits(root, store, [...new Set(want.map((r) => r.sha))])
+    : { whole: new Set<string>(), settled: new Set<string>() };
+  if (result === undefined) return false;
+  const whole = result.whole;
+  // Not one deleted while it result; one deleted while they were made, deleted again.
   const deletedMeanwhile = readRecord(store);
   const made = want.filter((r) => whole.has(r.sha) && !deletedMeanwhile(r.ref));
   if (made.length) {
@@ -481,11 +484,13 @@ async function importLegacy(root: string, store: string): Promise<boolean> {
     if (undo.length)
       await git(store, ['update-ref', '--stdin'], { gitDir: store, stdin: undo.map((r) => `delete ${r.ref}\n`).join(''), allowFail: true });
   }
+  // Those it result or found it cannot; one the copy's limit left out is tried at the next start.
+  const left = want.filter((r) => !result.settled.has(r.sha));
   record(
     store,
-    fresh.map((r) => r.ref),
+    fresh.filter((r) => !left.includes(r)).map((r) => r.ref),
   );
-  rmSync(tries, { force: true });
+  if (!left.length) rmSync(tries, { force: true });
   return made.length > 0;
 }
 
@@ -524,7 +529,12 @@ function dropped(store: string, refs: string[]): void {
  * whole here is copied again in halves, so that one bad commit keeps no other out. `quick`: the time
  * limit of a command the user waits on (a fixed command's Save).
  */
-async function copyCommits(root: string, store: string, commits: string[], quick = false): Promise<Set<string> | undefined> {
+async function copyCommits(
+  root: string,
+  store: string,
+  commits: string[],
+  quick = false,
+): Promise<{ whole: Set<string>; settled: Set<string> } | undefined> {
   const env = await readingTheirs(root, store);
   if (!env) return undefined;
   const limit = quick ? { timeoutMs: 120_000 } : {};
@@ -566,10 +576,8 @@ async function copyCommits(root: string, store: string, commits: string[], quick
       const into = join(store, 'objects', 'pack');
       mkdirSync(into, { recursive: true });
       // (The same pack there already: the same objects. Its pack first, as git puts one in place.)
-      if (!existsSync(join(into, `pack-${name}.pack`))) {
-        renameSync(pack, join(into, `pack-${name}.pack`));
-        renameSync(join(work, `copy-${name}.idx`), join(into, `pack-${name}.idx`));
-      }
+      if (!existsSync(join(into, `pack-${name}.pack`))) renameSync(pack, join(into, `pack-${name}.pack`));
+      if (!existsSync(join(into, `pack-${name}.idx`))) renameSync(join(work, `copy-${name}.idx`), join(into, `pack-${name}.idx`));
     } finally {
       rmSync(work, { recursive: true, force: true });
     }
@@ -584,20 +592,21 @@ async function copyCommits(root: string, store: string, commits: string[], quick
     return whole.code === 0 ? 'whole' : 'not';
   };
   const whole = new Set<string>();
-  // At most this many copies (each a few git processes): the rest is left out, as if it could not be.
+  const settled = new Set<string>();
+  // At most this many copies (each a few git processes): the rest is left for the next start.
   let left = 64;
   const halves = async (batch: string[]): Promise<boolean> => {
     if (left-- <= 0) return true;
     const r = await copy(batch);
     if (r === 'failed') return false;
-    if (r === 'whole') for (const c of batch) whole.add(c);
+    if (r === 'whole') for (const c of batch) (whole.add(c), settled.add(c));
     else if (batch.length > 1) {
       const mid = Math.ceil(batch.length / 2);
       return (await halves(batch.slice(0, mid))) && (await halves(batch.slice(mid)));
-    }
+    } else settled.add(batch[0]!);
     return true;
   };
-  return (await halves(commits)) ? whole : undefined;
+  return (await halves(commits)) ? { whole, settled } : undefined;
 }
 
 /** The working repository's objects folder, for each of Harness Relay's repositories (`noteObjects()`): a checkout's own repository reads its history there. */
@@ -789,7 +798,7 @@ async function stageOnce(
       allowFail: true,
     });
   // Again in halves when git refuses the lot, so that one it will not take keeps no other out.
-  let tries = 32;
+  let tries = 128;
   const halves = async (paths: string[]): Promise<void> => {
     if (tries-- <= 0 || (await addForced(paths)).code === 0 || paths.length === 1) return;
     const mid = Math.ceil(paths.length / 2);
@@ -1125,8 +1134,24 @@ function mtimeOf(path: string): number {
  * changed since.
  */
 export async function snapshot(root: string, exclude: string[] = []): Promise<{ commit: string; tree: string }> {
-  await warming.get(repoStore(root));
-  return takeSnapshot(root, exclude);
+  const store = repoStore(root);
+  const under = warming.get(store);
+  if (under) {
+    await under;
+    return takeSnapshot(root, exclude);
+  }
+  if (trackingReady(root, exclude)) return takeSnapshot(root, exclude);
+  // A first one itself: what a warm-up asked for meanwhile waits for it rather than hash every file too.
+  const run = takeSnapshot(root, exclude);
+  const done: Promise<void> = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  warming.set(store, done);
+  void done.finally(() => {
+    if (warming.get(store) === done) warming.delete(store);
+  });
+  return run;
 }
 
 /** Each working repository's first snapshot under way ahead of a turn (`warmUp()`), by Harness Relay's repository. */
@@ -1150,23 +1175,46 @@ export function trackingReady(root: string, exclude: string[] = []): boolean {
   }
 }
 
+/** When a warm-up of each of Harness Relay's repositories last failed: not tried again for `WARM_AGAIN`. */
+const warmFailed = new Map<string, number>();
+const WARM_AGAIN = 10 * 60_000;
+
+/**
+ * Whether `root`'s change tracking should be prepared ahead of a turn (`warmUp()`): no index of Harness
+ * Relay's own of it yet, not a repository too broad to snapshot (the home folder's, a file system's
+ * root: a turn there is refused, `ensureRepo()`), and no warm-up of it failed a short while ago (a file it
+ * cannot read: it would hash every file again at each look).
+ */
+export function wouldWarm(root: string, exclude: string[] = []): boolean {
+  if (!existsSync(root) || tooBroadRepo(realOr(root))) return false;
+  if (Date.now() - (warmFailed.get(repoStore(root)) ?? 0) < WARM_AGAIN) return false;
+  return !trackingReady(root, exclude);
+}
+
 /**
  * Takes `root`'s first snapshot ahead of a turn, its result not kept: every file hashed and written into
  * Harness Relay's repository once, so that the turn's own snapshot hashes only what changed since. One
- * at a time for each repository; a snapshot meanwhile waits for it (`snapshot()`). Never fails.
+ * at a time for each repository, with a turn's own first snapshot too; a snapshot meanwhile waits for it
+ * (`snapshot()`). Nothing for a folder `wouldWarm()` refuses. Never fails.
  */
 export function warmUp(root: string, exclude: string[] = []): Promise<void> {
   const store = repoStore(root);
-  let ready = warming.get(store);
-  if (!ready) {
-    ready = takeSnapshot(root, exclude)
-      .then(
-        () => undefined,
-        (err: unknown) => console.warn(`[workspace] could not prepare change tracking in ${root}:`, (err as Error).message),
-      )
-      .finally(() => warming.delete(store));
-    warming.set(store, ready);
-  }
+  const under = warming.get(store);
+  if (under) return under;
+  if (!wouldWarm(root, exclude)) return Promise.resolve();
+  const ready: Promise<void> = takeSnapshot(root, exclude).then(
+    () => {
+      warmFailed.delete(store);
+    },
+    (err: unknown) => {
+      warmFailed.set(store, Date.now());
+      console.warn(`[workspace] could not prepare change tracking in ${root}:`, (err as Error).message);
+    },
+  );
+  warming.set(store, ready);
+  void ready.finally(() => {
+    if (warming.get(store) === ready) warming.delete(store);
+  });
   return ready;
 }
 
@@ -1359,8 +1407,7 @@ export async function commitsSince(
     ...(before.length ? ['--not', ...before] : []),
     '--',
   ];
-  if (!env && !shallow)
-    throw new GitError(t().gitFailed('log', "the working repository's objects cannot be read (its alternates file is not a regular file)"));
+  if (!env) throw new GitError(t().gitFailed('log', "the working repository's objects cannot be read safely"));
   const r = shallow ? await git(root, args) : await git(store, args, { gitDir: store, env });
   const commits = r.stdout
     .split('\n')
@@ -1539,7 +1586,7 @@ export async function committedBase(root: string): Promise<string> {
   const sha = head.code === 0 ? out(head) : '';
   if (/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha)) {
     const there = async () => (await git(store, ['cat-file', '-t', sha], { gitDir: store, allowFail: true })).stdout.trim() === 'commit';
-    if ((await there()) || ((await copyCommits(root, store, [sha], true))?.has(sha) && (await there()))) return sha;
+    if ((await there()) || ((await copyCommits(root, store, [sha], true))?.whole.has(sha) && (await there()))) return sha;
   }
   return out(await git(store, ['mktree'], { gitDir: store, stdin: '' }));
 }
