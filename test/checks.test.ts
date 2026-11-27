@@ -27,7 +27,7 @@ import {
   unmatchedSubjects,
   type CheckFolders,
 } from '../src/server/checks';
-import { branchTips, commitsSince } from '../src/server/workspace';
+import { branchTips, commitsSince, settleWorkspace } from '../src/server/workspace';
 
 const matches = (pattern: string, path: string) => compilePattern(pattern)!.regex.test(path);
 
@@ -189,7 +189,11 @@ const commit = (cwd: string, file: string, subject: string) => {
 beforeEach(() => {
   dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-checks-')));
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(async () => {
+  // Harness Relay's own git work in the folder done first (Windows removes no folder a process works in).
+  await settleWorkspace();
+  rmSync(dir, { recursive: true, force: true });
+});
 
 describe('takeManifest', () => {
   it('finds protected files on disk, ignored ones too, but not in .git or installed folders', async () => {

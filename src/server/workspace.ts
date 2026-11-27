@@ -356,6 +356,8 @@ let storesDir: string | undefined;
 export function setRepoStore(dir?: string): void {
   storesDir = dir;
   stores.clear();
+  copied.clear();
+  unfinished.clear();
 }
 
 /**
@@ -432,6 +434,22 @@ const copied = new Set<string>();
 /** The refs an older Harness Relay kept in the working repository: the commits its messages link to, its parallel-mode branches. */
 const LEGACY_REFS = ['refs/harness-relay/', 'refs/heads/relay/'];
 
+/** How many copies one start's copy of what an older version kept makes at most (`copyCommits()`). */
+const COPY_LIMIT = { copies: 64 };
+
+/** For tests: how many copies a copy makes at most (none: 64). */
+export function setCopyLimit(copies = 64): void {
+  COPY_LIMIT.copies = copies;
+}
+
+/**
+ * For tests: once every copy of what an older version kept and every first snapshot under way have
+ * ended (their git processes work in the folders a test then removes, which Windows refuses meanwhile).
+ */
+export async function settleWorkspace(): Promise<void> {
+  await Promise.all([...legacy.values(), ...warming.values()]);
+}
+
 /** How many starts may try to copy what an older version kept before Harness Relay gives up on it. */
 const LEGACY_TRIES = 3;
 
@@ -472,9 +490,12 @@ async function importLegacy(root: string, store: string): Promise<boolean> {
   const result = want.length
     ? await copyCommits(root, store, [...new Set(want.map((r) => r.sha))])
     : { whole: new Set<string>(), settled: new Set<string>() };
-  if (result === undefined) return false;
+  if (result === undefined) {
+    unfinished.add(store);
+    return false;
+  }
   const whole = result.whole;
-  // Not one deleted while it result; one deleted while they were made, deleted again.
+  // Not one deleted while it copied; one deleted while they were made, deleted again.
   const deletedMeanwhile = readRecord(store);
   const made = want.filter((r) => whole.has(r.sha) && !deletedMeanwhile(r.ref));
   if (made.length) {
@@ -484,13 +505,15 @@ async function importLegacy(root: string, store: string): Promise<boolean> {
     if (undo.length)
       await git(store, ['update-ref', '--stdin'], { gitDir: store, stdin: undo.map((r) => `delete ${r.ref}\n`).join(''), allowFail: true });
   }
-  // Those it result or found it cannot; one the copy's limit left out is tried at the next start.
-  const left = want.filter((r) => !result.settled.has(r.sha));
+  // Those it copied or found it cannot; one the copy's limit left out is tried at the next start, and a
+  // deletion until then is recorded (`dropped()`).
+  const left = new Set(want.filter((r) => !result.settled.has(r.sha)));
   record(
     store,
-    fresh.filter((r) => !left.includes(r)).map((r) => r.ref),
+    fresh.filter((r) => !left.has(r)).map((r) => r.ref),
   );
-  if (!left.length) rmSync(tries, { force: true });
+  if (!left.size) rmSync(tries, { force: true });
+  else unfinished.add(store);
   return made.length > 0;
 }
 
@@ -509,18 +532,23 @@ function record(store: string, lines: string[]): void {
   if (lines.length) appendFileSync(join(store, 'relay-imported'), lines.map((l) => `${l}\n`).join(''));
 }
 
+/** The repositories whose copy of what an older version kept left some for the next start (`importLegacy()`). */
+const unfinished = new Set<string>();
+
 /**
  * Refs (or folders of refs, ending in `/`) deleted here while what an older version kept is still being
- * copied in: recorded, so that the copy does not make them again. (Nothing waits for it.)
+ * copied in, or has some left for the next start: recorded, so that the copy does not make them again.
+ * (Nothing waits for it.)
  */
 function dropped(store: string, refs: string[]): void {
-  if (!copied.has(store)) record(store, refs);
+  if (!copied.has(store) || unfinished.has(store)) record(store, refs);
 }
 
 /**
  * Copies `commits` of the working repository into Harness Relay's, with their trees and files but not
- * the history behind them; the set of those now whole here (their parents it does not hold:
- * `tidyStore()` marks them shallow), or undefined when the copy could not run (out of time). Every
+ * the history behind them: those now whole here (their parents it does not hold: `tidyStore()` marks
+ * them shallow), and those it settled (whole, or found it cannot copy; the others its limit of copies
+ * left for the next start), or undefined when the copy could not run (out of time). Every
  * command runs in Harness Relay's repository, reading the working repository's objects as an alternate
  * (`readingTheirs()`: its config is not read): `rev-list` and `pack-objects` into a pack file in a folder
  * of its own here (never in memory: a large one would not fit in a string), whose index `index-pack`
@@ -594,7 +622,7 @@ async function copyCommits(
   const whole = new Set<string>();
   const settled = new Set<string>();
   // At most this many copies (each a few git processes): the rest is left for the next start.
-  let left = 64;
+  let left = COPY_LIMIT.copies;
   const halves = async (batch: string[]): Promise<boolean> => {
     if (left-- <= 0) return true;
     const r = await copy(batch);
@@ -1154,7 +1182,7 @@ export async function snapshot(root: string, exclude: string[] = []): Promise<{ 
   return run;
 }
 
-/** Each working repository's first snapshot under way ahead of a turn (`warmUp()`), by Harness Relay's repository. */
+/** Each working repository's first snapshot under way (a warm-up's, `warmUp()`, or a turn's own), by Harness Relay's repository. */
 const warming = new Map<string, Promise<void>>();
 
 /** The key of Harness Relay's own index of `root` for these folders left out (`snapshot()`). */

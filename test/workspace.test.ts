@@ -48,8 +48,10 @@ import {
   repoGitState,
   repoRoot,
   repoStore,
+  setCopyLimit,
   setLazyFetchGuard,
   setRepoStore,
+  settleWorkspace,
   setTidyLimits,
   snapshot,
   trackingReady,
@@ -84,7 +86,8 @@ beforeEach(() => {
   setRepoStore(join(dir, 'repos'));
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await settleWorkspace();
   setRepoStore();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -1115,6 +1118,13 @@ describe("Harness Relay's own repository, and the working repository's .git it n
     const head = git(repo, 'rev-parse', 'HEAD');
     git(repo, 'update-ref', `refs/harness-relay/conv-old/${head}`, head);
     execFileSync('mkfifo', [join(repo, '.git', 'objects', 'info', 'alternates')]);
+    // A git that reads its alternates as it starts (2.5x) waits on the pipe in every command run in the
+    // repository, until its time limit: nothing Harness Relay can avoid there (a known limitation).
+    const probe = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd: repo, timeout: 3000 });
+    if (probe.error || probe.status === null) {
+      closeSync(openSync(join(repo, '.git', 'objects', 'info', 'alternates'), constants.O_WRONLY | constants.O_NONBLOCK));
+      return;
+    }
     const started = Date.now();
     await snapshot(repo);
     expect(await fileAt(repo, head, 'README.md')).toBeUndefined();
@@ -1204,6 +1214,38 @@ describe("Harness Relay's own repository, and the working repository's .git it n
       }
     },
   );
+
+  it('keeps a conversation deleted while refs are left for the next start from coming back then', async () => {
+    await committed();
+    const made: string[] = [];
+    for (const name of ['one', 'two', 'three']) {
+      writeFileSync(join(repo, 'README.md'), `${name}\n`);
+      git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', name);
+      const sha = git(repo, 'rev-parse', 'HEAD');
+      git(repo, 'update-ref', `refs/harness-relay/conv-${name}/${sha}`, sha);
+      made.push(sha);
+    }
+    // Three copies a start, the first commit not whole: the first start finds it cannot copy it and
+    // leaves conv-three's and conv-two's for the next (refs copied in their names' order).
+    const blob = git(repo, 'rev-parse', `${made[0]}:README.md`);
+    rmSync(join(repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2)));
+    setCopyLimit(3);
+    try {
+      await snapshot(repo);
+      await settleWorkspace();
+      await dropKeptCommits(repo, 'conv-three');
+      // The next starts copy what is left: not the conversation deleted meanwhile.
+      for (let start = 0; start < 3; start++) {
+        setRepoStore(join(dir, 'repos'));
+        await snapshot(repo);
+        await settleWorkspace();
+      }
+    } finally {
+      setCopyLimit();
+    }
+    expect(store('for-each-ref', 'refs/harness-relay/conv-three/')).toBe('');
+    expect(store('for-each-ref', '--format=%(refname)', 'refs/harness-relay/conv-two/')).toBe(`refs/harness-relay/conv-two/${made[1]}`);
+  });
 
   it('takes a turn in a worktree in six git processes', async () => {
     await committed();
