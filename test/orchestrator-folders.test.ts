@@ -25,6 +25,7 @@ import {
   Store,
   textOf,
 } from './orchestrator-harness';
+import { repoStore } from '../src/server/workspace';
 
 describe('several working directories', () => {
   /** A second working directory with a file of its own; the first is `project`. */
@@ -62,7 +63,8 @@ describe('several working directories', () => {
     expect(diff).toContain(`+++ b/${basename(project)}/Alice.txt`);
     expect(diff).toContain(`+++ b/${basename(docs)}/Alice.txt`);
     // The second repository keeps the turns' snapshots too, until the conversation goes.
-    const refs = () => execFileSync('git', ['-C', docs, 'for-each-ref', `refs/harness-relay/${conv.id}/`], { encoding: 'utf8' });
+    const refs = () =>
+      execFileSync('git', ['--git-dir', repoStore(docs), 'for-each-ref', `refs/harness-relay/${conv.id}/`], { encoding: 'utf8' });
     expect(refs()).not.toBe('');
     await orchestrator.cleanupWorktrees(conv);
     expect(refs()).toBe('');

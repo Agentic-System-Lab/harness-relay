@@ -33,12 +33,14 @@ import { removeTree } from '../src/server/fsRemove';
 import { withLang } from '../src/server/i18n';
 import type { SpawnResult } from '../src/server/process';
 import type { RelaySandboxSpec } from '../src/server/relaySandbox';
-import { ensureRepo } from '../src/server/workspace';
+import { ensureRepo, repoStore, setRepoStore } from '../src/server/workspace';
 import { relaySandboxDirs } from '../src/server/protect';
 import { relaySandboxHostRoot, relaySandboxRoot } from '../src/server/relaySandbox';
 import { codeFiles } from '../src/web/handoffs';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-fixed-')));
+// Harness Relay's own repositories (its pins' snapshots), the test's own.
+setRepoStore(join(root, 'repos'));
 afterAll(() => removeTree(root, { restore: true }));
 
 const result = (o: Partial<SpawnResult> = {}): SpawnResult => ({
@@ -718,8 +720,8 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     const dir = folder();
     writeFileSync(join(dir, 'post.py'), 'print(1)\n');
     gitIn(dir, 'init', '-q');
-    // A driver name git's -c cannot carry: Harness Relay's git refuses the repository.
-    writeFileSync(join(dir, '.git', 'config'), `${readFileSync(join(dir, '.git', 'config'), 'utf8')}[filter "a=b"]\n\tclean = evil\n`);
+    // A config git itself cannot read.
+    writeFileSync(join(dir, '.git', 'config'), `${readFileSync(join(dir, '.git', 'config'), 'utf8')}[core\n\tbroken\n`);
     await withLang('en', () => expect(pinManifest(dir)).rejects.toThrow(/git settings could not be read/));
   });
 
@@ -988,7 +990,9 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     await ensureRepo(dir);
     writeFileSync(join(dir, 'post.py'), 'print(1)\n');
     const refs = () =>
-      execFileSync('git', ['-C', dir, 'for-each-ref', '--format=%(refname)', 'refs/harness-relay/commands/r1'], { encoding: 'utf8' })
+      execFileSync('git', ['--git-dir', repoStore(dir), 'for-each-ref', '--format=%(refname)', 'refs/harness-relay/commands/r1'], {
+        encoding: 'utf8',
+      })
         .split('\n')
         .filter(Boolean);
     const first = await takePin(dir, 'r1');

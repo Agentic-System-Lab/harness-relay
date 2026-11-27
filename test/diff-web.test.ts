@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, u
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { diffFiles, diffText, ensureRepo, snapshot } from '../src/server/workspace';
+import { diffFiles, diffText, ensureRepo, setRepoStore, snapshot } from '../src/server/workspace';
 import { isTruncatedNote, truncatedNote } from '../src/shared/diff';
 import { diffLineClass, diffTotals, parseDiff, type DiffFile } from '../src/web/diff';
 
@@ -218,6 +218,8 @@ describe('parseDiff on git', () => {
   let saved: string | undefined;
   beforeEach(() => {
     dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-diff-')));
+    // Harness Relay's own repositories (the snapshots), the test's own.
+    setRepoStore(join(dir, 'repos'));
     saved = process.env.GIT_CONFIG_GLOBAL;
   });
   afterEach(() => {

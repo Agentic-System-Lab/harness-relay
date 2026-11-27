@@ -37,6 +37,7 @@ import {
   textOf,
   withLang,
 } from './orchestrator-harness';
+import { repoStore } from '../src/server/workspace';
 import { slow } from './timeouts';
 import { t } from '../src/server/i18n';
 
@@ -1398,10 +1399,13 @@ describe('cards a reply leaves out', () => {
     const msg = agentMessages(store.get(conv.id)!).at(-1)!;
     const changes = msg.changes![0]!;
     expect(changes.files.map((f) => f.path)).toEqual(expect.arrayContaining(['download.py', 'notes.py']));
-    const kept = execFileSync('git', ['for-each-ref', '--format=%(objectname)', `refs/harness-relay/${conv.id}`], {
-      cwd: changes.root,
-      encoding: 'utf8',
-    })
+    const kept = execFileSync(
+      'git',
+      ['--git-dir', repoStore(changes.root), 'for-each-ref', '--format=%(objectname)', `refs/harness-relay/${conv.id}`],
+      {
+        encoding: 'utf8',
+      },
+    )
       .trim()
       .split('\n');
     expect(kept.sort()).toEqual([changes.base, changes.head].sort());

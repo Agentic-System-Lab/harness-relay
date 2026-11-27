@@ -223,7 +223,7 @@ ${access}
 ${ws.folders.map((f) => `  - ${f.cwd} (branch ${f.branch}), from a snapshot (${short(f.base)}) of ${f.userCwd}`).join('\n')}
   You start in ${ws.folders[0]!.cwd}; use full paths for the others.`;
   return `${own}
-- Teammates work in parallel in their own worktrees. Their branches: ${mates}. To read a teammate's work: \`git diff <the snapshot it started from> <branch>\` or \`git show <branch>:<path>\`${one ? '' : ', in that repository'}.
+- Teammates work in parallel in their own worktrees. Their branches: ${mates}. Each worktree is a repository of its own, so a teammate's branch is not in yours, but its commits are: each of its replies names the commit its result is at (\`<changed_files head="…">\`). To read a teammate's work: \`git diff <the snapshot it started from> <its latest head>\` or \`git show <head>:<path>\`${one ? '' : ', in that repository'}.
 ${access}
 - Your changes are committed to your branch${one ? '' : 'es'} automatically after each turn; the user reviews the diffs and decides whose result to apply. Do not commit, merge, rebase or switch branches yourself.`;
 }
@@ -686,13 +686,15 @@ ${workspaceRules(conv, ws, agent.provider)}${handoffSection()}${toolSections(too
 
 /**
  * The files a message's turn changed, as a block for teammates (empty when none): one for each
- * repository, which names it (`repository`) when the turn changed more than one.
+ * repository, which names it (`repository`) when the turn changed more than one. A result in a worktree
+ * names its commit (`head`), which every worktree of the repository can read: a teammate's branch is in
+ * no worktree but its own.
  */
 function changeLog(m: ChatMessage): string {
   const sets = (m.changes ?? []).filter((c) => c.files.length);
   return sets
     .map((c) => {
-      const attrs = `${c.branch ? ` branch="${c.branch}"` : ''}${sets.length > 1 ? ` repository="${c.root}"` : ''}`;
+      const attrs = `${c.branch ? ` branch="${c.branch}"` : ''}${c.isolated ? ` head="${c.head}"` : ''}${sets.length > 1 ? ` repository="${c.root}"` : ''}`;
       return `\n\n<changed_files${attrs}>\n${c.files
         .slice(0, 30)
         .map((f) => `${f.status} ${f.path}${f.added !== null ? ` (+${f.added} -${f.deleted})` : ''}`)

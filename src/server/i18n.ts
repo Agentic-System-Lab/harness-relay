@@ -1510,15 +1510,12 @@ const zhTW = {
   gitFailed: (cmd: string, out: string) => `git ${cmd} 失敗：${out}`,
   changesNotRecorded: (root: string, why: string) => `Harness Relay 無法記錄這一輪在 ${root} 改了什麼，所以不會顯示它的變更：${why}`,
   gitGuard: {
-    link: (path: string) => `${path} 是 repository 的 git 資料夾裡的連結，Harness Relay 的 git 會透過它寫到別處`,
-    noFolders: (cwd: string, why: string) => `git 說不出 ${cwd} 的 git 資料夾在哪裡（${why}），Harness Relay 不會在那裡寫入`,
-    notOwnWorktree: (path: string, root: string) => `${path} 不是 ${root} 的 worktree：它的 .git 指向另一個 git 資料夾`,
-    foreignSubmodule: (sub: string, folder: string) => `${sub} 的 repository 的 git 資料夾在這個 repository 外面（${folder}）`,
-    tooManyEntries: (path: string, max: number) => `${path} 有超過 ${max} 個項目，多到 Harness Relay 無法逐一檢查有沒有連結`,
-    unreadable: (path: string, why: string) => `無法讀取 ${path}：${why}`,
+    link: (path: string) => `${path} 是連結，Harness Relay 的 git 會透過它寫到別處`,
     notRepository: (path: string) =>
       `${path} 在，但 git 不把它當成 Harness Relay 能用的 repository（不是 repository，或不屬於你），所以保持原樣`,
+    noWorktreeBranch: (branch: string) => `找不到 worktree 的分支 ${branch}`,
   },
+
   noAutoRepo: (dir: string) => `不會在 ${dir} 自動建立 git repository，請改選一個專案資料夾作為工作目錄。`,
   repoTooBroad: (root: string) =>
     `工作目錄位在 ${root} 這個 git repository 裡，範圍太大（每一輪都要記錄整個資料夾的狀態）。請改選一個專案資料夾，或在專案資料夾裡執行 git init。`,
@@ -3040,15 +3037,12 @@ const en: ServerMessages = {
   changesNotRecorded: (root, why) =>
     `Harness Relay could not record what this turn changed in ${root}, so its changes are not shown: ${why}`,
   gitGuard: {
-    link: (path) => `${path} is a link in the repository's git folder, which Harness Relay's git would write through`,
-    noFolders: (cwd, why) => `git cannot say where the git folder of ${cwd} is (${why}): Harness Relay writes nothing there`,
-    notOwnWorktree: (path, root) => `${path} is not one of ${root}'s worktrees: its .git names another git folder`,
-    foreignSubmodule: (sub, folder) => `the repository at ${sub} has its git folder outside this repository (${folder})`,
-    tooManyEntries: (path, max) => `${path} has more than ${max} entries for Harness Relay to check for links`,
-    unreadable: (path, why) => `${path} cannot be read: ${why}`,
+    link: (path) => `${path} is a link, which Harness Relay's git would write through`,
     notRepository: (path) =>
       `${path} is there, but git does not take it as a repository Harness Relay can use (not one, or not yours): Harness Relay leaves it as it is`,
+    noWorktreeBranch: (branch) => `The worktree's branch ${branch} is not there`,
   },
+
   noAutoRepo: (dir) => `Will not create a git repository in ${dir}; pick a project folder as the working directory.`,
   repoTooBroad: (root) =>
     `The working directory is inside the git repository at ${root}, which is too broad (every turn records the state of the whole folder). Pick a project folder, or run git init in the project folder.`,

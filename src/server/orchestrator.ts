@@ -4456,7 +4456,7 @@ export class Orchestrator {
     for (const w of conv.worktrees[TEAM_WORKTREE] ?? []) {
       if (w.needsReset || !roots.includes(w.root) || !existsSync(w.path)) continue;
       try {
-        if (await worktreeChanged(w.path, w.base)) return true;
+        if (await worktreeChanged(w.root, w.path, w.branch, w.base)) return true;
       } catch (err) {
         console.warn(`[orchestrator] could not read the team's worktree ${w.path}:`, (err as Error).message);
         return true;
@@ -4514,7 +4514,7 @@ export class Orchestrator {
         const span = new Map<string, { base: string; head: string; files: Set<string> }>();
         const heads: string[] = [];
         for (const wt of wts) {
-          const head = await worktreeHead(wt.path);
+          const head = await worktreeHead(wt.root, wt.branch);
           heads.push(head);
           const patch = await checkPatch(wt.root, wt.base, head);
           if (!patch) continue;
@@ -4770,7 +4770,9 @@ export class Orchestrator {
     const conv = this.store.get(convId);
     const wts = conv ? await this.currentWorktrees(conv, agentId) : [];
     if (!wts.length) throw new HttpError(404, agentId === TEAM_WORKTREE ? t().noTeamWorktree : t().noWorktree);
-    return this.diffs(await Promise.all(wts.map(async (w) => ({ root: w.root, base: w.base, head: await worktreeHead(w.path) }))));
+    return this.diffs(
+      await Promise.all(wts.map(async (w) => ({ root: w.root, base: w.base, head: await worktreeHead(w.root, w.branch) }))),
+    );
   }
 
   private activity(convId: string, msg: ChatMessage, e: AgentEvent): void {
@@ -5233,7 +5235,7 @@ export class Orchestrator {
       const by = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
       for (const wt of await this.currentWorktrees(conv, agentId)) {
         if (wt.needsReset) continue;
-        const files = await diffFiles(wt.root, wt.base, await worktreeHead(wt.path));
+        const files = await diffFiles(wt.root, wt.base, await worktreeHead(wt.root, wt.branch));
         for (const folder of folders.filter((f) => f.root === wt.root)) {
           for (const f of files) {
             const rel = relative(folder.cwd, join(wt.root, f.path));
@@ -6793,7 +6795,7 @@ export class Orchestrator {
     try {
       if (run.ws.isolated && !setupError) {
         before = new Map();
-        for (const wt of wts) before.set(wt.root, { commit: await worktreeHead(wt.path) });
+        for (const wt of wts) before.set(wt.root, { commit: await worktreeHead(wt.root, wt.branch) });
       } else if (!run.ws.isolated && roots.length) {
         before = new Map();
         // Each repository on its own: one that cannot be snapshotted keeps the others' changes recorded.
@@ -7509,7 +7511,8 @@ export class Orchestrator {
   ): Promise<MessageChanges | undefined> {
     if (wt) {
       // An agent that committed by itself leaves nothing staged: its commits are the turn's result.
-      const head = (await commitWorktree(wt.root, wt.path, `@${agent.name} (Harness Relay)`)) ?? (await worktreeHead(wt.path));
+      const head =
+        (await commitWorktree(wt.root, wt.path, wt.branch, `@${agent.name} (Harness Relay)`)) ?? (await worktreeHead(wt.root, wt.branch));
       if (head === before.commit) return undefined;
       const files = await diffFiles(wt.root, before.commit, head);
       // The branch moves on a reset; keep this turn's commits so its diff stays viewable.

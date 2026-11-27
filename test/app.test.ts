@@ -1406,7 +1406,7 @@ describe('settings', () => {
     const process = await import('../src/server/process');
     const capture = process.capture;
     const spy = vi.spyOn(process, 'capture').mockImplementation(async (bin, args, env, opts) => {
-      if (args.includes('--show-scope')) throw new process.CommandNotFoundError(bin);
+      if (args.includes('--show-toplevel')) throw new process.CommandNotFoundError(bin);
       return capture(bin, args, env, opts);
     });
     const post = (permission: string) =>

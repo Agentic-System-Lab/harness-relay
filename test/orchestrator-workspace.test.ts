@@ -5,7 +5,7 @@
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { fileRoots } from '../src/server/files';
@@ -29,6 +29,7 @@ import {
   textOf,
   withLang,
 } from './orchestrator-harness';
+import { repoStore } from '../src/server/workspace';
 
 describe("Harness Relay's own folder", () => {
   it('refuses an edit-mode turn there, also for a conversation saved before the check', async () => {
@@ -108,26 +109,46 @@ describe('roundtable mode with edit permission', () => {
     expect(conv.worktrees).toEqual({});
   });
 
-  it("says in the reply when it cannot record a turn's changes (a link in the repository's git folder), and writes nothing through it", async () => {
+  it("writes nothing through a link in the repository's .git, and records the turn's changes in its own repository", async () => {
     execFileSync('git', ['init', '-q'], { cwd: project });
     const outside = join(dirname(project), 'outside-refs');
     mkdirSync(outside, { recursive: true });
     symlinkSync(outside, join(project, '.git', 'refs', 'harness-relay'), process.platform === 'win32' ? 'junction' : 'dir');
     const conv = conversation({ mode: 'roundtable' });
-    await withLang('en', () => orchestrator.send(conv.id, 'go'));
+    await orchestrator.send(conv.id, 'go');
     await finish(conv.id);
 
     const [alice] = agentMessages(conv);
-    expect(alice!.status).toBe('done');
-    expect(alice!.changes).toBeUndefined();
-    expect(alice!.parts).toContainEqual({
-      type: 'notice',
-      text: expect.stringMatching(
-        /^Harness Relay could not record what this turn changed in .*, so its changes are not shown: git .* is a link in the repository's git folder/,
-      ),
-    });
+    expect(alice!.changes![0]!.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'shared.txt']);
     expect(readdirSync(outside)).toEqual([]);
   });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    "says in the reply when it cannot record a turn's changes, with git's reason",
+    async () => {
+      execFileSync('git', ['init', '-q'], { cwd: project });
+      // A file git cannot read: the snapshot before the turn fails.
+      const locked = join(project, 'locked.txt');
+      writeFileSync(locked, 'x\n');
+      chmodSync(locked, 0o000);
+      try {
+        const conv = conversation({ mode: 'roundtable' });
+        await withLang('en', () => orchestrator.send(conv.id, 'go'));
+        await finish(conv.id);
+        const [alice] = agentMessages(conv);
+        expect(alice!.status).toBe('done');
+        expect(alice!.changes).toBeUndefined();
+        expect(alice!.parts).toContainEqual({
+          type: 'notice',
+          text: expect.stringMatching(
+            /^Harness Relay could not record what this turn changed in .*, so its changes are not shown: git add failed: /,
+          ),
+        });
+      } finally {
+        chmodSync(locked, 0o644);
+      }
+    },
+  );
 
   it('lets read-only conversations read while it writes', async () => {
     let release!: () => void;
@@ -342,7 +363,9 @@ describe('two conversations writing in the same folder', () => {
 
 describe('kept snapshot refs', () => {
   const refs = () =>
-    execFileSync('git', ['for-each-ref', '--format=%(refname)', 'refs/harness-relay/'], { cwd: project, encoding: 'utf8' })
+    execFileSync('git', ['--git-dir', repoStore(project), 'for-each-ref', '--format=%(refname)', 'refs/harness-relay/'], {
+      encoding: 'utf8',
+    })
       .split('\n')
       .filter(Boolean);
 

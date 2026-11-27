@@ -1,48 +1,58 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   appendFileSync,
-  chmodSync,
   closeSync,
   constants,
-  openSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
-  renameSync,
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  addCheckTree,
   applyPatch,
+  applyPatchIn,
   applyToWorkingTree,
+  changedPaths,
   checkPatch,
   commitWorktree,
+  committedBase,
   createWorktree,
   diffFiles,
   diffText,
   dropKeptCommits,
-  forgetCommits,
   ensureRepo,
   excludePathspecs,
-  gitDirLink,
+  fileAt,
+  forgetCommits,
   keepCommits,
-  needsDriverGuards,
   parseDiffFiles,
   removeWorktree,
   repoDriverGuards,
   repoGitState,
-  setGitDirEntriesMax,
+  repoRoot,
+  repoStore,
+  setRepoStore,
   snapshot,
+  treePaths,
   unignoredFiles,
+  worktreeChanged,
   worktreeCwd,
+  worktreeHead,
 } from '../src/server/workspace';
 import { withLang } from '../src/server/i18n';
 import { recordSpawns } from '../src/server/process';
@@ -63,9 +73,25 @@ beforeEach(() => {
   mkdirSync(join(repo, 'src'), { recursive: true });
   writeFileSync(join(repo, 'README.md'), 'hello\n');
   writeFileSync(join(repo, 'src', 'app.ts'), 'export const x = 1;\n');
+  // Harness Relay's own repositories, as its data folder's `repos` would hold them: the test's own.
+  setRepoStore(join(dir, 'repos'));
 });
 
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  setRepoStore();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+/** A commit's parents in Harness Relay's own repository for `root`, read from the commit itself (a snapshot's is the working repository's HEAD, which that repository does not hold). */
+const parentsOf = (root: string, commit: string) =>
+  inStore(root, 'cat-file', '-p', commit)
+    .split('\n')
+    .filter((l) => l.startsWith('parent '))
+    .map((l) => l.slice(7));
+
+/** Git on Harness Relay's own repository for `root` (its snapshots, refs and worktrees). */
+const inStore = (root: string, ...args: string[]) =>
+  execFileSync('git', ['--git-dir', repoStore(root), ...args], { encoding: 'utf8' }).trim();
 
 describe('ensureRepo', () => {
   it('runs git init in a plain directory, once', async () => {
@@ -101,12 +127,12 @@ describe('snapshot', () => {
   it("takes HEAD's commit as its parent, and none in a repository without a commit", async () => {
     await ensureRepo(repo);
     const first = await snapshot(repo);
-    expect(git(repo, 'rev-list', '--parents', '-n', '1', first.commit)).toBe(first.commit);
+    expect(parentsOf(repo, first.commit)).toEqual([]);
     git(repo, 'add', '-A');
     git(repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'first');
     const head = git(repo, 'rev-parse', 'HEAD');
     const second = await snapshot(repo);
-    expect(git(repo, 'rev-list', '--parents', '-n', '1', second.commit)).toBe(`${second.commit} ${head}`);
+    expect(parentsOf(repo, second.commit)).toEqual([head]);
   });
 
   it('captures tracked and untracked files without touching HEAD, index or files', async () => {
@@ -116,7 +142,7 @@ describe('snapshot', () => {
     const statusBefore = git(repo, 'status', '--porcelain');
 
     const snap = await snapshot(repo);
-    const files = git(repo, 'ls-tree', '-r', '--name-only', snap.commit).split('\n');
+    const files = inStore(repo, 'ls-tree', '-r', '--name-only', snap.commit).split('\n');
     expect(files.sort()).toEqual(['README.md', 'src/app.ts']);
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore);
     expect(() => git(repo, 'rev-parse', '--verify', '-q', 'HEAD')).toThrow(); // still no commits
@@ -135,7 +161,7 @@ describe('snapshot', () => {
     mkdirSync(join(repo, 'agents-notes'));
     writeFileSync(join(repo, 'agents-notes', 'keep.md'), 'not the folder\n');
     const files = async (exclude: string[]) =>
-      git(repo, 'ls-tree', '-r', '--name-only', (await snapshot(repo, exclude)).commit)
+      inStore(repo, 'ls-tree', '-r', '--name-only', (await snapshot(repo, exclude)).commit)
         .split('\n')
         .sort();
 
@@ -160,9 +186,9 @@ describe('worktrees', () => {
 
     writeFileSync(join(wt, 'src', 'app.ts'), 'export const x = 2;\n');
     writeFileSync(join(wt, 'NEW.md'), 'new\n');
-    const head = await commitWorktree(repo, wt, 'turn');
+    const head = await commitWorktree(repo, wt, 'relay/test/Builder', 'turn');
     expect(head).toBeTruthy();
-    expect(await commitWorktree(repo, wt, 'nothing')).toBeNull();
+    expect(await commitWorktree(repo, wt, 'relay/test/Builder', 'nothing')).toBeNull();
 
     expect(await diffFiles(repo, base, head!)).toEqual([
       { path: 'NEW.md', status: 'A', added: 1, deleted: 0 },
@@ -177,7 +203,7 @@ describe('worktrees', () => {
 
     await removeWorktree(repo, wt, 'relay/test/Builder');
     expect(existsSync(wt)).toBe(false);
-    expect(git(repo, 'branch', '--list', 'relay/*')).toBe('');
+    expect(inStore(repo, 'branch', '--list', 'relay/*')).toBe('');
   });
 
   it("checks a patch without changing anything, then applies it; and names a diff's paths after a folder", async () => {
@@ -186,7 +212,7 @@ describe('worktrees', () => {
     const wt = join(dir, 'wt', 'c');
     await createWorktree(repo, wt, 'relay/test/C', base);
     writeFileSync(join(wt, 'NEW.md'), 'new\n');
-    const head = (await commitWorktree(repo, wt, 'turn'))!;
+    const head = (await commitWorktree(repo, wt, 'relay/test/C', 'turn'))!;
     const checked = (await checkPatch(repo, base, head))!;
     expect(checked.files.map((f) => f.path)).toEqual(['NEW.md']);
     expect(existsSync(join(repo, 'NEW.md'))).toBe(false);
@@ -207,7 +233,7 @@ describe('worktrees', () => {
     await createWorktree(repo, wt, 'relay/test/A', base);
     writeFileSync(join(wt, 'README.md'), 'from agent\n');
     writeFileSync(join(wt, 'OTHER.md'), 'other\n');
-    const head = (await commitWorktree(repo, wt, 'turn'))!;
+    const head = (await commitWorktree(repo, wt, 'relay/test/A', 'turn'))!;
 
     writeFileSync(join(repo, 'README.md'), 'edited by the user\n');
     await expect(applyToWorkingTree(repo, base, head)).rejects.toThrow(/衝突/);
@@ -223,7 +249,7 @@ describe('changes that are not plain UTF-8 text with LF line endings', () => {
     const wt = join(dir, 'wt', 'agent');
     await createWorktree(repo, wt, 'relay/test/agent', base);
     for (const [name, bytes] of Object.entries(files)) writeFileSync(join(wt, name), bytes);
-    const head = (await commitWorktree(repo, wt, 'turn'))!;
+    const head = (await commitWorktree(repo, wt, 'relay/test/agent', 'turn'))!;
     await applyToWorkingTree(repo, base, head);
     return { base, head };
   }
@@ -351,542 +377,380 @@ describe('diffFiles', () => {
   });
 });
 
-describe('the git processes a turn costs', () => {
-  /**
-   * The git processes `run` starts, by their command: the first argument that is not a `-c` setting.
-   * (On a Mac whose git is Apple's, each git command also asks `xcode-select` first: not counted.)
-   */
-  async function gitCommands(run: () => Promise<unknown>): Promise<string[]> {
-    const started: string[] = [];
-    recordSpawns({
-      start: ({ bin, args }) => {
-        if (!/^git(\.exe)?$/i.test(basename(bin))) return undefined;
-        const i = args.findIndex((a, n) => a !== '-c' && args[n - 1] !== '-c');
-        started.push(args[i] ?? '');
-        return undefined;
-      },
-    });
-    try {
-      await run();
-    } finally {
-      recordSpawns(undefined);
-    }
-    return started;
-  }
-
-  // A turn takes a snapshot before and after it and keeps both commits (the orchestrator's
-  // `changesIn`): on Windows each git process costs about half a second, seconds on a busy computer,
-  // so a command more here makes every turn slower. Raise these only for a reason worth it.
-  it('takes a snapshot in seven git processes, the guards read for `git add` and `git write-tree` alone, and keeps its commits in two', async () => {
-    await ensureRepo(repo);
-    expect(await gitCommands(() => snapshot(repo))).toEqual([
-      'rev-parse',
-      'config',
-      'ls-files',
-      'add',
-      'config',
-      'write-tree',
-      'commit-tree',
-    ]);
-    const snap = (await snapshot(repo)).commit;
-    // The git folders asked of git first, for the link check (`askFolders`).
-    expect(await gitCommands(() => keepCommits(repo, 'conv-1', [snap]))).toEqual(['rev-parse', 'update-ref']);
-  });
-
-  it('reads the guards for every command but plumbing over objects and refs', () => {
-    for (const args of [
-      ['commit-tree', 'abc', '-p', 'def', '-m', 'x'],
-      ['mktree'],
-      ['update-ref', '--stdin'],
-      ['for-each-ref', '--format=delete %(refname)', 'refs/harness-relay/c/'],
-      ['show-ref', '--head', '--heads'],
-      ['ls-tree', '-r', '-z', '--name-only', '--full-tree', 'abc'],
-      ['rev-parse', '--git-path', 'index', '--verify', '-q', 'HEAD'],
-      ['rev-parse', 'abc^{tree}'],
-      ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'],
-      ['rev-parse', '--git-common-dir'],
-    ])
-      expect(needsDriverGuards(args), args.join(' ')).toBe(false);
-    for (const args of [
-      [],
-      ['add', '-A'],
-      ['diff', 'a', 'b'],
-      ['show', 'abc:README.md'],
-      ['hash-object', '-w', 'README.md'],
-      ['ls-files', '-z'],
-      ['status', '--porcelain'],
-      ['apply', '-'],
-      ['worktree', 'add', 'x'],
-      ['commit', '-m', 'x'],
-      ['init', '-q'],
-      ['config', '--list'],
-      // It hashes a racily clean index entry again, through its path's clean filter.
-      ['write-tree'],
-      // `:<path>` reads the index, `<rev>:<path>` a tree's file.
-      ['rev-parse', ':README.md'],
-      ['rev-parse', '--verify', 'HEAD:README.md'],
-      // `core.worktree` names it: what the guards check is the repository's own folder.
-      ['rev-parse', '--show-toplevel'],
-      ['rev-parse', '--git-path', 'index', '--show-toplevel'],
-      ['rev-parse', '--absolute-git-dir', '--show-toplevel'],
-    ])
-      expect(needsDriverGuards(args), args.join(' ')).toBe(true);
-  });
-
-  it('still refuses a core.worktree elsewhere before git add, and runs no driver in the plumbing that skips the guards', async () => {
-    await ensureRepo(repo);
-    const first = await snapshot(repo);
-    const ran = join(dir, 'ran.txt').replaceAll('\\', '/');
-    const sh = (what: string) => `sh -c 'echo ${what} >> "${ran}"; cat'`;
-    git(repo, 'config', 'filter.evil.clean', sh('clean'));
-    git(repo, 'config', 'filter.evil.smudge', sh('smudge'));
-    git(repo, 'config', 'merge.evil.driver', sh('merge'));
-    writeFileSync(join(repo, '.gitattributes'), '* filter=evil merge=evil\n');
-    writeFileSync(join(repo, 'README.md'), 'changed\n');
-    const second = await snapshot(repo);
-    await keepCommits(repo, 'conv-1', [first.commit, second.commit]);
-    await dropKeptCommits(repo, 'conv-1');
-    expect(existsSync(join(dir, 'ran.txt'))).toBe(false);
-    const outside = join(dir, 'outside');
-    mkdirSync(outside);
-    git(repo, 'config', 'core.worktree', outside);
-    await expect(snapshot(repo)).rejects.toThrow(/core\.worktree/);
-  });
-});
-
-describe("a link in the repository's git folder, which Harness Relay's git would write through", () => {
+describe("Harness Relay's own repository, and the working repository's .git it never writes", () => {
+  /** Git on Harness Relay's own repository for `repo`. */
+  const store = (...args: string[]) => git(dir, '--git-dir', repoStore(repo), ...args);
   /** A link to a folder (a junction on Windows, which needs no rights there). */
   const dirLink = (target: string, path: string) => symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir');
-  const gitDir = () => join(repo, '.git');
-  const refused = /is a link(?: in the repository's git folder)?, which Harness Relay's git would write through/;
-  const listed = (folder: string) => (existsSync(folder) ? readdirSync(folder, { recursive: true }) : []);
-  /** In English, as the messages these tests match are (the server's language is zh-TW by default). */
-  const en = <T>(fn: () => Promise<T>) => withLang('en', fn);
   /** A file git made (Git for Windows hides a worktree's `.git` file, which cannot be opened to be overwritten). */
   const rewrite = (path: string, text: string) => {
     rmSync(path, { force: true });
     writeFileSync(path, text);
   };
-
-  it("refuses to keep a commit's ref, or let one go, through a linked folder of refs or logs, or a linked log, and writes nothing there", async () => {
+  /** Every entry under `folder` as it is (a file's bytes and mode, a link's target), no link followed. */
+  const state = (folder: string): string[] => {
+    const out: string[] = [];
+    const walk = (path: string, rel: string) => {
+      const st = lstatSync(path);
+      if (st.isSymbolicLink()) out.push(`${rel} -> ${readlinkSync(path)}`);
+      else if (st.isDirectory()) for (const name of readdirSync(path).sort()) walk(join(path, name), `${rel}/${name}`);
+      else out.push(`${rel} ${st.mode} ${createHash('sha1').update(readFileSync(path)).digest('hex')}`);
+    };
+    walk(folder, '.');
+    return out;
+  };
+  /** The working repository with a commit (its files' objects in its own .git). */
+  const committed = async () => {
     await ensureRepo(repo);
-    const snap = (await snapshot(repo)).commit;
-    const outside = join(dir, 'outside');
-    mkdirSync(outside);
-    dirLink(outside, join(gitDir(), 'refs', 'harness-relay'));
-    await expect(en(() => keepCommits(repo, 'conv-1', [snap]))).rejects.toThrow(refused);
-    expect(listed(outside)).toEqual([]);
-    // A file there that reads as a kept ref is not deleted through it either.
-    mkdirSync(join(outside, 'conv-1'));
-    writeFileSync(join(outside, 'conv-1', snap), `${snap}\n`);
-    await expect(en(() => dropKeptCommits(repo, 'conv-1'))).rejects.toThrow(refused);
-    await expect(en(() => forgetCommits(repo, 'conv-1', [snap]))).rejects.toThrow(refused);
-    expect(readFileSync(join(outside, 'conv-1', snap), 'utf8')).toBe(`${snap}\n`);
-    rmSync(join(gitDir(), 'refs', 'harness-relay'), { recursive: false, force: true });
-
-    // Its logs' folder linked: a log would be written there.
-    const logs = join(dir, 'logs-outside');
-    mkdirSync(logs);
-    mkdirSync(join(gitDir(), 'logs', 'refs'), { recursive: true });
-    dirLink(logs, join(gitDir(), 'logs', 'refs', 'harness-relay'));
-    await expect(en(() => keepCommits(repo, 'conv-1', [snap]))).rejects.toThrow(refused);
-    expect(listed(logs)).toEqual([]);
-    rmSync(join(gitDir(), 'logs', 'refs', 'harness-relay'), { force: true });
-
-    // A log itself linked: git appends to a log there is, whatever core.logAllRefUpdates says.
-    const victim = join(dir, 'victim.txt');
-    writeFileSync(victim, 'keep\n');
-    mkdirSync(join(gitDir(), 'logs', 'refs', 'harness-relay', 'conv-1'), { recursive: true });
-    symlinkSync(victim, join(gitDir(), 'logs', 'refs', 'harness-relay', 'conv-1', snap));
-    await expect(en(() => keepCommits(repo, 'conv-1', [snap]))).rejects.toThrow(refused);
-    expect(readFileSync(victim, 'utf8')).toBe('keep\n');
-    rmSync(join(gitDir(), 'logs', 'refs', 'harness-relay', 'conv-1', snap), { force: true });
-
-    // Without a link, kept as before.
-    await keepCommits(repo, 'conv-1', [snap]);
-    expect(git(repo, 'for-each-ref', '--format=%(refname)', 'refs/harness-relay/')).toBe(`refs/harness-relay/conv-1/${snap}`);
-  });
-
-  it("refuses a snapshot through a linked folder of objects, and a worktree's commit that would overwrite a linked COMMIT_EDITMSG", async () => {
-    await ensureRepo(repo);
-    const snap = (await snapshot(repo)).commit;
-    const wt = join(dir, 'wt');
-    await createWorktree(repo, wt, 'relay/test', snap);
-    const outside = join(dir, 'outside');
-    mkdirSync(outside);
-    const objects = join(gitDir(), 'objects');
-    const free = ['ff', 'fe', 'fd', 'fc'].find((n) => !existsSync(join(objects, n)))!;
-    dirLink(outside, join(objects, free));
+    git(repo, 'add', '-A');
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'first');
+    return git(repo, 'rev-parse', 'HEAD');
+  };
+  /** Each of Harness Relay's git operations on `repo` once, as a run of parallel mode, a team check and an apply use them. */
+  const everything = async () => {
+    const first = await snapshot(repo);
     writeFileSync(join(repo, 'README.md'), 'changed\n');
-    await expect(en(() => snapshot(repo))).rejects.toThrow(refused);
-    expect(listed(outside)).toEqual([]);
-    rmSync(join(objects, free), { force: true });
-
-    // A worktree's own git folder: git commit writes the message to its COMMIT_EDITMSG.
-    const victim = join(dir, 'victim.txt');
-    writeFileSync(victim, 'keep\n');
-    const admin = readdirSync(join(gitDir(), 'worktrees')).map((n) => join(gitDir(), 'worktrees', n))[0]!;
-    symlinkSync(victim, join(admin, 'COMMIT_EDITMSG'));
-    writeFileSync(join(wt, 'README.md'), 'in the worktree\n');
-    await expect(en(() => commitWorktree(repo, wt, 'Harness Relay'))).rejects.toThrow(refused);
-    expect(readFileSync(victim, 'utf8')).toBe('keep\n');
-    rmSync(join(admin, 'COMMIT_EDITMSG'), { force: true });
-    expect(await commitWorktree(repo, wt, 'Harness Relay')).toMatch(/^[0-9a-f]{40}$/);
-  });
-
-  it('refuses a .git that is itself a link, and leaves alone what git only reads or replaces: hooks, a linked ref', async () => {
-    await ensureRepo(repo);
-    const snap = (await snapshot(repo)).commit;
-    // What git only reads (hooks, which Harness Relay turns off) and a ref git replaces by a rename.
-    const hooks = join(dir, 'hooks');
-    mkdirSync(hooks);
-    rmSync(join(gitDir(), 'hooks'), { recursive: true, force: true });
-    dirLink(hooks, join(gitDir(), 'hooks'));
-    const ref = join(dir, 'ref.txt');
-    writeFileSync(ref, `${snap}\n`);
-    symlinkSync(ref, join(gitDir(), 'refs', 'heads', 'linked'));
-    expect(gitDirLink(gitDir())).toBeUndefined();
-    await snapshot(repo);
-    // A ref's link to nothing, or to a folder, is refused.
-    rmSync(join(gitDir(), 'refs', 'heads', 'linked'), { force: true });
-    symlinkSync(join(dir, 'nothing'), join(gitDir(), 'refs', 'heads', 'linked'));
-    expect(gitDirLink(gitDir())).toBe('refs/heads/linked');
-    rmSync(join(gitDir(), 'refs', 'heads', 'linked'), { force: true });
-    expect(gitDirLink(gitDir())).toBeUndefined();
-
-    // The whole .git a link: everything would be written where it points.
-    const moved = join(dir, 'moved.git');
-    renameSync(gitDir(), moved);
-    dirLink(moved, gitDir());
-    await expect(en(() => snapshot(repo))).rejects.toThrow(refused);
-    expect(gitDirLink(gitDir())).toBe('.');
-  });
-
-  it("commits a worktree's work with plumbing, so a cherry-pick's sequencer folder or rerere there is never touched", async () => {
-    await ensureRepo(repo);
-    const snap = (await snapshot(repo)).commit;
+    const second = await snapshot(repo);
+    await keepCommits(repo, 'conv-1', [first.commit, second.commit]);
+    await forgetCommits(repo, 'conv-1', [first.commit]);
+    await diffFiles(repo, first.commit, second.commit);
+    await diffText(repo, first.commit, second.commit);
+    await fileAt(repo, second.commit, 'README.md');
+    await treePaths(repo, second.commit);
+    await changedPaths(repo, first.commit, second.commit, ['README.md']);
+    await committedBase(repo);
     const wt = join(dir, 'wt');
-    await createWorktree(repo, wt, 'relay/test', snap);
-    const admin = readdirSync(join(gitDir(), 'worktrees')).map((n) => join(gitDir(), 'worktrees', n))[0]!;
-    // What `git commit` cleans up after a cherry-pick (its sequencer folder, recursively), and rerere's records.
-    writeFileSync(join(admin, 'CHERRY_PICK_HEAD'), `${snap}\n`);
-    mkdirSync(join(admin, 'sequencer'));
-    writeFileSync(join(admin, 'sequencer', 'todo'), 'pick x\n');
-    writeFileSync(join(wt, 'README.md'), 'in the worktree\n');
-    git(repo, 'config', 'rerere.enabled', 'true');
-    const head = (await commitWorktree(repo, wt, '@Bob (Harness Relay)'))!;
-    expect(existsSync(join(admin, 'sequencer', 'todo'))).toBe(true);
-    expect(existsSync(join(gitDir(), 'rr-cache'))).toBe(false);
-    expect(existsSync(join(admin, 'COMMIT_EDITMSG'))).toBe(false);
-    // The branch moved to it from the commit it was on, with its message, author and tree.
-    expect(git(wt, 'rev-parse', 'relay/test')).toBe(head);
-    expect(git(wt, 'rev-list', '--parents', '-n', '1', head)).toBe(`${head} ${snap}`);
-    expect(git(wt, 'log', '-1', '--format=%s|%an', head)).toBe('@Bob (Harness Relay)|Harness Relay');
-    expect(git(wt, 'show', `${head}:README.md`)).toBe('in the worktree');
-    // The guards' settings for every command: rerere, gc and maintenance off besides hooks and fsmonitor.
-    const args: string[][] = [];
-    recordSpawns({ start: ({ args: a }) => (args.push([...a]), undefined) });
-    try {
-      await snapshot(repo);
-    } finally {
-      recordSpawns(undefined);
-    }
-    for (const a of args.filter((x) => x.includes('add')))
-      for (const setting of ['rerere.enabled=false', 'gc.auto=0', 'maintenance.auto=false', 'core.hooksPath=/dev/null'])
-        expect(a, setting).toContain(setting);
-  });
+    await createWorktree(repo, wt, 'relay/test', second.commit);
+    writeFileSync(join(wt, 'by-agent.md'), 'by the agent\n');
+    expect(await worktreeChanged(repo, wt, 'relay/test', second.commit)).toBe(true);
+    const head = (await commitWorktree(repo, wt, 'relay/test', 'Harness Relay'))!;
+    expect(await worktreeHead(repo, 'relay/test')).toBe(head);
+    expect(await worktreeChanged(repo, wt, 'relay/test', second.commit)).toBe(true);
+    const checkTree = join(dir, 'check');
+    await addCheckTree(repo, checkTree, second.commit);
+    const patch = (await checkPatch(repo, second.commit, head))!;
+    await applyPatchIn(checkTree, patch);
+    await removeWorktree(repo, checkTree);
+    await applyPatch(patch);
+    expect(readFileSync(join(repo, 'by-agent.md'), 'utf8')).toBe('by the agent\n');
+    await removeWorktree(repo, wt, 'relay/test');
+    await dropKeptCommits(repo, 'conv-1');
+  };
 
-  it('refuses to commit in a worktree whose .git, or its commondir, an agent made name another git folder', async () => {
-    await ensureRepo(repo);
-    const snap = (await snapshot(repo)).commit;
+  it("keeps its snapshots, their objects, refs and worktrees' results in a repository of its own", async () => {
+    const userCommit = await committed();
+    const snap = await snapshot(repo);
+    expect(repoStore(repo).startsWith(join(dir, 'repos') + sep)).toBe(true);
+    // Every object of the snapshot is its own (no alternate: git looks at no object of the working repository's).
+    expect(existsSync(join(repoStore(repo), 'objects', 'info', 'alternates'))).toBe(false);
+    expect(store('cat-file', '-t', snap.commit)).toBe('commit');
+    expect(store('show', `${snap.commit}:README.md`)).toBe('hello');
+    expect(store('ls-tree', '-r', '--name-only', snap.commit).split('\n').sort()).toEqual(['README.md', 'src/app.ts']);
+    expect(() => git(repo, 'cat-file', '-t', snap.commit)).toThrow();
+    // Its parent is the working repository's HEAD.
+    expect(parentsOf(repo, snap.commit)).toEqual([userCommit]);
+    await keepCommits(repo, 'conv-1', [snap.commit]);
+    expect(store('for-each-ref', '--format=%(refname)', 'refs/harness-relay/')).toBe(`refs/harness-relay/conv-1/${snap.commit}`);
+    expect(git(repo, 'for-each-ref', 'refs/harness-relay/')).toBe('');
+    // A worktree is a repository of its own, reading the store's objects, clean at the snapshot; its
+    // branch, where its results go, is the store's.
     const wt = join(dir, 'wt');
-    await createWorktree(repo, wt, 'relay/test', snap);
-    const admin = readdirSync(join(gitDir(), 'worktrees')).map((n) => join(gitDir(), 'worktrees', n))[0]!;
-    // Another repository on the computer, whose checked-out branch git would move.
-    const other = join(dir, 'other');
-    mkdirSync(other);
-    git(other, 'init', '-q');
-    writeFileSync(join(other, 'kept.txt'), 'kept\n');
-    git(other, 'add', '-A');
-    git(other, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'kept');
-    const otherHead = git(other, 'rev-parse', 'HEAD');
-    writeFileSync(join(wt, 'README.md'), 'changed\n');
-    const gitFile = readFileSync(join(wt, '.git'), 'utf8');
-    rewrite(join(wt, '.git'), `gitdir: ${join(other, '.git')}\n`);
-    await expect(en(() => commitWorktree(repo, wt, 'Harness Relay'))).rejects.toThrow(
-      /is not one of .* worktrees: its \.git names another git folder/,
+    await createWorktree(repo, wt, 'relay/test', snap.commit);
+    expect(lstatSync(join(wt, '.git')).isDirectory()).toBe(true);
+    expect(readFileSync(join(wt, '.git', 'objects', 'info', 'alternates'), 'utf8')).toBe(
+      `${join(repoStore(repo), 'objects')}\n${realpathSync(join(repo, '.git', 'objects'))}\n`,
     );
-    // A git folder of the agent's own, inside the worktree.
-    git(wt, 'init', '-q', '--bare', '.fake');
-    rewrite(join(wt, '.git'), 'gitdir: .fake\n');
-    await expect(en(() => commitWorktree(repo, wt, 'Harness Relay'))).rejects.toThrow(/is not one of/);
-    // Its own .git again, but its commondir naming the other repository.
-    rewrite(join(wt, '.git'), gitFile);
-    const commondir = readFileSync(join(admin, 'commondir'), 'utf8');
-    rewrite(join(admin, 'commondir'), join(other, '.git'));
-    await expect(en(() => commitWorktree(repo, wt, 'Harness Relay'))).rejects.toThrow(/is not one of/);
-    expect(git(other, 'rev-parse', 'HEAD')).toBe(otherHead);
-    rewrite(join(admin, 'commondir'), commondir);
-    expect(await commitWorktree(repo, wt, 'Harness Relay')).toMatch(/^[0-9a-f]{40}$/);
+    expect(git(wt, 'rev-parse', 'HEAD')).toBe(snap.commit);
+    expect(git(wt, 'symbolic-ref', 'HEAD')).toBe('refs/heads/relay/test');
+    expect(git(wt, 'status', '--porcelain')).toBe('');
+    expect(git(wt, 'log', '--format=%H', '-n', '2')).toBe(`${snap.commit}\n${userCommit}`);
+    expect(store('rev-parse', 'relay/test')).toBe(snap.commit);
+    expect(git(repo, 'branch', '--list', 'relay/*')).toBe('');
+    // A check tree too, detached.
+    const check = join(dir, 'check');
+    await addCheckTree(repo, check, snap.commit);
+    expect(git(check, 'rev-parse', 'HEAD')).toBe(snap.commit);
+    expect(() => git(check, 'symbolic-ref', '-q', 'HEAD')).toThrow();
+    expect(git(check, 'status', '--porcelain')).toBe('');
+    // A commit of the working repository (an older Harness Relay kept its snapshots there) is read through it.
+    writeFileSync(join(repo, 'README.md'), 'second\n');
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'second');
+    expect((await diffFiles(repo, userCommit, git(repo, 'rev-parse', 'HEAD'))).map((f) => f.path)).toEqual(['README.md']);
   });
 
-  it('runs no git init where a .git is there but is no repository (a link to a folder elsewhere, an empty folder)', async () => {
-    const plain = join(dir, 'plain');
-    mkdirSync(plain);
-    const elsewhere = join(dir, 'elsewhere');
-    mkdirSync(elsewhere);
-    dirLink(elsewhere, join(plain, '.git'));
-    await expect(en(() => ensureRepo(plain))).rejects.toThrow(/\.git is there, but git does not take it as a repository/);
-    expect(readdirSync(elsewhere)).toEqual([]);
-    rmSync(join(plain, '.git'), { force: true });
-    mkdirSync(join(plain, '.git'));
-    await expect(en(() => ensureRepo(plain))).rejects.toThrow(/is there, but git does not take it as a repository/);
-    rmSync(join(plain, '.git'), { recursive: true, force: true });
-    expect(await ensureRepo(plain)).toMatchObject({ created: true });
-  });
-
-  it('finds the git folder git uses: past an empty .git, as git passes over it, and refuses a link in that one', async () => {
-    await ensureRepo(repo);
-    const snap = (await snapshot(repo)).commit;
-    const outside = join(dir, 'outside');
-    mkdirSync(outside);
-    dirLink(outside, join(gitDir(), 'refs', 'harness-relay'));
-    // A folder of the repository with an empty .git of its own: git takes the repository's around it.
-    const inner = join(repo, 'src');
-    mkdirSync(join(inner, '.git'));
-    await expect(en(() => keepCommits(inner, 'conv-1', [snap]))).rejects.toThrow(refused);
-    expect(listed(outside)).toEqual([]);
-  });
-
-  it('refuses a repository at a submodule whose git folder is outside the repository, and a linked reftable', async () => {
-    await ensureRepo(repo);
-    const quiet = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
-    const other = join(dir, 'other');
-    mkdirSync(other);
-    quiet(other, 'init', '-q');
-    writeFileSync(join(other, 'x.md'), 'x\n');
-    quiet(other, 'add', '-A');
-    quiet(other, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x');
-    // A gitlink at `sub`, whose .git an agent made name the other repository.
-    const sub = join(repo, 'sub');
-    mkdirSync(sub);
-    quiet(sub, 'init', '-q');
-    writeFileSync(join(sub, 'x.md'), 'x\n');
-    quiet(sub, 'add', '-A');
-    quiet(sub, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x');
-    quiet(repo, 'add', 'sub');
-    rmSync(join(sub, '.git'), { recursive: true, force: true });
-    writeFileSync(join(sub, '.git'), `gitdir: ${join(other, '.git')}\n`);
-    const index = statSync(join(other, '.git', 'index')).mtimeMs;
-    await expect(en(() => snapshot(repo))).rejects.toThrow(/has its git folder outside this repository/);
-    expect(statSync(join(other, '.git', 'index')).mtimeMs).toBe(index);
-
-    const tables = join(dir, 'tables');
-    mkdirSync(tables);
-    dirLink(tables, join(gitDir(), 'reftable'));
-    expect(gitDirLink(gitDir())).toBe('reftable');
-  });
-
-  it('refuses a git folder with more entries than it looks at, or one it cannot list, rather than leave it unchecked', async () => {
-    await ensureRepo(repo);
-    await snapshot(repo);
-    expect(() => withLang('en', () => gitDirLink(gitDir(), 5))).toThrow(/has more than 5 entries for Harness Relay to check for links/);
-    expect(gitDirLink(gitDir())).toBeUndefined();
-  });
-
-  it.skipIf(process.platform === 'win32')(
-    "never blocks the server on a named pipe an agent put in place of a file it reads: the index, a worktree's gitdir or MERGE_HEAD",
+  it(
+    "writes nothing in the working repository's .git: snapshots, kept refs, worktrees and their commits, checks and applying",
     async () => {
-      await ensureRepo(repo);
+      await committed();
+      const before = state(join(repo, '.git'));
+      await everything();
+      expect(state(join(repo, '.git'))).toEqual(before);
+    },
+    slow(30_000),
+  );
+
+  it(
+    'writes nothing through a link an agent put in the .git, wherever it points',
+    async () => {
+      await committed();
+      const gitDir = join(repo, '.git');
+      const outside = ['refs', 'logs', 'objects'].map((name) => {
+        const folder = join(dir, `outside-${name}`);
+        mkdirSync(folder);
+        return folder;
+      });
+      dirLink(outside[0]!, join(gitDir, 'refs', 'harness-relay'));
+      mkdirSync(join(gitDir, 'logs', 'refs'), { recursive: true });
+      dirLink(outside[1]!, join(gitDir, 'logs', 'refs', 'harness-relay'));
+      dirLink(
+        outside[2]!,
+        join(
+          gitDir,
+          'objects',
+          ['ff', 'fe', 'fd'].find((n) => !existsSync(join(gitDir, 'objects', n)))!,
+        ),
+      );
+      const victim = join(dir, 'victim.txt');
+      writeFileSync(victim, 'kept\n');
+      for (const file of ['packed-refs', 'COMMIT_EDITMSG', 'index']) {
+        rmSync(join(gitDir, file), { force: true });
+        symlinkSync(victim, join(gitDir, file));
+      }
+      await everything();
+      for (const folder of outside) expect(readdirSync(folder), folder).toEqual([]);
+      expect(readFileSync(victim, 'utf8')).toBe('kept\n');
+    },
+    slow(30_000),
+  );
+
+  it(
+    "records a worktree's files whatever an agent does in its own .git: links, its own commits, another repository named",
+    async () => {
+      const userCommit = await committed();
       const snap = (await snapshot(repo)).commit;
       const wt = join(dir, 'wt');
       await createWorktree(repo, wt, 'relay/test', snap);
-      const admin = readdirSync(join(gitDir(), 'worktrees')).map((n) => join(gitDir(), 'worktrees', n))[0]!;
-      writeFileSync(join(wt, 'README.md'), 'in the worktree\n');
-      // In a process of its own, whose timer must still fire: a read of a pipe there would block the
-      // server's every request. (A pipe git itself reads, as `commondir`, waits in git's own process.)
-      const run = (pipe: string, op: string) => {
+      // The agent commits there, starts a branch, and leaves its git folder full of links.
+      writeFileSync(join(wt, 'by-agent.md'), 'by the agent\n');
+      git(wt, 'add', '-A');
+      git(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', "the agent's own");
+      git(wt, 'checkout', '-q', '-b', 'elsewhere');
+      writeFileSync(join(wt, 'later.md'), 'later\n');
+      const own = join(wt, '.git');
+      const outside = join(dir, 'outside');
+      mkdirSync(outside);
+      const victim = join(dir, 'victim.txt');
+      writeFileSync(victim, 'kept\n');
+      for (const file of ['index', 'HEAD', 'packed-refs', 'COMMIT_EDITMSG']) {
+        rmSync(join(own, file), { force: true });
+        symlinkSync(victim, join(own, file));
+      }
+      rmSync(join(own, 'refs'), { recursive: true, force: true });
+      dirLink(outside, join(own, 'refs'));
+      const head = (await commitWorktree(repo, wt, 'relay/test', 'Harness Relay'))!;
+      expect(parentsOf(repo, head)).toEqual([snap]);
+      expect(store('ls-tree', '-r', '--name-only', head).split('\n').sort()).toEqual([
+        'README.md',
+        'by-agent.md',
+        'later.md',
+        'src/app.ts',
+      ]);
+      expect(await worktreeHead(repo, 'relay/test')).toBe(head);
+      expect(await commitWorktree(repo, wt, 'relay/test', 'Harness Relay')).toBeNull();
+      // Its .git replaced by a file naming another repository: nothing is written there either.
+      const other = join(dir, 'other');
+      mkdirSync(other);
+      git(other, 'init', '-q');
+      const otherBefore = state(join(other, '.git'));
+      rmSync(own, { recursive: true, force: true });
+      writeFileSync(own, `gitdir: ${join(other, '.git')}\n`);
+      writeFileSync(join(wt, 'third.md'), 'third\n');
+      const third = (await commitWorktree(repo, wt, 'relay/test', 'Harness Relay'))!;
+      expect(parentsOf(repo, third)).toEqual([head]);
+      await removeWorktree(repo, wt, 'relay/test');
+      expect(state(join(other, '.git'))).toEqual(otherBefore);
+      expect(readdirSync(outside)).toEqual([]);
+      expect(readFileSync(victim, 'utf8')).toBe('kept\n');
+      expect(existsSync(wt)).toBe(false);
+      expect(() => store('rev-parse', '--verify', '-q', 'refs/heads/relay/test')).toThrow();
+      expect(userCommit).toBe(git(repo, 'rev-parse', 'HEAD'));
+    },
+    slow(30_000),
+  );
+
+  it('records a worktree an older Harness Relay made (a git worktree of the working repository) on top of its branch there, writing nothing there', async () => {
+    await committed();
+    const legacy = join(dir, 'legacy');
+    git(repo, 'worktree', 'add', '-q', '-b', 'relay/old', legacy);
+    const old = git(repo, 'rev-parse', 'relay/old');
+    const before = state(join(repo, '.git'));
+    writeFileSync(join(legacy, 'by-agent.md'), 'x\n');
+    expect(await worktreeHead(repo, 'relay/old')).toBe(old);
+    expect(await worktreeChanged(repo, legacy, 'relay/old', old)).toBe(true);
+    const head = (await commitWorktree(repo, legacy, 'relay/old', 'Harness Relay'))!;
+    expect(parentsOf(repo, head)).toEqual([old]);
+    expect(await worktreeHead(repo, 'relay/old')).toBe(head);
+    expect(state(join(repo, '.git'))).toEqual(before);
+    await expect(withLang('en', () => worktreeHead(repo, 'relay/none'))).rejects.toThrow(/The worktree's branch relay\/none is not there/);
+  });
+
+  it("lets an agent read a teammate's result by its commit, from its own worktree", async () => {
+    await committed();
+    const snap = (await snapshot(repo)).commit;
+    const alice = join(dir, 'alice');
+    const bob = join(dir, 'bob');
+    await createWorktree(repo, alice, 'relay/c/Alice', snap);
+    await createWorktree(repo, bob, 'relay/c/Bob', snap);
+    writeFileSync(join(bob, 'bob.md'), 'from Bob\n');
+    const head = (await commitWorktree(repo, bob, 'relay/c/Bob', 'Bob'))!;
+    expect(git(alice, 'show', `${head}:bob.md`)).toBe('from Bob');
+    expect(git(alice, 'diff', '--name-only', snap, head)).toBe('bob.md');
+    // Its branch is Bob's alone.
+    expect(() => git(alice, 'rev-parse', '--verify', '-q', 'relay/c/Bob')).toThrow();
+  });
+
+  it("writes every object itself: one an agent planted in the working repository's objects, or a link there, is never taken", async () => {
+    await committed();
+    await snapshot(repo);
+    const content = 'the agent wrote this\n';
+    writeFileSync(join(repo, 'new.txt'), content);
+    const hash = execFileSync('git', ['hash-object', '--stdin'], { input: content, encoding: 'utf8' }).trim();
+    // A link in its place to a file of the user's, which git would touch (freshen) and take as written.
+    const victim = join(dir, 'victim.txt');
+    writeFileSync(victim, 'kept\n');
+    const past = new Date('2020-01-01T00:00:00Z');
+    utimesSync(victim, past, past);
+    mkdirSync(join(repo, '.git', 'objects', hash.slice(0, 2)), { recursive: true });
+    symlinkSync(victim, join(repo, '.git', 'objects', hash.slice(0, 2), hash.slice(2)));
+    const snap = await snapshot(repo);
+    expect(store('show', `${snap.commit}:new.txt`)).toBe(content.trim());
+    expect(statSync(victim).mtime.getTime()).toBe(past.getTime());
+    expect(readFileSync(victim, 'utf8')).toBe('kept\n');
+  });
+
+  it("takes nothing from the working repository's index: a file it claims unchanged is hashed again", async () => {
+    await committed();
+    git(repo, 'update-index', '--assume-unchanged', 'README.md');
+    writeFileSync(join(repo, 'README.md'), 'changed behind the index\n');
+    const snap = await snapshot(repo);
+    expect(store('show', `${snap.commit}:README.md`)).toBe('changed behind the index');
+  });
+
+  it('starts its own index from HEAD: a tracked file an ignore rule matches stays in, and a rule changed rebuilds it', async () => {
+    await ensureRepo(repo);
+    writeFileSync(join(repo, '.gitignore'), 'build/\n');
+    mkdirSync(join(repo, 'build'));
+    writeFileSync(join(repo, 'build', 'kept.js'), 'tracked\n');
+    writeFileSync(join(repo, 'build', 'out.js'), 'ignored\n');
+    git(repo, 'add', '-A');
+    git(repo, 'add', '-f', 'build/kept.js');
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'first');
+    const files = async () => store('ls-tree', '-r', '--name-only', (await snapshot(repo)).commit).split('\n');
+    expect(await files()).toContain('build/kept.js');
+    expect(await files()).not.toContain('build/out.js');
+    // A file taken in, then ignored: gone once the rules change.
+    writeFileSync(join(repo, 'notes.txt'), 'notes\n');
+    expect(await files()).toContain('notes.txt');
+    writeFileSync(join(repo, '.gitignore'), 'build/\nnotes.txt\n');
+    expect(await files()).not.toContain('notes.txt');
+    expect(readdirSync(join(repoStore(repo), 'relay-index')).filter((n) => n.startsWith('work-'))).toHaveLength(1);
+  });
+
+  it('takes a turn in a worktree in six git processes', async () => {
+    await committed();
+    const snap = (await snapshot(repo)).commit;
+    const wt = join(dir, 'wt');
+    await createWorktree(repo, wt, 'relay/test', snap);
+    writeFileSync(join(wt, 'by-agent.md'), 'x\n');
+    const started: string[][] = [];
+    recordSpawns({
+      start: ({ bin, args }) => {
+        if (/^git(\.exe)?$/i.test(basename(bin))) started.push([...args]);
+        return undefined;
+      },
+    });
+    try {
+      expect(await commitWorktree(repo, wt, 'relay/test', 'turn')).toBeTruthy();
+    } finally {
+      recordSpawns(undefined);
+    }
+    const command = (args: string[]) => args[args.findIndex((a, n) => a !== '-c' && args[n - 1] !== '-c')];
+    expect(started.map(command)).toEqual(['rev-parse', 'ls-files', 'add', 'write-tree', 'hash-object', 'update-ref']);
+  });
+
+  it("takes a snapshot in five git processes, the working repository's excludes honoured, from a split index too", async () => {
+    await committed();
+    await snapshot(repo); // the store made first
+    const started: string[][] = [];
+    recordSpawns({
+      start: ({ bin, args }) => {
+        if (/^git(\.exe)?$/i.test(basename(bin))) started.push([...args]);
+        return undefined;
+      },
+    });
+    let snap: Awaited<ReturnType<typeof snapshot>>;
+    try {
+      snap = await snapshot(repo);
+      await keepCommits(repo, 'conv-1', [snap.commit]);
+    } finally {
+      recordSpawns(undefined);
+    }
+    const command = (args: string[]) => args[args.findIndex((a, n) => a !== '-c' && args[n - 1] !== '-c')];
+    expect(started.map(command)).toEqual(['rev-parse', 'ls-files', 'add', 'write-tree', 'hash-object', 'update-ref']);
+    // Every command with hooks, fsmonitor, rerere, gc and maintenance off.
+    for (const args of started)
+      for (const setting of [
+        'core.hooksPath=/dev/null',
+        'core.fsmonitor=false',
+        'rerere.enabled=false',
+        'gc.auto=0',
+        'maintenance.auto=false',
+      ])
+        expect(args, setting).toContain(setting);
+    // Its info/exclude (Harness Relay's DEFAULT_EXCLUDES there) leaves node_modules out.
+    mkdirSync(join(repo, 'node_modules'));
+    writeFileSync(join(repo, 'node_modules', 'x.js'), 'x\n');
+    expect(store('ls-tree', '-r', '--name-only', (await snapshot(repo)).commit).split('\n')).not.toContain('node_modules/x.js');
+    // A split index in the working repository: never read.
+    git(repo, 'update-index', '--split-index');
+    writeFileSync(join(repo, 'new.md'), 'new\n');
+    expect(store('ls-tree', '-r', '--name-only', (await snapshot(repo)).commit).split('\n')).toContain('new.md');
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'never blocks the server on a named pipe an agent put in place of the index or info/exclude',
+    async () => {
+      await committed();
+      await snapshot(repo);
+      // In a process of its own, whose timer must still fire: a read of a pipe there would block the server's every request.
+      for (const file of ['index', join('info', 'exclude')]) {
+        const pipe = join(repo, '.git', file);
+        rmSync(pipe, { force: true });
+        execFileSync('mkfifo', [pipe]);
         const script = join(dir, 'pipe.mts');
         writeFileSync(
           script,
-          `import { withLang } from ${JSON.stringify(join(ROOT_DIR, 'src', 'server', 'i18n.ts'))};\n` +
-            `import { snapshot, commitWorktree } from ${JSON.stringify(join(ROOT_DIR, 'src', 'server', 'workspace.ts'))};\n` +
-            `const repo = ${JSON.stringify(repo)}, wt = ${JSON.stringify(wt)};\n` +
-            `const op = withLang('en', async () => { try { await ${op}; return 'done'; } catch (e) { return 'refused: ' + e.message; } });\n` +
-            `const later = new Promise((r) => setTimeout(() => r('still waiting on git'), 5000));\n` +
+          `import { setRepoStore, snapshot } from ${JSON.stringify(join(ROOT_DIR, 'src', 'server', 'workspace.ts'))};\n` +
+            `setRepoStore(${JSON.stringify(join(dir, 'repos'))});\n` +
+            `const op = snapshot(${JSON.stringify(repo)}).then(() => 'done', (e) => 'refused: ' + e.message);\n` +
+            `const later = new Promise((r) => setTimeout(() => r('still waiting'), 5000));\n` +
             `console.log(await Promise.race([op, later])); process.exit(0);\n`,
         );
-        const saved = existsSync(pipe) ? readFileSync(pipe) : undefined;
-        rmSync(pipe, { force: true });
-        execFileSync('mkfifo', [pipe]);
         try {
-          return spawnSync(process.execPath, ['--import', 'tsx', script], { encoding: 'utf8', timeout: slow(30_000), cwd: ROOT_DIR });
+          const r = spawnSync(process.execPath, ['--import', 'tsx', script], { encoding: 'utf8', timeout: slow(30_000), cwd: ROOT_DIR });
+          expect(r.error, `the server waited on the pipe at ${file}`).toBeUndefined();
+          expect(r.stdout, file).toContain('done');
         } finally {
-          // A reader still waiting on it (none, as it should be) is let go before the pipe is removed.
           try {
             closeSync(openSync(pipe, constants.O_WRONLY | constants.O_NONBLOCK));
           } catch {
             // no reader
           }
           rmSync(pipe, { force: true });
-          if (saved) writeFileSync(pipe, saved);
         }
-      };
-      const index = run(join(gitDir(), 'index'), 'snapshot(repo)');
-      expect(index.error, 'the server waited on the pipe').toBeUndefined();
-      // Without the index to start from, git hashes every file: the snapshot is taken all the same.
-      expect(index.stdout).toContain('done');
-      const back = run(join(admin, 'gitdir'), "commitWorktree(repo, wt, 'x')");
-      expect(back.error, 'the server waited on the pipe').toBeUndefined();
-      expect(back.stdout).toMatch(/refused: .*is not one of .* worktrees/);
-      const merge = run(join(admin, 'MERGE_HEAD'), "commitWorktree(repo, wt, 'x')");
-      expect(merge.error, 'the server waited on the pipe').toBeUndefined();
-      expect(merge.stdout).toContain('done');
+      }
     },
   );
-
-  it("finds the git folder as git does: a HEAD written without its space, and a bare repository's layout in the folder itself", async () => {
-    await ensureRepo(repo);
-    const snap = (await snapshot(repo)).commit;
-    const outside = join(dir, 'outside');
-    mkdirSync(outside);
-    // git takes `ref:refs/heads/…` (no space) as a HEAD: so does the check, through git.
-    writeFileSync(join(gitDir(), 'HEAD'), 'ref:refs/heads/main');
-    dirLink(outside, join(gitDir(), 'refs', 'harness-relay'));
-    await expect(en(() => keepCommits(repo, 'conv-1', [snap]))).rejects.toThrow(refused);
-    expect(listed(outside)).toEqual([]);
-    // The folder itself a bare repository's git folder (HEAD, objects, refs), its .git gone.
-    const bare = join(dir, 'bare');
-    git(dir, 'init', '-q', '--bare', 'bare');
-    dirLink(outside, join(bare, 'refs', 'harness-relay'));
-    await expect(en(() => keepCommits(bare, 'conv-1', [snap]))).rejects.toThrow(refused);
-    expect(listed(outside)).toEqual([]);
-  });
-
-  it('refuses what git rewrites through its locks where a link points: a linked config, packed refs, an index', async () => {
-    await ensureRepo(repo);
-    const snap = (await snapshot(repo)).commit;
-    const wt = join(dir, 'wt');
-    await createWorktree(repo, wt, 'relay/test', snap);
-    // Another repository's config, which `git branch -D` would rewrite without its section.
-    const victim = join(dir, 'victim-config');
-    writeFileSync(victim, '[user]\n\tname = kept\n');
-    const config = join(gitDir(), 'config');
-    renameSync(config, join(dir, 'config-moved'));
-    symlinkSync(victim, config);
-    await expect(en(() => removeWorktree(repo, wt, 'relay/test'))).rejects.toThrow(refused);
-    expect(readFileSync(victim, 'utf8')).toBe('[user]\n\tname = kept\n');
-    // The worktree's own folder is gone all the same: Harness Relay's own.
-    expect(existsSync(wt)).toBe(false);
-    rmSync(config, { force: true });
-    renameSync(join(dir, 'config-moved'), config);
-    // Packed refs and the index linked: refused before git rewrites them.
-    for (const file of ['packed-refs', 'index']) {
-      const target = join(dir, `${file}-outside`);
-      writeFileSync(target, 'kept\n');
-      rmSync(join(gitDir(), file), { force: true });
-      symlinkSync(target, join(gitDir(), file));
-      await expect(
-        en(() => keepCommits(repo, 'conv-1', [snap])),
-        file,
-      ).rejects.toThrow(refused);
-      expect(readFileSync(target, 'utf8')).toBe('kept\n');
-      rmSync(join(gitDir(), file), { force: true });
-    }
-  });
-
-  it('refuses a link in the common git folder when it commits from a worktree, and the git folder of another member', async () => {
-    await ensureRepo(repo);
-    const snap = (await snapshot(repo)).commit;
-    const alice = join(dir, 'alice');
-    const bob = join(dir, 'bob');
-    await createWorktree(repo, alice, 'relay/alice', snap);
-    await createWorktree(repo, bob, 'relay/bob', snap);
-    writeFileSync(join(alice, 'README.md'), 'by Alice\n');
-    // The worktree's branch is under refs/heads/relay, in the common folder: a link there is refused.
-    const outside = join(dir, 'outside');
-    mkdirSync(outside);
-    const relayRefs = join(gitDir(), 'refs', 'heads', 'relay');
-    renameSync(relayRefs, join(dir, 'relay-refs'));
-    dirLink(outside, relayRefs);
-    await expect(en(() => commitWorktree(repo, alice, 'Harness Relay'))).rejects.toThrow(refused);
-    expect(listed(outside)).toEqual([]);
-    rmSync(relayRefs, { force: true });
-    renameSync(join(dir, 'relay-refs'), relayRefs);
-    // Alice's .git naming Bob's worktree's git folder: in the common one's worktrees, but not hers.
-    const bobsHead = git(bob, 'rev-parse', 'HEAD');
-    const gitFile = readFileSync(join(alice, '.git'), 'utf8');
-    rewrite(join(alice, '.git'), readFileSync(join(bob, '.git'), 'utf8'));
-    await expect(en(() => commitWorktree(repo, alice, 'Harness Relay'))).rejects.toThrow(/is not one of .* worktrees/);
-    expect(git(bob, 'rev-parse', 'HEAD')).toBe(bobsHead);
-    rewrite(join(alice, '.git'), gitFile);
-    expect(await commitWorktree(repo, alice, 'Harness Relay')).toMatch(/^[0-9a-f]{40}$/);
-  });
-
-  it("takes a submodule of a linked worktree, whose git folder is in the worktree's own modules", async () => {
-    await ensureRepo(repo);
-    const snap = (await snapshot(repo)).commit;
-    const wt = join(dir, 'wt');
-    await createWorktree(repo, wt, 'relay/test', snap);
-    const admin = readdirSync(join(gitDir(), 'worktrees')).map((n) => join(gitDir(), 'worktrees', n))[0]!;
-    // Where git keeps it for a worktree (`git submodule update --init` there): <worktree's git folder>/modules/<name>.
-    const sub = join(wt, 'sub');
-    mkdirSync(join(admin, 'modules'));
-    execFileSync('git', ['init', '-q', '--separate-git-dir', join(admin, 'modules', 'sub'), sub], { stdio: 'pipe' });
-    writeFileSync(join(sub, 'x.md'), 'x\n');
-    git(sub, 'add', '-A');
-    git(sub, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x');
-    git(wt, 'add', 'sub');
-    writeFileSync(join(wt, 'README.md'), 'with a submodule\n');
-    expect(await commitWorktree(repo, wt, 'Harness Relay')).toMatch(/^[0-9a-f]{40}$/);
-  });
-
-  it('commits as `git commit` would: a root commit on an orphan branch, and a merge the agent resolved with both parents', async () => {
-    await ensureRepo(repo);
-    const snap = (await snapshot(repo)).commit;
-    const wt = join(dir, 'wt');
-    await createWorktree(repo, wt, 'relay/test', snap);
-    // A branch with a commit of its own, merged without committing (MERGE_HEAD left).
-    git(wt, 'checkout', '-q', '-b', 'other');
-    writeFileSync(join(wt, 'other.md'), 'other\n');
-    git(wt, 'add', '-A');
-    git(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'other');
-    const other = git(wt, 'rev-parse', 'HEAD');
-    git(wt, 'checkout', '-q', 'relay/test');
-    git(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'merge', '-q', '--no-commit', '--no-ff', 'other');
-    const merged = (await commitWorktree(repo, wt, 'Harness Relay'))!;
-    expect(git(wt, 'rev-list', '--parents', '-n', '1', merged)).toBe(`${merged} ${snap} ${other}`);
-    expect(existsSync(join(readdirSync(join(gitDir(), 'worktrees')).map((n) => join(gitDir(), 'worktrees', n))[0]!, 'MERGE_HEAD'))).toBe(
-      false,
-    );
-    // An orphan branch: a commit with no parent, the branch made.
-    git(wt, 'checkout', '-q', '--orphan', 'fresh');
-    writeFileSync(join(wt, 'fresh.md'), 'fresh\n');
-    const root = (await commitWorktree(repo, wt, 'Harness Relay'))!;
-    expect(git(wt, 'rev-list', '--parents', '-n', '1', root)).toBe(root);
-    expect(git(wt, 'rev-parse', 'fresh')).toBe(root);
-  });
-
-  it('refuses through a real command a git folder past the entries it looks at, or one it cannot list', async () => {
-    await ensureRepo(repo);
-    const snap = (await snapshot(repo)).commit;
-    setGitDirEntriesMax(5);
-    try {
-      await expect(en(() => keepCommits(repo, 'conv-1', [snap]))).rejects.toThrow(
-        /has more than 5 entries for Harness Relay to check for links/,
-      );
-    } finally {
-      setGitDirEntriesMax();
-    }
-    if (process.platform === 'win32' || process.getuid?.() === 0) return; // permission bits; root reads anything
-    const heads = join(gitDir(), 'refs', 'heads');
-    chmodSync(heads, 0o000);
-    try {
-      await expect(en(() => keepCommits(repo, 'conv-1', [snap]))).rejects.toThrow(/refs\/heads cannot be read/);
-    } finally {
-      chmodSync(heads, 0o755);
-    }
-  });
 });
 
 describe('keepCommits', () => {
@@ -894,14 +758,14 @@ describe('keepCommits', () => {
     await ensureRepo(repo);
     const snap = (await snapshot(repo)).commit;
     await keepCommits(repo, 'conv-1', [snap]);
-    git(repo, 'gc', '-q', '--prune=now');
-    expect(git(repo, 'cat-file', '-t', snap)).toBe('commit');
+    inStore(repo, 'gc', '-q', '--prune=now');
+    expect(inStore(repo, 'cat-file', '-t', snap)).toBe('commit');
 
     await dropKeptCommits(repo, 'conv-1');
-    expect(git(repo, 'for-each-ref', 'refs/harness-relay/')).toBe('');
-    git(repo, 'reflog', 'expire', '--expire=now', '--all');
-    git(repo, 'gc', '-q', '--prune=now');
-    expect(() => git(repo, 'cat-file', '-t', snap)).toThrow();
+    expect(inStore(repo, 'for-each-ref', 'refs/harness-relay/')).toBe('');
+    inStore(repo, 'reflog', 'expire', '--expire=now', '--all');
+    inStore(repo, 'gc', '-q', '--prune=now');
+    expect(() => inStore(repo, 'cat-file', '-t', snap)).toThrow();
   });
 });
 
@@ -967,6 +831,8 @@ describe("a repository's own config that would run commands", () => {
 
   it('fetches no missing object, as the remote of a partial clone would be reached through a command the config names', async () => {
     await ensureRepo(repo);
+    git(repo, 'add', '-A');
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'first');
     const first = await snapshot(repo);
     writeFileSync(join(repo, 'README.md'), 'changed\n');
     const second = await snapshot(repo);
@@ -976,26 +842,29 @@ describe("a repository's own config that would run commands", () => {
     git(repo, 'config', 'remote.origin.url', 'ssh://example.invalid/x.git');
     git(repo, 'config', 'remote.origin.promisor', 'true');
     git(repo, 'config', 'core.sshCommand', `sh -c 'echo ssh >> "${ran}"; exit 1' --`);
-    const blob = git(repo, 'rev-parse', `${first.commit}:README.md`);
-    rmSync(join(repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2)));
+    // The changed README's object, gone from Harness Relay's repository (it never had a remote).
+    const blob = inStore(repo, 'rev-parse', `${second.commit}:README.md`);
+    rmSync(join(repoStore(repo), 'objects', blob.slice(0, 2), blob.slice(2)));
     await expect(diffText(repo, first.commit, second.commit)).rejects.toThrow();
-    await expect(createWorktree(repo, join(dir, 'wt'), 'relay/test', first.commit)).rejects.toThrow();
+    await expect(createWorktree(repo, join(dir, 'wt'), 'relay/test', second.commit)).rejects.toThrow();
     expect(existsSync(ran)).toBe(false);
   });
 
-  it('refuses a core.worktree that names another folder, which a snapshot would take in', async () => {
+  it("takes the repository's own files whatever its core.worktree names, and refuses a working directory whose core.worktree is another folder", async () => {
     await ensureRepo(repo);
     const outside = join(dir, 'outside');
     mkdirSync(outside);
     writeFileSync(join(outside, 'secret.txt'), 'secret\n');
     for (const other of [outside, '../..']) {
       git(repo, 'config', 'core.worktree', other);
-      await expect(snapshot(repo)).rejects.toThrow(/core\.worktree/);
+      // A snapshot names its working tree (GIT_WORK_TREE): never what the config names.
+      const snap = await snapshot(repo);
+      expect(inStore(repo, 'ls-tree', '-r', '--name-only', snap.commit).split('\n')).not.toContain('secret.txt');
+      await expect(repoRoot(repo)).rejects.toThrow(/core\.worktree/);
     }
     // Its own folder (relative to .git) is fine.
     git(repo, 'config', 'core.worktree', '..');
-    const snap = await snapshot(repo);
-    expect(git(repo, 'ls-tree', '-r', '--name-only', snap.commit).split('\n')).not.toContain('secret.txt');
+    expect(await repoRoot(repo)).toBe(realpathSync(repo));
   });
 
   it('runs no driver of a repository at a submodule, which git add runs git status in, and still takes a real submodule', async () => {

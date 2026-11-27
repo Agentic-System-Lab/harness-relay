@@ -9,13 +9,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { GAP_LIMITS, handoffGaps, secretsScripts } from '../src/server/handoffGaps';
-import { diffFiles, ensureRepo, snapshot } from '../src/server/workspace';
+import { diffFiles, ensureRepo, setRepoStore, snapshot } from '../src/server/workspace';
 import type { MessageChanges } from '../src/shared/types';
 
 let repo: string;
 
 beforeEach(() => {
   repo = realpathSync(mkdtempSync(join(tmpdir(), 'relay-gaps-')));
+  // Harness Relay's own repositories (the snapshots), the test's own.
+  setRepoStore(join(repo, '..', `${repo.split(/[\\/]/).pop()}-repos`));
 });
 
 afterEach(() => {

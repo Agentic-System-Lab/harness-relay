@@ -32,11 +32,14 @@ import {
   textOf,
   worktreeDir,
 } from './orchestrator-harness';
+import { repoStore } from '../src/server/workspace';
 
 describe('branching a conversation', () => {
   const kinds = (conv: Conversation) => conv.messages.map((m) => m.author.kind);
   const refs = () =>
-    execFileSync('git', ['for-each-ref', '--format=%(refname)', 'refs/harness-relay/'], { cwd: project, encoding: 'utf8' })
+    execFileSync('git', ['--git-dir', repoStore(project), 'for-each-ref', '--format=%(refname)', 'refs/harness-relay/'], {
+      encoding: 'utf8',
+    })
       .split('\n')
       .filter(Boolean);
 

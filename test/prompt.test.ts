@@ -122,6 +122,9 @@ describe('renderMessage', () => {
     const one = renderMessage(conv, agentMessage({ changes: [...changes, { ...docs, files: [] }] }));
     expect(one).toContain('<changed_files>\nM src/app.ts (+2 -1)\n</changed_files>');
     expect(one).not.toContain('repository=');
+    // A worktree's result names its commit, which a teammate's worktree reads (its branch it cannot).
+    const isolated = renderMessage(conv, agentMessage({ changes: [{ ...changes[0]!, isolated: true, branch: 'relay/c/Builder' }] }));
+    expect(isolated).toContain('<changed_files branch="relay/c/Builder" head="b">\nM src/app.ts (+2 -1)\n</changed_files>');
   });
 
   it('marks failed and stopped replies', () => {
@@ -325,6 +328,8 @@ describe('buildBriefing', () => {
     expect(isolated).toContain('You start in /wt/b-1; use full paths for the others.');
     expect(isolated).toContain('@Reviewer → relay/c/Reviewer (started from 222222222222 in /work, 444444444444 in /docs)');
     expect(isolated).toContain('committed to your branches automatically');
+    expect(isolated).toContain("a teammate's branch is not in yours, but its commits are");
+    expect(isolated).toContain('`git diff <the snapshot it started from> <its latest head>`');
     // Edit mode covers them all.
     const editing = { ...several, settings: { ...several.settings, permission: 'edit' as const } };
     expect(buildBriefing(editing, team[0]!)).toContain('You may read and edit files inside the working directories.');
