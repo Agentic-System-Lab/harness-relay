@@ -193,6 +193,38 @@ test.describe('files and changes', () => {
   });
 
   test('the file browser shows the working directory and previews a file', async ({ page, relay }) => {
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+    const notebook = JSON.stringify({
+      nbformat: 4,
+      metadata: { kernelspec: { language: 'python' } },
+      cells: [
+        {
+          cell_type: 'markdown',
+          source: [
+            '# Baseline\n',
+            '![Diagram][d] ![Missing](attachment:missing.jpg) ![External](https://example.com/image.png)\n\n[d]: attachment:my%20diagram.png',
+          ],
+          attachments: { 'my diagram.png': { 'image/png': png } },
+        },
+        {
+          cell_type: 'code',
+          execution_count: 2,
+          source: 'print(42)',
+          outputs: [
+            { output_type: 'stream', name: 'stdout', text: '42\n' },
+            {
+              output_type: 'display_data',
+              data: {
+                'text/plain': 'Plot',
+                'image/png': png,
+              },
+            },
+          ],
+        },
+        ...Array.from({ length: 40 }, (_, i) => ({ cell_type: 'markdown', source: `## Section ${i + 1}` })),
+      ],
+    });
+    writeFileSync(join(relay.workDir, 'src', 'baseline.ipynb'), notebook);
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await chooseChatAction(page, 'Files');
     const browser = page.getByRole('dialog', { name: 'Files' });
@@ -205,6 +237,43 @@ test.describe('files and changes', () => {
     // Highlighted as TypeScript (src/web/highlight.ts): its keywords and types in their own colours.
     await expect(browser.locator('.code-text.hljs .hljs-keyword').first()).toHaveText('export');
     await expect(browser.locator('.code-text.hljs .hljs-built_in, .code-text.hljs .hljs-type').first()).toHaveText('string');
+
+    await list.getByText('baseline.ipynb', { exact: true }).click();
+    await expect(browser.getByRole('heading', { name: 'Baseline' })).toBeVisible();
+    await expect(browser.locator('.preview-title')).toContainText('42 cells');
+    await expect(browser.getByRole('img', { name: 'Diagram' })).toHaveJSProperty('naturalWidth', 1);
+    await expect(browser.getByText('Missing', { exact: true })).toBeVisible();
+    await expect(browser.getByRole('link', { name: 'Missing' })).toHaveCount(0);
+    await expect(browser.getByRole('link', { name: 'External' })).toHaveAttribute('href', 'https://example.com/image.png');
+    await expect(browser.getByRole('img', { name: 'External' })).toHaveCount(0);
+    const lastCell = browser.getByRole('heading', { name: 'Section 40', exact: true });
+    await expect(lastCell).toHaveCount(0);
+    await browser.getByRole('button', { name: 'Show 2 more cells' }).click();
+    await expect(lastCell).toBeVisible();
+    await expect(browser.locator('.notebook-prompt')).toHaveText('[2]:');
+    await expect(browser.locator('.code-text .hljs-built_in')).toHaveText('print');
+    await expect(browser.locator('.notebook-output pre')).toHaveText('42');
+    await expect(browser.getByRole('img', { name: 'Plot' })).toHaveJSProperty('naturalWidth', 1);
+    await browser.getByRole('radio', { name: 'Source' }).click();
+    await expect(browser.locator('.code-text')).toHaveText(notebook);
+    await browser.getByRole('radio', { name: 'Preview' }).click();
+    await expect(browser.getByRole('heading', { name: 'Baseline' })).toBeVisible();
+    await browser.getByRole('button', { name: 'Edit', exact: true }).click();
+    await expect(browser.getByRole('textbox', { name: 'Contents of baseline.ipynb' })).toHaveValue(notebook);
+    await browser.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    // A notebook still being written falls back to its original text on refresh.
+    writeFileSync(join(relay.workDir, 'src', 'baseline.ipynb'), '{"cells":');
+    await browser.locator('.preview').getByRole('button', { name: 'Refresh' }).click();
+    await expect(browser.locator('.warn-line')).toContainText('Showing its source');
+    await expect(browser.locator('.code-text')).toHaveText('{"cells":');
+
+    // Even a valid notebook followed by enough whitespace to be truncated obeys the preview limit.
+    writeFileSync(join(relay.workDir, 'src', 'baseline.ipynb'), notebook.padEnd(FILE_LIMITS.maxPreviewBytes + 1));
+    await browser.locator('.preview').getByRole('button', { name: 'Refresh' }).click();
+    await expect(browser.locator('.warn-line')).toContainText('only the first');
+    await expect(browser.getByRole('radio', { name: 'Preview' })).toHaveCount(0);
+    await expect(browser.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(browser).toBeHidden();
   });

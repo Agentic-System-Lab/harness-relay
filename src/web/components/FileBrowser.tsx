@@ -13,16 +13,15 @@ import { api } from '../api';
 import { useT } from '../i18n';
 import { canEdit } from '../fileEdit';
 import { codeLanguage, crumbs, filterEntries, isMarkdown, joinPath, lineCount, parentPath, zipChoice } from '../files';
-import { highlightHtml } from '../highlight';
+import { readNotebook } from '../notebook';
 import { formatBytes, relativeTime } from '../util';
+import { CodeView } from './CodeView';
 import { CopyButton } from './CopyButton';
 import { FileEditor, useFolderWrites } from './FileEditing';
 import { ChevronIcon, CopyIcon, DownloadIcon, FolderIcon, PencilIcon, TrashIcon } from './icons';
 import { Markdown } from './Markdown';
+import { NotebookPreview } from './NotebookPreview';
 import { useDialog } from './useDialog';
-
-/** Highlighting a very long file would hold up the page; past this it is shown as plain text. */
-const HIGHLIGHT_MAX_CHARS = 200_000;
 
 /** Where each conversation's browser was last, so reopening it comes back there. */
 const lastPlace = new Map<string, { root: string; dir: string; file?: string }>();
@@ -433,6 +432,9 @@ function Preview({
   const [editing, setEditing] = useState(false);
   const name = path.split('/').pop() ?? path;
 
+  const notebookText = /\.ipynb$/i.test(name) && preview?.kind === 'text' && !preview.truncated ? preview.text : undefined;
+  const notebook = useMemo(() => (notebookText ? readNotebook(notebookText) : null), [notebookText]);
+
   const load = useCallback(() => {
     setError('');
     api.previewFile(conv.id, root, path).then(setPreview, (e: Error) => {
@@ -444,6 +446,7 @@ function Preview({
   const editable = canEdit({ writable }, preview);
   /** Editing, while the file can still be edited (not once a reload found it too large or gone). */
   const inEditor = editing && editable;
+  const showNotebook = notebook && !source && !inEditor;
   // A file just made opens in the editor, once.
   const started = useRef(false);
   useEffect(() => {
@@ -467,8 +470,12 @@ function Preview({
           {preview && (
             <span className="muted small">
               {formatBytes(preview.size)}
-              {preview.kind === 'text' && preview.text ? ` · ${t.files.lines(lineCount(preview.text))}` : ''} ·{' '}
-              {relativeTime(preview.mtime, t)}
+              {showNotebook
+                ? ` · ${t.files.cells(notebook.cells.length)}`
+                : preview.kind === 'text' && preview.text
+                  ? ` · ${t.files.lines(lineCount(preview.text))}`
+                  : ''}{' '}
+              · {relativeTime(preview.mtime, t)}
             </span>
           )}
         </div>
@@ -484,7 +491,7 @@ function Preview({
               {t.appPreview.open}
             </button>
           )}
-          {!inEditor && preview?.kind === 'text' && isMarkdown(name) && (
+          {!inEditor && preview?.kind === 'text' && (isMarkdown(name) || notebook) && (
             <div className="segmented" role="radiogroup">
               <button role="radio" aria-checked={!source} className={!source ? 'on' : ''} onClick={() => setSource(false)}>
                 {t.files.rendered}
@@ -547,8 +554,13 @@ function Preview({
         <div className="preview-media">
           <video src={raw} controls preload="metadata" />
         </div>
+      ) : showNotebook ? (
+        <NotebookPreview key={`${preview.size}:${preview.mtime}`} notebook={notebook} />
       ) : (
-        <TextContent name={name} preview={preview} source={source} />
+        <>
+          {notebookText && !notebook && <p className="warn-line small">{t.files.notebookUnreadable}</p>}
+          <TextContent name={name} preview={preview} source={source} />
+        </>
       )}
     </div>
   );
@@ -567,35 +579,8 @@ export function TextContent({ name, preview, source }: { name: string; preview: 
           <Markdown text={preview.text} />
         </div>
       ) : (
-        <CodeView text={preview.text} name={name} />
+        <CodeView text={preview.text} language={codeLanguage(name)} />
       )}
     </>
-  );
-}
-
-/** Text with line numbers, highlighted when the language is known and the file is not too long. */
-function CodeView({ text, name }: { text: string; name: string }) {
-  const html = useMemo(() => {
-    const lang = codeLanguage(name);
-    if (!lang || text.length > HIGHLIGHT_MAX_CHARS) return null;
-    try {
-      // Escaped text in <span class="hljs-…"> elements only (highlightHtml).
-      return highlightHtml(text, lang);
-    } catch {
-      return null;
-    }
-  }, [text, name]);
-  const numbers = useMemo(() => Array.from({ length: Math.max(1, lineCount(text)) }, (_, i) => i + 1).join('\n'), [text]);
-  return (
-    <div className="code-view">
-      <pre className="code-lines" aria-hidden="true">
-        {numbers}
-      </pre>
-      {html !== null ? (
-        <pre className="code-text hljs" dangerouslySetInnerHTML={{ __html: html }} />
-      ) : (
-        <pre className="code-text">{text}</pre>
-      )}
-    </div>
   );
 }

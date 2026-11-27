@@ -52,6 +52,7 @@ const BY_EXT: Record<string, string> = {
   yml: 'yaml',
   toml: 'ini',
   jsonc: 'json',
+  ipynb: 'json',
   lock: 'json',
   h: 'c',
   hpp: 'cpp',

@@ -8,6 +8,7 @@ import { findMentions } from '../../shared/mentions';
 import { checkDownload, checkLater, fileClicks, type DownloadState } from '../download';
 import { filePreviewTarget } from '../appPreview';
 import { useT } from '../i18n';
+import { attachmentImage } from '../notebook';
 import { DownloadIcon } from './icons';
 import { LocalMedia } from './LocalMedia';
 import { MermaidBlock } from './Mermaid';
@@ -90,6 +91,7 @@ interface RelayOptions {
   media: boolean;
   files: boolean;
   breaks: boolean;
+  notebook: boolean;
   definitions: Map<string, string>;
 }
 
@@ -100,6 +102,17 @@ function transform(node: MdNode, inLink: boolean, opts: RelayOptions): void {
     // A file on this computer is shown (by path, through the server); anything else is a link.
     const url =
       child.type === 'image' ? child.url : child.type === 'imageReference' ? opts.definitions.get(child.identifier ?? '') : undefined;
+    if (opts.notebook && url?.startsWith('attachment:')) {
+      return [
+        {
+          type: 'image',
+          url,
+          alt: child.alt,
+          title: child.title,
+          data: { hProperties: { dataAttachment: url.slice('attachment:'.length) } },
+        },
+      ];
+    }
     const local = opts.media && !link && url !== undefined ? localMediaPath(url) : undefined;
     if (local) return [{ type: 'image', url, alt: child.alt, title: child.title, data: { hProperties: { dataMedia: local } } }];
     if (child.type === 'image' || child.type === 'imageReference') return [imageAsLink(child, link, opts)];
@@ -127,17 +140,26 @@ export function remarkRelay({
   mentions,
   media = false,
   files = false,
+  notebook = false,
   breaks = false,
 }: {
   mentions: string[];
   media?: boolean;
   files?: boolean;
+  notebook?: boolean;
   breaks?: boolean;
 }) {
   const names = mentions.length ? [...mentions, 'user'] : [];
   return (tree: MdNode) => {
     endBareUrls(tree);
-    transform(tree, false, { names, media, files, breaks, definitions: media || files ? definitions(tree) : new Map() });
+    transform(tree, false, {
+      names,
+      media,
+      files,
+      breaks,
+      notebook,
+      definitions: media || files || notebook ? definitions(tree) : new Map(),
+    });
   };
 }
 
@@ -148,7 +170,7 @@ interface HtmlNode {
   type: string;
   tagName?: string;
   value?: string;
-  properties?: { className?: unknown; dataMedia?: unknown; dataFile?: unknown };
+  properties?: { className?: unknown; dataMedia?: unknown; dataFile?: unknown; dataAttachment?: unknown };
   children?: HtmlNode[];
 }
 
@@ -250,7 +272,12 @@ export function FileLink({
   );
 }
 
-function makeComponents(mediaBase: string | undefined, downloadBase: string | undefined, onPreview?: (path: string) => void): Components {
+function makeComponents(
+  mediaBase: string | undefined,
+  downloadBase: string | undefined,
+  onPreview?: (path: string) => void,
+  attachments?: ReadonlyMap<string, string>,
+): Components {
   return {
     th: ({ node, ...props }) => <th {...props} className={tableCellClass(node ? textOf(node as HtmlNode) : '')} />,
     td: ({ node, ...props }) => <td {...props} className={tableCellClass(node ? textOf(node as HtmlNode) : '')} />,
@@ -271,8 +298,13 @@ function makeComponents(mediaBase: string | undefined, downloadBase: string | un
       const mermaid = mermaidSource(node as HtmlNode | undefined);
       return mermaid === undefined ? <pre {...props}>{children}</pre> : <MermaidBlock code={mermaid} />;
     },
-    // Only local media reach here as images (see remarkRelay); nothing else is ever loaded.
+    // Only local media and the notebook cell's embedded raster images reach here.
     img: ({ node, alt }) => {
+      const name = (node as HtmlNode | undefined)?.properties?.dataAttachment;
+      if (attachments && typeof name === 'string') {
+        const src = attachmentImage(attachments, name);
+        return src ? <img src={src} alt={alt ?? ''} loading="lazy" /> : <span>{alt || name}</span>;
+      }
       const path = (node as HtmlNode | undefined)?.properties?.dataMedia;
       return typeof path === 'string' && mediaBase ? (
         <LocalMedia src={`${mediaBase}?path=${encodeURIComponent(path)}`} path={path} alt={alt ?? ''} />
@@ -293,6 +325,7 @@ export const Markdown = memo(function Markdown({
   mediaBase,
   downloadBase,
   onPreview,
+  attachments,
   breaks = false,
 }: {
   text: string;
@@ -300,13 +333,20 @@ export const Markdown = memo(function Markdown({
   mediaBase?: string;
   downloadBase?: string;
   onPreview?: (path: string) => void;
+  attachments?: ReadonlyMap<string, string>;
   breaks?: boolean;
 }) {
-  const components = useMemo(() => makeComponents(mediaBase, downloadBase, onPreview), [mediaBase, downloadBase, onPreview]);
+  const components = useMemo(
+    () => makeComponents(mediaBase, downloadBase, onPreview, attachments),
+    [mediaBase, downloadBase, onPreview, attachments],
+  );
   return (
     <div className="markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, [remarkRelay, { mentions, media: Boolean(mediaBase), files: Boolean(downloadBase), breaks }]]}
+        remarkPlugins={[
+          remarkGfm,
+          [remarkRelay, { mentions, media: Boolean(mediaBase), files: Boolean(downloadBase), notebook: Boolean(attachments), breaks }],
+        ]}
         rehypePlugins={rehypePlugins}
         components={components}
       >
