@@ -583,7 +583,7 @@ describe("Harness Relay's own repository, and the working repository's .git it n
   it('records a worktree an older Harness Relay made (a git worktree of the working repository) on top of its branch there, writing nothing there', async () => {
     await committed();
     const legacy = join(dir, 'legacy');
-    git(repo, 'worktree', 'add', '-q', '-b', 'relay/old', legacy);
+    git(repo, '-c', 'core.autocrlf=false', 'worktree', 'add', '-q', '-b', 'relay/old', legacy);
     const old = git(repo, 'rev-parse', 'relay/old');
     const before = state(join(repo, '.git'));
     writeFileSync(join(legacy, 'by-agent.md'), 'x\n');
@@ -825,7 +825,8 @@ describe("Harness Relay's own repository, and the working repository's .git it n
     git(repo, 'add', '-f', 'dist/bundle.js');
     git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'first');
     const legacy = join(dir, 'legacy');
-    git(repo, 'worktree', 'add', '-q', '-b', 'relay/old', legacy);
+    // As an older Harness Relay made it: its files' bytes as they are (Git for Windows would add CRs).
+    git(repo, '-c', 'core.autocrlf=false', 'worktree', 'add', '-q', '-b', 'relay/old', legacy);
     const old = git(repo, 'rev-parse', 'relay/old');
     writeFileSync(join(legacy, 'by-agent.md'), 'x\n');
     const head = (await commitWorktree(repo, legacy, 'relay/old', 'Harness Relay'))!;
@@ -849,6 +850,94 @@ describe("Harness Relay's own repository, and the working repository's .git it n
     );
     expect(readdirSync(elsewhere)).toEqual([]);
   });
+
+  it("copies a linked worktree's own HEAD for a fixed command's first Save, not its main checkout's", async () => {
+    const main = await committed();
+    const linked = join(dir, 'linked');
+    git(repo, '-c', 'core.autocrlf=false', 'worktree', 'add', '-q', '-b', 'feature', linked);
+    writeFileSync(join(linked, 'README.md'), 'feature\n');
+    git(linked, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'feature');
+    const head = git(linked, 'rev-parse', 'HEAD');
+    expect(head).not.toBe(main);
+    expect(await committedBase(linked)).toBe(head);
+  });
+
+  it('takes no tracked file beyond a link in, and never fails a snapshot for one git will not take', async () => {
+    writeFileSync(join(repo, '.gitignore'), 'vendor/\n');
+    mkdirSync(join(repo, 'vendor'));
+    writeFileSync(join(repo, 'vendor', 'lib.js'), 'lib\n');
+    await ensureRepo(repo);
+    git(repo, 'add', '-A');
+    git(repo, 'add', '-f', 'vendor/lib.js');
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'first');
+    // `vendor` made a link to a folder elsewhere.
+    const elsewhere = join(dir, 'elsewhere');
+    mkdirSync(elsewhere);
+    writeFileSync(join(elsewhere, 'lib.js'), 'outside\n');
+    rmSync(join(repo, 'vendor'), { recursive: true, force: true });
+    symlinkSync(elsewhere, join(repo, 'vendor'), process.platform === 'win32' ? 'junction' : 'dir');
+    const snap = await snapshot(repo);
+    expect(store('ls-tree', '-r', '--name-only', snap.commit).split('\n')).not.toContain('vendor/lib.js');
+  });
+
+  it('removes a worktree with its refs, also once they were packed', async () => {
+    await committed();
+    const snap = (await snapshot(repo)).commit;
+    const wt = join(dir, 'wt');
+    await createWorktree(repo, wt, 'relay/test', snap);
+    writeFileSync(join(wt, 'by-agent.md'), 'x\n');
+    await commitWorktree(repo, wt, 'relay/test', 'turn');
+    store('pack-refs', '--all');
+    await removeWorktree(repo, wt, 'relay/test');
+    expect(store('for-each-ref', 'refs/heads/relay/', 'refs/relay/index/')).not.toMatch(/relay\/test|index\/(?!work-)/);
+  });
+
+  it("runs no command the working repository's config names when it copies what an older version kept there", async () => {
+    await committed();
+    // A partial clone whose remote is reached through a command, and a kept commit with an object gone.
+    const ran = join(dir, 'ran.txt');
+    writeFileSync(join(repo, 'README.md'), 'kept\n');
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'kept');
+    const kept = git(repo, 'rev-parse', 'HEAD');
+    git(repo, 'update-ref', `refs/harness-relay/conv-old/${kept}`, kept);
+    git(repo, 'config', 'core.repositoryformatversion', '1');
+    git(repo, 'config', 'extensions.partialClone', 'origin');
+    git(repo, 'config', 'remote.origin.url', 'ssh://example.invalid/x.git');
+    git(repo, 'config', 'remote.origin.promisor', 'true');
+    git(repo, 'config', 'core.sshCommand', `sh -c 'echo ssh >> "${ran}"; exit 1' --`);
+    git(repo, 'config', 'uploadpack.packObjectsHook', `sh -c 'echo hook >> "${ran}"; exit 1' --`);
+    const blob = git(repo, 'rev-parse', `${kept}:README.md`);
+    rmSync(join(repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2)));
+    expect(await fileAt(repo, kept, 'README.md')).toBeUndefined();
+    expect(existsSync(ran)).toBe(false);
+    expect(store('for-each-ref', 'refs/harness-relay/')).toBe('');
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'never holds a snapshot back while it copies what an older version kept (a named pipe in its objects)',
+    async () => {
+      await committed();
+      writeFileSync(join(repo, 'README.md'), 'kept\n');
+      git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'kept');
+      const kept = git(repo, 'rev-parse', 'HEAD');
+      git(repo, 'update-ref', `refs/harness-relay/conv-old/${kept}`, kept);
+      const tree = git(repo, 'rev-parse', `${kept}^{tree}`);
+      const pipe = join(repo, '.git', 'objects', tree.slice(0, 2), tree.slice(2));
+      rmSync(pipe, { force: true });
+      execFileSync('mkfifo', [pipe]);
+      try {
+        const started = Date.now();
+        await snapshot(repo);
+        expect(Date.now() - started).toBeLessThan(slow(10_000));
+      } finally {
+        try {
+          closeSync(openSync(pipe, constants.O_WRONLY | constants.O_NONBLOCK));
+        } catch {
+          // no reader
+        }
+      }
+    },
+  );
 
   it('takes a turn in a worktree in six git processes', async () => {
     await committed();

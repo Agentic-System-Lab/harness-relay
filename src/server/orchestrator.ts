@@ -6796,7 +6796,9 @@ export class Orchestrator {
       if (run.ws.isolated && !setupError) {
         before = new Map();
         for (const wt of wts) before.set(wt.root, { commit: await worktreeHead(wt.root, wt.branch) });
-      } else if (!run.ws.isolated && roots.length) {
+      } else if (!run.ws.isolated && roots.length && !setupError) {
+        // (A turn whose setup failed runs no agent: nothing to record, and a first snapshot of a large
+        // folder, which hashes and writes all its files, would only hold its error back.)
         before = new Map();
         // Each repository on its own: one that cannot be snapshotted keeps the others' changes recorded.
         for (const root of roots) {

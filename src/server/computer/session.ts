@@ -5,6 +5,7 @@ import {
   copyFileSync,
   createReadStream,
   createWriteStream,
+  existsSync,
   fstatSync,
   lstatSync,
   mkdirSync,
@@ -1181,7 +1182,8 @@ export function insideFolder(folder: string, path: string, create = false, rules
   const refused = { error: `${path} is one of the paths Harness Relay keeps from agents: it is never copied to or from the computer` };
   /** Why `real` (inside `root`, as its relative path says) is kept out, or undefined. */
   const kept = (real: string, rel: string): { error: string } | undefined => {
-    if (rel.split(/[\\/]/).some(isGit) || hiddenNatively(root, real)) return refused;
+    // A new file is not there to be spelled out by the system: its folder is, and its name is looked at as it is.
+    if (rel.split(/[\\/]/).some(isGit) || hiddenNatively(root, existsSync(real) ? real : dirname(real))) return refused;
     if (!rules) return undefined;
     const under = (dir: string) => {
       const r = relative(dir, real);
