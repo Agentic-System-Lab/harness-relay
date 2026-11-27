@@ -97,3 +97,19 @@ export function serverBundleCurrent(entry: string): boolean {
     return false;
   }
 }
+
+/**
+ * The server a test starts (`relay.ts`): the bundle (E2E_SERVER_BUNDLE), which starts far sooner than
+ * its source through tsx; its source when nothing bundled it, when one of its files changed since
+ * (`stale`: in `--ui` or a watch), when E2E_SERVER_SOURCE=1 asks (its stack traces then name the
+ * source's files), and for a test that preloads a hook into it (`NODE_OPTIONS=--import=…`): a hook may
+ * change one of the server's own modules (`catalog-mcp.mjs`, `teams-download-loader.mjs`), which a
+ * bundle holds a copy of.
+ */
+export function serverToStart(o: { bundle?: string; source?: string; nodeOptions?: string; current?: (entry: string) => boolean }): {
+  bundle?: string;
+  stale?: string;
+} {
+  if (!o.bundle || o.source === '1' || /--import\b/.test(o.nodeOptions ?? '')) return {};
+  return (o.current ?? serverBundleCurrent)(o.bundle) ? { bundle: o.bundle } : { stale: o.bundle };
+}

@@ -6744,6 +6744,16 @@ export class Orchestrator {
     let workspace: BriefingWorkspace = { kind: 'shared' };
     let before: Map<string, { commit: string; tree?: string }> | undefined;
     let setupError: unknown = notEmptied;
+    // A repository whose changes this turn cannot record (git refused it, say: a link in its git folder)
+    // is said in the reply, not only in the server's log: the user would see no changes and not know why.
+    const unrecorded = (root: string, err: unknown) => {
+      console.warn(`[orchestrator] could not record changes in ${root}:`, (err as Error).message);
+      const text = t().changesNotRecorded(root, (err as Error).message);
+      if (msg.parts.some((p) => p.type === 'notice' && p.text === text)) return;
+      msg.parts.push({ type: 'notice', text });
+      this.hub.emit(conv.id, { type: 'message', message: msg });
+      this.store.saveMessage(conv.id, msg, true);
+    };
     try {
       // Settings from before the check (or changed since): edit mode in Harness Relay's own folder.
       const refusal = relayFolderRefusal(conv.settings, agentFolderOptions(this.settings));
@@ -6791,7 +6801,7 @@ export class Orchestrator {
           try {
             before.set(root, await snapshot(root, this.snapshotExcludes()));
           } catch (err) {
-            console.warn(`[orchestrator] could not snapshot ${root} before turn:`, (err as Error).message);
+            unrecorded(root, err);
           }
         }
       }
@@ -6807,7 +6817,7 @@ export class Orchestrator {
       if (!before) return;
       const earlier = msg.changes;
       try {
-        msg.changes = await this.captureChanges(conv.id, before, run.ws.isolated ? wts : undefined, agent);
+        msg.changes = await this.captureChanges(conv.id, before, run.ws.isolated ? wts : undefined, agent, unrecorded);
         if (msg.changes?.some((c) => !c.isolated && c.files.length)) this.markChecksStale(conv);
         // Recorded again (the run that asked for left-out cards changed files too): the first snapshot is not kept.
         for (const c of earlier ?? []) {
@@ -7468,6 +7478,8 @@ export class Orchestrator {
     before: Map<string, { commit: string; tree?: string }>,
     wts: AgentWorktree[] | undefined,
     agent: AgentConfig,
+    failed: (root: string, err: unknown) => void = (root, err) =>
+      console.warn(`[orchestrator] could not record changes in ${root}:`, (err as Error).message),
   ): Promise<MessageChanges[] | undefined> {
     const out: MessageChanges[] = [];
     for (const [root, state] of before) {
@@ -7481,7 +7493,7 @@ export class Orchestrator {
         );
         if (changes) out.push(changes);
       } catch (err) {
-        console.warn('[orchestrator] could not record changes:', (err as Error).message);
+        failed(root, err);
       }
     }
     return out.length ? out : undefined;
@@ -7497,7 +7509,7 @@ export class Orchestrator {
   ): Promise<MessageChanges | undefined> {
     if (wt) {
       // An agent that committed by itself leaves nothing staged: its commits are the turn's result.
-      const head = (await commitWorktree(wt.path, `@${agent.name} (Harness Relay)`)) ?? (await worktreeHead(wt.path));
+      const head = (await commitWorktree(wt.root, wt.path, `@${agent.name} (Harness Relay)`)) ?? (await worktreeHead(wt.path));
       if (head === before.commit) return undefined;
       const files = await diffFiles(wt.root, before.commit, head);
       // The branch moves on a reset; keep this turn's commits so its diff stays viewable.

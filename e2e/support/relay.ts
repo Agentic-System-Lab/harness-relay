@@ -30,7 +30,7 @@ import { OPEN_PROVIDERS, PROVIDERS, type Provider } from '../../src/shared/types
 import { FACTS } from './clis/all';
 import { fakeBin, notInstalledBut } from './fake-cli';
 import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
-import { serverBundleCurrent } from './server-bundle';
+import { serverToStart } from './server-bundle';
 
 /** The API key a test server gives a CLI whose default account runs on a key only (`defaultKeyOnly`). */
 export const DEFAULT_KEY = 'AIza-e2e-default-key-0000';
@@ -381,21 +381,17 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   if (process.platform === 'win32') delete env.Path;
 
   let output = '';
-  // The server bundled before the tests (global-setup.ts, `support/server-bundle.ts`), which starts far
-  // sooner than its source through tsx. From its source when nothing bundled it, when one of its files
-  // changed since (in `--ui` or a watch), when E2E_SERVER_SOURCE=1 asks (its stack traces then name the
-  // source's files), and for a test that preloads a hook into it (`NODE_OPTIONS=--import=…`): a hook may
-  // change one of the server's own modules (`support/catalog-mcp.mjs`, `teams-download-loader.mjs`),
-  // which a bundle holds a copy of.
-  const bundle = process.env.E2E_SERVER_BUNDLE;
-  if (bundle && !staleNoted && !serverBundleCurrent(bundle)) {
+  // The server bundled before the tests, or its source (`serverToStart()`, which says when and why).
+  const start = serverToStart({
+    bundle: process.env.E2E_SERVER_BUNDLE,
+    source: process.env.E2E_SERVER_SOURCE,
+    nodeOptions: env.NODE_OPTIONS,
+  });
+  if (start.stale && !staleNoted) {
     staleNoted = true;
-    console.warn(`[e2e] the server's files changed since ${bundle} was bundled: its tests start it from its source (slower)`);
+    console.warn(`[e2e] the server's files changed since ${start.stale} was bundled: its tests start it from its source (slower)`);
   }
-  const bundled =
-    bundle && process.env.E2E_SERVER_SOURCE !== '1' && !/--import\b/.test(env.NODE_OPTIONS ?? '') && serverBundleCurrent(bundle)
-      ? bundle
-      : undefined;
+  const bundled = start.bundle;
   const child: ChildProcess = spawn(process.execPath, bundled ? [bundled] : ['--import', 'tsx', SERVER_ENTRY], {
     cwd: ROOT,
     env,

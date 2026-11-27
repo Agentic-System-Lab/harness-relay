@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ROOT, SERVER_BUNDLE_DIR, SERVER_BUNDLE_ENTRY } from '../e2e/support/paths';
-import { buildServerBundle, serverBundleCurrent } from '../e2e/support/server-bundle';
+import { buildServerBundle, serverBundleCurrent, serverToStart } from '../e2e/support/server-bundle';
 import { slow } from './timeouts';
 
 describe('the server bundled for the end-to-end tests', () => {
@@ -69,4 +69,22 @@ describe('the server bundled for the end-to-end tests', () => {
     },
     slow(60_000),
   );
+
+  it('is the server a test starts, unless it is stale, the source is asked for, or a hook is preloaded into the server', () => {
+    const current = () => true;
+    const stale = () => false;
+    expect(serverToStart({ bundle: '/b/server.mjs', current })).toEqual({ bundle: '/b/server.mjs' });
+    // Nothing bundled (a script of its own): the source.
+    expect(serverToStart({ current })).toEqual({});
+    // A server file changed since (in --ui or a watch): the source, and the bundle named as stale.
+    expect(serverToStart({ bundle: '/b/server.mjs', current: stale })).toEqual({ stale: '/b/server.mjs' });
+    // Asked for, for readable stack traces.
+    expect(serverToStart({ bundle: '/b/server.mjs', source: '1', current })).toEqual({});
+    expect(serverToStart({ bundle: '/b/server.mjs', source: '0', current })).toEqual({ bundle: '/b/server.mjs' });
+    // A hook that may change one of the server's modules, which a bundle holds a copy of.
+    expect(serverToStart({ bundle: '/b/server.mjs', nodeOptions: '--import=file:///x/catalog-mcp.mjs', current })).toEqual({});
+    expect(serverToStart({ bundle: '/b/server.mjs', nodeOptions: '--max-old-space-size=4096', current })).toEqual({
+      bundle: '/b/server.mjs',
+    });
+  });
 });

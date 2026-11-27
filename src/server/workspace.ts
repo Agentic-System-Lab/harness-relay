@@ -1,15 +1,20 @@
 import {
   appendFileSync,
-  copyFileSync,
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
@@ -47,6 +52,14 @@ const CONFIG = [
   'core.autocrlf=false',
   '-c',
   'protocol.allow=never',
+  // What a repository's config could have git do by itself in a git folder an agent wrote: reuse a
+  // recorded resolution (rerere, its folder possibly a link), or clean up after itself (gc, maintenance).
+  '-c',
+  'rerere.enabled=false',
+  '-c',
+  'gc.auto=0',
+  '-c',
+  'maintenance.auto=false',
 ];
 
 /** The keys of a repository's config that name a driver which runs a command (git then runs none when it is empty). */
@@ -120,6 +133,7 @@ export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv, nest
   if (!nested) return out;
   for (const sub of await submoduleRepos(cwd, env, bin)) {
     if (depth >= MAX_NESTED) throw new GitError(t().gitFailed('add', `repositories nested deeper than ${MAX_NESTED}`));
+    refuseForeignSubmodule(cwd, sub);
     // As git runs `git status` there: `cd <sub>; unset GIT_INDEX_FILE; GIT_DIR=.git`.
     const subEnv: NodeJS.ProcessEnv = { ...env, GIT_DIR: '.git' };
     delete subEnv.GIT_INDEX_FILE;
@@ -135,7 +149,7 @@ async function ownWorkTree(cwd: string, env: NodeJS.ProcessEnv, bin?: string): P
   let ok = false;
   try {
     const dotGit = join(top!, '.git');
-    const held = statSync(dotGit).isDirectory() ? dotGit : resolve(top!, /^gitdir: (.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1] ?? '\0');
+    const held = statSync(dotGit).isDirectory() ? dotGit : resolve(top!, /^gitdir: (.+)$/m.exec(smallFile(dotGit) ?? '')?.[1] ?? '\0');
     ok = r.code === 0 && realpathSync(held) === realpathSync(gitDir!);
   } catch {
     // no `.git` there, or none that leads back: refused below
@@ -228,56 +242,112 @@ export function needsDriverGuards(args: readonly string[]): boolean {
 
 /**
  * The git commands Harness Relay runs that write into the repository's git folder: objects (`add`,
- * `write-tree`, `commit-tree`, `mktree`, `commit`), refs and their logs (`update-ref`, `branch`,
- * `commit`, `worktree add`), a worktree's own folder (`worktree`), and `COMMIT_EDITMSG` (`commit`).
+ * `write-tree`, `commit-tree`, `mktree`), refs and their logs (`update-ref`, `branch`, `worktree
+ * add`), and a worktree's own folder (`worktree`).
  */
 const WRITES_GIT_DIR = new Set(['add', 'write-tree', 'commit-tree', 'mktree', 'update-ref', 'branch', 'commit', 'worktree']);
 
 /** The most entries `gitDirLink` looks at in one git folder before it refuses (a folder an agent filled to slow it). */
-const GIT_DIR_ENTRIES_MAX = 200_000;
+export const GIT_DIR_ENTRIES_MAX = 200_000;
+
+/** The most a pointer file of a repository (`.git`, `commondir`) Harness Relay reads itself may hold. */
+const POINTER_MAX = 64 * 1024;
 
 /**
- * The repository's git folders as git finds them from `cwd` (no git process): the `.git` folder, or
- * the one its `.git` file names (a worktree's, a submodule's), and the common one its `commondir`
- * names. Undefined outside a repository. `link` when `.git` itself is a link.
+ * The text of a regular file of at most `max` bytes, or undefined: not there, a link, a named pipe or a
+ * device, or larger. Opened without following a link and without waiting (a pipe an agent made in its
+ * place would block the server's every request), then looked at as opened.
  */
-function gitDirsOf(cwd: string): { dirs: string[]; link?: string } | undefined {
+function regularFile(path: string, max = POINTER_MAX): Buffer | undefined {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
+    const st = fstatSync(fd);
+    if (!st.isFile() || st.size > max) return undefined;
+    return readFileSync(fd);
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+const smallFile = (path: string): string | undefined => regularFile(path)?.toString('utf8');
+
+/** Whether `dir` is a git folder as git tells (`is_git_directory`): a HEAD naming a ref or a commit, `objects` and `refs`. */
+function isGitDir(dir: string): boolean {
+  if (!existsSync(join(dir, 'objects')) || !existsSync(join(dir, 'refs'))) return false;
+  const head = join(dir, 'HEAD');
+  try {
+    if (lstatSync(head).isSymbolicLink()) return readlinkSync(head).startsWith('refs/');
+  } catch {
+    return false;
+  }
+  return /^(ref: refs\/|[0-9a-f]{40}\s|[0-9a-f]{64}\s)/.test(smallFile(head) ?? '');
+}
+
+/** A repository's git folders, as git finds them; or why Harness Relay cannot tell them (`refused`). */
+type GitDirs = { gitDir: string; common: string } | { refused: string };
+
+/**
+ * The repository's git folders as git finds them from `cwd` (no git process): up from `cwd`, the first
+ * `.git` folder that is a git folder (one that is not, an empty one say, git passes over), or the
+ * folder a `.git` file names (a worktree's, a submodule's); and the common one its `commondir` names.
+ * Undefined outside a repository. Refused: `.git` a link, or a pointer file that is not a small
+ * regular file (`regularFile`).
+ */
+function gitDirsOf(cwd: string): GitDirs | undefined {
   for (let dir = resolve(cwd); ; dir = dirname(dir)) {
     const dotGit = join(dir, '.git');
     let st;
     try {
       st = lstatSync(dotGit);
     } catch {
-      if (dirname(dir) === dir) return undefined;
-      continue;
+      st = undefined;
     }
-    if (st.isSymbolicLink()) return { dirs: [], link: dotGit };
-    let gitDir = dotGit;
-    if (st.isFile()) {
-      const named = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1]?.trim();
-      if (!named) return undefined;
-      gitDir = resolve(dir, named);
+    if (st?.isSymbolicLink()) return { refused: `${dotGit} is a link, which Harness Relay's git would write through` };
+    if (st?.isFile()) {
+      const named = /^gitdir: (.+)$/m.exec(smallFile(dotGit) ?? '')?.[1]?.trim();
+      if (!named) return { refused: `${dotGit} names no git folder Harness Relay can read` };
+      return withCommon(resolve(dir, named));
     }
-    let common = gitDir;
-    try {
-      common = resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim());
-    } catch {
-      // no `commondir`: the git folder is its own common one
-    }
-    return { dirs: [...new Set([gitDir, common])] };
+    if (st?.isDirectory() && isGitDir(dotGit)) return withCommon(dotGit);
+    if (dirname(dir) === dir) return undefined;
   }
 }
+
+/** A git folder and the common one its `commondir` names (itself without one). */
+function withCommon(gitDir: string): GitDirs {
+  const pointer = join(gitDir, 'commondir');
+  if (!existsSync(pointer) && !isLink(pointer)) return { gitDir, common: gitDir };
+  const named = smallFile(pointer)?.trim();
+  if (!named) return { refused: `${pointer} is not a file Harness Relay can read` };
+  return { gitDir, common: resolve(gitDir, named) };
+}
+
+function isLink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/** Why a git folder could not be looked at whole (too many entries, one that cannot be read): refused as a link would be. */
+class GitDirUnchecked extends Error {}
 
 /**
  * The first link (a symbolic link, or a junction on Windows) in what Harness Relay's git writes into in
  * this git folder, relative to it, or undefined. Git follows a link there: a linked folder under
- * `refs` or `logs` gets the ref or its log written (and deleted) where it points, a linked log is
- * appended to, a linked `COMMIT_EDITMSG` is overwritten, a linked folder of `objects` or `worktrees`
- * gets their files. What git replaces by renaming a file over it (a ref, `HEAD`, `index`,
- * `packed-refs`) replaces the link itself, and the folders it only reads (`hooks`, which `CONFIG`
- * turns off, `info`) are left alone. Looked at without following any link.
+ * `refs`, `reftable` or `logs` gets a ref or its log written (and deleted) where it points, a linked
+ * log is appended to, a linked folder of `objects` or `worktrees` gets their files, and so would a
+ * worktree's linked `COMMIT_EDITMSG` (Harness Relay's commits do not write one any more). What git
+ * replaces by renaming a file over it (a ref, `HEAD`, `index`, `packed-refs`) replaces the link
+ * itself, and the folders it only reads (`hooks`, which `CONFIG` turns off, `info`) are left alone.
+ * Looked at without following any link. Throws `GitDirUnchecked` past `max` entries, or for a folder it
+ * cannot list.
  */
-export function gitDirLink(gitDir: string): string | undefined {
+export function gitDirLink(gitDir: string, max = GIT_DIR_ENTRIES_MAX): string | undefined {
   let seen = 0;
   /** Whether a link is one git may write through here: under `refs`, a link to a file is a ref git replaces by a rename. */
   const refused = (path: string, fileLinksOk: boolean) => {
@@ -288,15 +358,31 @@ export function gitDirLink(gitDir: string): string | undefined {
       return true; // a link to nothing
     }
   };
+  const list = (path: string) => {
+    try {
+      return readdirSync(path, { withFileTypes: true });
+    } catch (err) {
+      throw new GitDirUnchecked(`${path} cannot be read: ${(err as Error).message}`);
+    }
+  };
   /** The first link git would write through in the real folder `path` (`rel`), `depth` folders down. */
   const within = (path: string, rel: string, depth: number, fileLinksOk: boolean): string | undefined => {
-    // The entries' types as the folder lists them: no lstat each (a git folder's objects has 256).
-    for (const entry of readdirSync(path, { withFileTypes: true })) {
-      if (++seen > GIT_DIR_ENTRIES_MAX) return `${rel} (more than ${GIT_DIR_ENTRIES_MAX} entries)`;
+    // The entries' types as the folder lists them: no lstat each (a git folder's objects has 256)...
+    for (const entry of list(path)) {
+      if (++seen > max) throw new GitDirUnchecked(`${join(gitDir, rel)} has more than ${max} entries for Harness Relay to check for links`);
       const child = join(path, entry.name);
-      if (entry.isSymbolicLink()) {
+      let link = entry.isSymbolicLink();
+      let folder = entry.isDirectory();
+      // ...but Windows lists every reparse point as a link (a file OneDrive keeps in the cloud, say):
+      // only what lstat says is one (a link or a junction) is.
+      if (link) {
+        const st = lstatSync(child);
+        link = st.isSymbolicLink();
+        folder = st.isDirectory();
+      }
+      if (link) {
         if (refused(child, fileLinksOk)) return `${rel}/${entry.name}`;
-      } else if (entry.isDirectory() && depth > 1) {
+      } else if (folder && depth > 1) {
         const found = within(child, `${rel}/${entry.name}`, depth - 1, fileLinksOk);
         if (found) return found;
       }
@@ -319,6 +405,7 @@ export function gitDirLink(gitDir: string): string | undefined {
     // A loose object is written as a temporary file in its folder, then named: the folders alone.
     at(join(gitDir, 'objects'), 'objects', 1, false) ??
     at(join(gitDir, 'refs'), 'refs', Infinity, true) ??
+    at(join(gitDir, 'reftable'), 'reftable', Infinity, false) ??
     at(join(gitDir, 'logs'), 'logs', Infinity, false) ??
     at(join(gitDir, 'worktrees'), 'worktrees', Infinity, false) ??
     at(join(gitDir, 'COMMIT_EDITMSG'), 'COMMIT_EDITMSG', 0, false)
@@ -327,24 +414,66 @@ export function gitDirLink(gitDir: string): string | undefined {
 
 /**
  * Refuses a git command that writes into the repository's git folder when what it writes into there
- * goes through a link (`gitDirLink`): an agent whose sandbox lets it write `.git` could have one point
- * outside, where Harness Relay's git, which runs outside any sandbox, would write. Checked just before
- * the command; an agent that makes a link while it runs is not caught (no git option stops git from
- * following one), so this narrows the window to the command itself.
+ * goes through a link (`gitDirLink`), or when the folder cannot be told (`gitDirsOf`): an agent whose
+ * sandbox lets it write `.git` could have one point outside, where Harness Relay's git, which runs
+ * outside any sandbox, would write. Checked just before the command; an agent that makes a link while
+ * it runs is not caught (no git option stops git from following one).
  */
 function refuseGitDirLinks(cwd: string, command: string): void {
   const found = gitDirsOf(cwd);
   if (!found) return;
-  let link = found.link;
-  for (const dir of found.dirs) {
-    if (link) break;
-    const rel = gitDirLink(dir);
-    if (rel) link = rel === '.' ? dir : join(dir, rel);
+  if ('refused' in found) throw new GitError(t().gitFailed(command, found.refused));
+  for (const dir of new Set([found.gitDir, found.common])) {
+    let rel: string | undefined;
+    try {
+      rel = gitDirLink(dir);
+    } catch (err) {
+      if (err instanceof GitDirUnchecked) throw new GitError(t().gitFailed(command, err.message));
+      throw err;
+    }
+    if (rel)
+      throw new GitError(
+        t().gitFailed(
+          command,
+          `${rel === '.' ? dir : join(dir, rel)} is a link in the repository's git folder, which Harness Relay's git would write through`,
+        ),
+      );
   }
-  if (link)
-    throw new GitError(
-      t().gitFailed(command, `${link} is a link in the repository's git folder, which Harness Relay's git would write through`),
-    );
+}
+
+/**
+ * Refuses a worktree whose git folder is not one of `root`'s worktrees': an agent working in it can
+ * rewrite its `.git` file (or the `commondir` it names) to name another repository, or a git folder of
+ * its own, where Harness Relay's git would then write (moving another repository's branch, say).
+ */
+function refuseForeignWorktree(root: string, path: string, command: string): void {
+  const mine = gitDirsOf(path);
+  const own = gitDirsOf(root);
+  const ok =
+    mine &&
+    own &&
+    !('refused' in mine) &&
+    !('refused' in own) &&
+    mine.gitDir !== mine.common &&
+    realOr(mine.common) === realOr(own.common) &&
+    dirname(realOr(mine.gitDir)) === join(realOr(own.common), 'worktrees');
+  if (!ok) throw new GitError(t().gitFailed(command, `${path} is not one of ${root}'s worktrees: its .git names another git folder`));
+}
+
+/**
+ * Refuses a repository at a submodule (which `git add` runs `git status` in) whose git folder is
+ * outside it: neither its own `.git` folder nor one in the outer repository's `modules`. An agent can
+ * write one naming any repository on the computer, whose index git would then rewrite.
+ */
+function refuseForeignSubmodule(cwd: string, sub: string): void {
+  const outer = gitDirsOf(cwd);
+  const inner = gitDirsOf(sub);
+  if (!inner || !outer || 'refused' in outer) return;
+  if ('refused' in inner) throw new GitError(t().gitFailed('add', inner.refused));
+  const within = (path: string, folder: string) => path === folder || path.startsWith(folder + sep);
+  const common = realOr(inner.common);
+  if (within(common, realOr(sub)) || within(common, join(realOr(outer.common), 'modules'))) return;
+  throw new GitError(t().gitFailed('add', `the repository at ${sub} has its git folder outside this repository (${inner.common})`));
 }
 
 async function git(cwd: string, args: string[], o: GitOptions = {}) {
@@ -425,10 +554,22 @@ export async function ensureRepo(dir: string): Promise<{ root: string; created: 
 
   const real = realpathSync(dir);
   if (tooBroadForInit(real)) throw new HttpError(400, t().noAutoRepo(real));
+  // A `.git` that is there but is no repository (a link an agent made, to a folder elsewhere say): git
+  // init would make that folder a repository, wherever it is. Left as it is.
+  const dotGit = join(real, '.git');
+  if (existsSync(dotGit) || isLink(dotGit))
+    throw new GitError(t().gitFailed('init', `${dotGit} is there but is not a repository: Harness Relay leaves it as it is`));
   await git(real, ['init', '-q']);
-  const exclude = join(real, '.git', 'info', 'exclude');
-  mkdirSync(join(real, '.git', 'info'), { recursive: true });
-  appendFileSync(exclude, `\n# Added by Harness Relay\n${DEFAULT_EXCLUDES.join('\n')}\n`);
+  const info = join(dotGit, 'info');
+  mkdirSync(info, { recursive: true });
+  if (isLink(info)) throw new GitError(t().gitFailed('init', `${info} is a link`));
+  // Not through a link either (O_NOFOLLOW where the system has it).
+  const fd = openSync(join(info, 'exclude'), constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0));
+  try {
+    appendFileSync(fd, `\n# Added by Harness Relay\n${DEFAULT_EXCLUDES.join('\n')}\n`);
+  } finally {
+    closeSync(fd);
+  }
   return { root: real, created: true };
 }
 
@@ -475,8 +616,10 @@ export async function snapshot(root: string, exclude: string[] = []): Promise<{ 
     if (!indexPath) throw new GitError(t().gitFailed('rev-parse', tail(where.stderr || where.stdout, 500)));
     const parent = where.code === 0 && head ? head : null;
     const realIndex = isAbsolute(indexPath) ? indexPath : resolve(root, indexPath);
-    // Starting from the real index lets git reuse its stat cache instead of re-hashing every file.
-    if (existsSync(realIndex)) copyFileSync(realIndex, index);
+    // Starting from the real index lets git reuse its stat cache instead of re-hashing every file. A
+    // regular file only, opened without waiting or following a link (`regularFile`): else git hashes all.
+    const current = regularFile(realIndex, INDEX_MAX);
+    if (current) writeFileSync(index, current);
     const env = { GIT_INDEX_FILE: index };
     const skip = excludePathspecs(root, exclude);
     await git(root, ['add', '-A', ...(skip.length ? ['--', '.', ...skip] : [])], { env });
@@ -489,6 +632,9 @@ export async function snapshot(root: string, exclude: string[] = []): Promise<{ 
 }
 
 const refDir = (convId: string) => `${REF_PREFIX}/${convId}`;
+
+/** The largest index a snapshot starts from (a larger one, it does without: git hashes every file again). */
+const INDEX_MAX = 512 * 1024 * 1024;
 
 /**
  * Keep commits shown in a conversation (snapshots, worktree results) reachable, so `git gc` does
@@ -816,12 +962,19 @@ export async function worktreeChanged(path: string, base: string): Promise<boole
 }
 
 /** Commit everything in a worktree; returns the new HEAD, or null when nothing changed. */
-export async function commitWorktree(path: string, message: string): Promise<string | null> {
+export async function commitWorktree(root: string, path: string, message: string): Promise<string | null> {
+  refuseForeignWorktree(root, path, 'commit');
   await git(path, ['add', '-A']);
   const staged = await git(path, ['diff', '--cached', '--quiet'], { allowFail: true });
   if (staged.code === 0) return null;
-  await git(path, ['commit', '-q', '--no-verify', '-m', message]);
-  return worktreeHead(path);
+  // Plumbing, not `git commit`: that also cleans up a cherry-pick's sequencer folder, records rerere's
+  // resolutions and writes COMMIT_EDITMSG, each in a git folder the agent could write, through a link.
+  const tree = out(await git(path, ['write-tree']));
+  const parent = out(await git(path, ['rev-parse', '--verify', '-q', 'HEAD']));
+  const commit = out(await git(path, ['commit-tree', tree, '-p', parent, '-m', message]));
+  // HEAD's branch, only from the commit it was on.
+  await git(path, ['update-ref', '-m', `commit: ${message}`, 'HEAD', commit, parent]);
+  return commit;
 }
 
 /** Changes base..head checked against the repository's working tree, ready to apply (`applyPatch`). */

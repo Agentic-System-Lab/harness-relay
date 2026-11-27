@@ -1508,6 +1508,7 @@ const zhTW = {
   gitInstallUnavailable: '這台電腦目前無法自動安裝 Git。',
   gitInstallStillMissing: '安裝程式結束後，Harness Relay 仍找不到可用的 Git。',
   gitFailed: (cmd: string, out: string) => `git ${cmd} 失敗：${out}`,
+  changesNotRecorded: (root: string, why: string) => `Harness Relay 無法記錄這一輪在 ${root} 改了什麼，所以不會顯示它的變更：${why}`,
   noAutoRepo: (dir: string) => `不會在 ${dir} 自動建立 git repository，請改選一個專案資料夾作為工作目錄。`,
   repoTooBroad: (root: string) =>
     `工作目錄位在 ${root} 這個 git repository 裡，範圍太大（每一輪都要記錄整個資料夾的狀態）。請改選一個專案資料夾，或在專案資料夾裡執行 git init。`,
@@ -3026,6 +3027,8 @@ const en: ServerMessages = {
   gitInstallUnavailable: 'Automatic Git installation is unavailable on this computer.',
   gitInstallStillMissing: 'The installer exited and Harness Relay still cannot run Git.',
   gitFailed: (cmd, out) => `git ${cmd} failed: ${out}`,
+  changesNotRecorded: (root, why) =>
+    `Harness Relay could not record what this turn changed in ${root}, so its changes are not shown: ${why}`,
   noAutoRepo: (dir) => `Will not create a git repository in ${dir}; pick a project folder as the working directory.`,
   repoTooBroad: (root) =>
     `The working directory is inside the git repository at ${root}, which is too broad (every turn records the state of the whole folder). Pick a project folder, or run git init in the project folder.`,

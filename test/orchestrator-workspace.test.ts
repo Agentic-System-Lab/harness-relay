@@ -5,7 +5,7 @@
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { fileRoots } from '../src/server/files';
@@ -106,6 +106,27 @@ describe('roundtable mode with edit permission', () => {
     expect(alice!.changes![0]!.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'shared.txt']);
     expect(bob!.changes![0]!.files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'shared.txt']);
     expect(conv.worktrees).toEqual({});
+  });
+
+  it("says in the reply when it cannot record a turn's changes (a link in the repository's git folder), and writes nothing through it", async () => {
+    execFileSync('git', ['init', '-q'], { cwd: project });
+    const outside = join(dirname(project), 'outside-refs');
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(outside, join(project, '.git', 'refs', 'harness-relay'), process.platform === 'win32' ? 'junction' : 'dir');
+    const conv = conversation({ mode: 'roundtable' });
+    await withLang('en', () => orchestrator.send(conv.id, 'go'));
+    await finish(conv.id);
+
+    const [alice] = agentMessages(conv);
+    expect(alice!.status).toBe('done');
+    expect(alice!.changes).toBeUndefined();
+    expect(alice!.parts).toContainEqual({
+      type: 'notice',
+      text: expect.stringMatching(
+        /^Harness Relay could not record what this turn changed in .*, so its changes are not shown: git .* is a link in the repository's git folder/,
+      ),
+    });
+    expect(readdirSync(outside)).toEqual([]);
   });
 
   it('lets read-only conversations read while it writes', async () => {
