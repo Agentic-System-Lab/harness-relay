@@ -66,8 +66,18 @@ export function ComputerPanel({
   const mine = view?.control === 'user';
   const mac = /Mac|iPhone|iPad/.test(navigator.platform);
 
+  // Only while the page is in front: a tab in the background, or a window left on the chat, neither keeps the
+  // computer awake (its idle suspend waits for no watcher) nor has it screenshot.
+  const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
+  useEffect(() => {
+    const changed = () => setVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', changed);
+    return () => document.removeEventListener('visibilitychange', changed);
+  }, []);
+
   // The stream: frames into the image (not through React), the state into React; again when it drops.
   useEffect(() => {
+    if (!visible) return;
     const stopped = new AbortController();
     const read = async () => {
       for (let attempt = 0; attempt < 8 && !stopped.signal.aborted; attempt++) {
@@ -102,7 +112,7 @@ export function ComputerPanel({
     };
     void read();
     return () => stopped.abort();
-  }, [convId]);
+  }, [convId, visible]);
 
   // The input waiting to go: one request at a time, in order, merged.
   const queue = useRef<ComputerInput[]>([]);

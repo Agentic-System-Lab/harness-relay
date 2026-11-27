@@ -3005,9 +3005,16 @@ export function createApp({
     }
   });
 
+  // Settings' Remove Cua, in the background: this server's computers, Cua's downloads (unless another
+  // sandbox uses them) and Harness Relay's own copy of cua; GET /api/computer says how it goes.
+  app.post('/api/computer/remove', async (c) => {
+    computer.startRemoval();
+    return c.json(await computer.settingsView(false, () => store.folders()));
+  });
+
   // Deletes one of this server's computers by its name (Settings' list), with its disk.
   app.delete('/api/computers/:name', async (c) => {
-    if (!(await computer.removeByName(c.req.param('name')))) throw new HttpError(404, t().computer.notOn);
+    if (!(await computer.removeByName(c.req.param('name')))) throw new HttpError(404, t().computer.unknown);
     return c.json({ ok: true });
   });
 

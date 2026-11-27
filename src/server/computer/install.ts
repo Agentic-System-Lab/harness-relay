@@ -1,4 +1,5 @@
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, posix, win32 } from 'node:path';
 import type { InstallJob } from '../cliInstall';
@@ -156,6 +157,23 @@ interface CuaInstallHost extends ArchiveHost {
   build?: PortableBuild;
   folder?: string;
   probe?: (exe: string) => Promise<boolean>;
+}
+
+/**
+ * Removes `cua` as Settings' Remove Cua ends: Harness Relay's own copy (`clis/cua`), never the user's own,
+ * whose path is given back to say it stays.
+ */
+export async function uninstallCua(folder = cuaFolder(), found = findCua): Promise<{ removed: true } | { kept: string } | undefined> {
+  const exe = join(folder, process.platform === 'win32' ? 'cua.exe' : 'cua');
+  let removed = false;
+  if (existsSync(exe)) {
+    await rm(folder, { recursive: true, force: true, maxRetries: 3 });
+    removed = true;
+  }
+  versions.clear();
+  const theirs = found();
+  if (theirs) return { kept: theirs.bin };
+  return removed ? { removed: true } : undefined;
 }
 
 /** Installs `cua` into Harness Relay's folder (even beside the user's own: Settings asked for it). */

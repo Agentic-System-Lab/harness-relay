@@ -1441,7 +1441,7 @@ export const en: Messages = {
 
   computer: {
     button: 'Computer',
-    buttonTitle: "This conversation's computer (Cua)",
+    buttonTitle: "The computer of this chat's folder (Cua)",
     title: 'Computer',
     resize: 'Resize the computer panel',
     status: { off: 'Off', starting: 'Starting…', ready: 'On', stopping: 'Stopping…', failed: 'Could not start' },
@@ -1463,7 +1463,7 @@ export const en: Messages = {
     send: 'Send',
     keys: 'Keys',
     off: 'The computer is off. It starts the first time an agent uses it, or start it now.',
-    firstTime: 'The first start downloads its image (about 1.5 GB): a few minutes.',
+    firstTime: "The first start downloads Cua's virtual machine and image (about 2 GB, once): it can take a while.",
     starting: 'Starting…',
     startingFor: (minutes) => (minutes ? `Starting (${minutes} minutes so far)…` : 'Starting…'),
     notInstalled: 'Cua is not installed here.',
@@ -1514,7 +1514,7 @@ export const en: Messages = {
     computer: {
       label: (agent) => `@${agent} asks you to take over the computer`,
       heading: (agent) => `@${agent} needs you to take over the computer`,
-      kept: "What you sign in to and type on the computer stays in this conversation's computer, where the agents can use and see it afterwards, until the computer is deleted. The agents do not see what you do meanwhile: only when you hand it back, and your note.",
+      kept: 'What you sign in to and type on the computer stays in it, where the agents of every chat in this working directory can use and see it afterwards, until the computer is deleted. The agents do not see what you do meanwhile: only when you hand it back, and your note.',
       start: 'Take control of the computer',
       startHint:
         "The computer is shown in this chat's computer panel, and your clicks, scrolling and keys go to it; meanwhile the agents can neither act on it nor take screenshots.",
@@ -2446,6 +2446,12 @@ export const en: Messages = {
       confirmRemove: (folder) =>
         `Delete the computer of ${folder}? Its files, the software installed on it and the accounts signed in to on it go with it; the chats there get a new computer next time.`,
       status: { off: 'Suspended', starting: 'Starting', ready: 'On', stopping: 'Stopping', failed: 'Could not start' },
+      removeCua: 'Remove Cua',
+      confirmRemoveCua: (n) =>
+        `Remove Cua? This deletes this Harness Relay's ${n ? `${n} ` : ''}computer${n === 1 ? '' : 's'} (their files, the software installed and the accounts signed in to), the images Cua downloaded, and the Cua Harness Relay installed. With no other Cua sandbox left, Cua's Linux virtual machine goes too. A Cua you installed yourself stays.`,
+      removing: 'Removing Cua…',
+      removed: 'Removed Cua.',
+      removalFailed: 'Cua was not removed completely:',
     },
     checkAgain: 'Check again',
     vault: 'Choose vault',
@@ -3653,9 +3659,9 @@ export const en: Messages = {
         action: 'New automation',
       },
       {
-        title: 'Common apps',
-        body: 'Connect Gmail, your calendar, Slack and more for the agents to look things up; nothing is sent before you confirm it.',
-        action: 'Open Common apps',
+        title: 'Common apps and tools',
+        body: 'Connect Gmail, your calendar, Slack and more for agents to look things up; nothing is sent before you confirm. Add MCP servers, skills and memory in the tool library.',
+        action: 'Open Apps and tools',
       },
       {
         title: 'Computer',

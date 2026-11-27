@@ -17,6 +17,8 @@ export function ComputerSettings({ access }: { access: ReactNode }) {
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
   const [removing, setRemoving] = useState<string>();
+  // Removed (or not completely) is said only in the page that asked: a later visit shows the row as it is.
+  const [removedHere, setRemovedHere] = useState(false);
 
   const load = useCallback(async (check = false) => {
     try {
@@ -35,6 +37,24 @@ export function ComputerSettings({ access }: { access: ReactNode }) {
     await load(true);
     setChecking(false);
   };
+  // While Cua is being removed, its steps as they go.
+  const uninstalling = view?.removal?.state === 'running';
+  useEffect(() => {
+    if (!uninstalling) return;
+    const timer = setInterval(() => void load(), 1500);
+    return () => clearInterval(timer);
+  }, [uninstalling, load]);
+  const removeCua = async () => {
+    if (!confirm(r.confirmRemoveCua(view?.computers.length ?? 0))) return;
+    try {
+      setRemovedHere(true);
+      setView(await api.removeCua());
+      setError('');
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   const remove = async (name: string, folder: string) => {
     if (!confirm(r.confirmRemove(folder))) return;
     setRemoving(name);
@@ -57,13 +77,10 @@ export function ComputerSettings({ access }: { access: ReactNode }) {
     >
       {view?.cua && !view.cua.own && <p className="small muted">{r.theirs(view.cua.path)}</p>}
       {view?.tooOld && <p className="small">{r.tooOld(view.tooOld.version ?? '', view.tooOld.path, view.installs)}</p>}
-      {view && !view.cua && (
-        <>
-          <p className="small muted">{r.installs(view.installs)}</p>
-          <AppDependencyInstall name="cua" onReady={() => load()} />
-        </>
-      )}
-      <p className="small muted">{r.where}</p>
+      <p className="small muted">
+        {[view && !view.cua ? r.installs(view.installs) : '', r.where].filter(Boolean).join(t.filesEdit.sentenceGap)}
+      </p>
+      {view && !view.cua && <AppDependencyInstall name="cua" onReady={() => load()} checkAgain={false} />}
       {view?.cua && (
         <div className="computer-runtime">
           <button type="button" className="ghost small-button" disabled={checking} onClick={() => void check()}>
@@ -76,6 +93,22 @@ export function ComputerSettings({ access }: { access: ReactNode }) {
           )}
         </div>
       )}
+      {view?.removal && (uninstalling || removedHere) && (
+        <div className="computer-removal" role="status">
+          <p className={view.removal.state === 'failed' ? 'error-line' : 'small'}>
+            {view.removal.state === 'running'
+              ? r.removing
+              : view.removal.state === 'success'
+                ? r.removed
+                : `${r.removalFailed} ${view.removal.error ?? ''}`}
+          </p>
+        </div>
+      )}
+      {(view?.cua || view?.computers.length) && !uninstalling ? (
+        <button type="button" className="ghost small-button approval-deny" onClick={() => void removeCua()}>
+          {r.removeCua}
+        </button>
+      ) : null}
       {view?.cua && (
         <div className="computer-list">
           <h5>{r.computers}</h5>

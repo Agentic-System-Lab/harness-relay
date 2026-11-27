@@ -1159,6 +1159,18 @@ const zhTW = {
     stepList: '無法列出電腦',
     stepView: '無法取得 Cua 檢視器的連結',
     notOn: '電腦還沒開機',
+    unknown: '這個 Harness Relay 沒有這台電腦',
+    removal: {
+      busy: '正在移除 Cua，現在不能開機。',
+      computer: (name: string) => `刪除電腦 ${name}`,
+      prune: '清除 Cua 下載的映像檔（其他沙箱還在用的會保留）',
+      runtime: '移除 Cua 自己的 Linux 虛擬機與執行環境',
+      othersLeft: (n: number) => `Cua 的資料夾裡還有 ${n} 個不是這個 Harness Relay 的沙箱，所以保留 Cua 的虛擬機與執行環境。`,
+      othersUnknown: '無法確認 Cua 的資料夾裡是否還有其他沙箱，所以保留 Cua 的虛擬機與執行環境。',
+      program: '已移除 Harness Relay 安裝的 Cua。',
+      theirs: (path: string) => `你自己安裝的 Cua（${path}）沒有刪除。`,
+      failed: '這一步沒有完成',
+    },
     notYours: '要先接手電腦才能操作',
     gw: {
       screenshot: '擷取電腦畫面',
@@ -2697,6 +2709,19 @@ const en: ServerMessages = {
     stepList: 'Could not list the computers',
     stepView: "Could not get a link to Cua's viewer",
     notOn: 'The computer is not on',
+    unknown: 'This Harness Relay has no such computer',
+    removal: {
+      busy: 'Cua is being removed: no computer starts now.',
+      computer: (name) => `Deleting the computer ${name}`,
+      prune: 'Clearing the images Cua downloaded (any another sandbox uses stay)',
+      runtime: "Removing Cua's own Linux virtual machine and runtime",
+      othersLeft: (n) =>
+        `Cua's folder still has ${n} sandbox${n === 1 ? '' : 'es'} that ${n === 1 ? 'is' : 'are'} not this Harness Relay's, so Cua's virtual machine and runtime stay.`,
+      othersUnknown: "Harness Relay could not tell whether Cua's folder has other sandboxes, so Cua's virtual machine and runtime stay.",
+      program: 'Removed the Cua that Harness Relay installed.',
+      theirs: (path) => `The Cua you installed yourself (${path}) stays.`,
+      failed: 'This step did not finish',
+    },
     notYours: 'Take control of the computer first',
     gw: {
       screenshot: 'Take a screenshot of the computer',

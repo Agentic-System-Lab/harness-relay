@@ -41,11 +41,11 @@ export function computerTools(computer: ComputerService, tmpDir: () => string): 
       group: 'computer',
       tier: 'read',
       description:
-        "Take a screenshot of this conversation's computer: a Linux desktop (Ubuntu with Xfce and Firefox) of its own, which the agents and the user share. The first call starts it (the first time, its image is downloaded: minutes). Coordinates of the other computer tools are pixels of the latest screenshot. Take one before acting, and again after acting to see what changed. Returns the image and the file's path: put ![What it shows](<that path>) in your reply to show it to the user. While the user has taken control of the computer, every computer tool is refused: wait for them to hand it back.",
+        "Take a screenshot of the computer of this conversation's working directory: a Linux desktop (Ubuntu with Xfce and Firefox) that the agents and the user share, with every chat in that folder. The first call starts it (the first time, its image is downloaded: minutes). Coordinates of the other computer tools are pixels of the latest screenshot. Take one before acting, and again after acting to see what changed. Returns the image and the file's path: put ![What it shows](<that path>) in your reply to show it to the user. While the user has taken control of the computer, every computer tool is refused: wait for them to hand it back.",
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       describe: () => ({ title: t().computer.gw.screenshot }),
       unavailable,
-      run: (_a, ctx) => computer.call(ctx, 'computer_screenshot', {}, 'screenshot', 60 * 60_000),
+      run: (_a, ctx) => computer.call(ctx, 'computer_screenshot', {}, () => t().computer.gw.screenshot),
     },
     {
       name: 'computer_click',
@@ -70,7 +70,7 @@ export function computerTools(computer: ComputerService, tmpDir: () => string): 
         const x = coordinate(a, 'x');
         const y = coordinate(a, 'y');
         const button = a.button === 'right' || a.button === 'middle' ? a.button : undefined;
-        const what = t().computer.gw.click(x, y, a.double === true, button ?? 'left');
+        const what = () => t().computer.gw.click(x, y, a.double === true, button ?? 'left');
         return computer.call(
           ctx,
           a.double === true ? 'computer_double_click' : 'computer_click',
@@ -100,7 +100,7 @@ export function computerTools(computer: ComputerService, tmpDir: () => string): 
         const text = String(a.text ?? '');
         if (!text || text.length > COMPUTER_LIMITS.textMax)
           return Promise.resolve({ text: `text is from 1 to ${COMPUTER_LIMITS.textMax} characters`, isError: true });
-        return computer.call(ctx, 'computer_type', { text }, t().computer.gw.typed(text.length));
+        return computer.call(ctx, 'computer_type', { text }, () => t().computer.gw.typed(text.length));
       },
     },
     {
@@ -115,8 +115,8 @@ export function computerTools(computer: ComputerService, tmpDir: () => string): 
       run: async (a, ctx) => {
         const keys = keysOf(a);
         return keys.includes('+')
-          ? computer.call(ctx, 'computer_hotkey', { keys }, t().computer.gw.key(keys))
-          : computer.call(ctx, 'computer_key', { key: keys }, t().computer.gw.key(keys));
+          ? computer.call(ctx, 'computer_hotkey', { keys }, () => t().computer.gw.key(keys))
+          : computer.call(ctx, 'computer_key', { key: keys }, () => t().computer.gw.key(keys));
       },
     },
     {
@@ -142,15 +142,12 @@ export function computerTools(computer: ComputerService, tmpDir: () => string): 
         const direction = ['up', 'down', 'left', 'right'].includes(String(a.direction)) ? String(a.direction) : 'down';
         const amount = Math.min(COMPUTER_LIMITS.scrollMax, Math.max(1, Number.isInteger(a.amount) ? (a.amount as number) : 3));
         if (a.x !== undefined || a.y !== undefined) {
-          const moved = await computer.call(
-            ctx,
-            'computer_move_cursor',
-            { x: coordinate(a, 'x'), y: coordinate(a, 'y') },
+          const moved = await computer.call(ctx, 'computer_move_cursor', { x: coordinate(a, 'x'), y: coordinate(a, 'y') }, () =>
             t().computer.gw.scroll(direction),
           );
           if (moved.isError) return moved;
         }
-        return computer.call(ctx, 'computer_scroll', { direction, amount }, t().computer.gw.scroll(direction));
+        return computer.call(ctx, 'computer_scroll', { direction, amount }, () => t().computer.gw.scroll(direction));
       },
     },
     {
@@ -182,7 +179,7 @@ export function computerTools(computer: ComputerService, tmpDir: () => string): 
             end_x: coordinate(a, 'to_x'),
             end_y: coordinate(a, 'to_y'),
           },
-          t().computer.gw.drag,
+          () => t().computer.gw.drag,
         ),
     },
     {
@@ -203,7 +200,7 @@ export function computerTools(computer: ComputerService, tmpDir: () => string): 
         const app = String(a.app ?? '').trim();
         if (!app || app.length > 200 || /[\0\r\n]/.test(app))
           return Promise.resolve({ text: 'app must be the command that starts it', isError: true });
-        return computer.call(ctx, 'computer_launch', { app }, t().computer.gw.open(app));
+        return computer.call(ctx, 'computer_launch', { app }, () => t().computer.gw.open(app));
       },
     },
     {
@@ -224,7 +221,7 @@ export function computerTools(computer: ComputerService, tmpDir: () => string): 
         const command = String(a.command ?? '');
         if (!command.trim() || command.length > 20_000 || command.includes('\0'))
           return Promise.resolve({ text: 'command is needed', isError: true });
-        return computer.call(ctx, 'computer_shell', { command }, t().computer.gw.ran(command), 150_000);
+        return computer.call(ctx, 'computer_shell', { command }, () => t().computer.gw.ran(command), 150_000);
       },
     },
     {
@@ -244,7 +241,7 @@ export function computerTools(computer: ComputerService, tmpDir: () => string): 
       },
       describe: (a) => ({ title: t().computer.gw.upload(String(a.path ?? ''), String(a.to ?? defaultTo(a))) }),
       unavailable,
-      run: (a, ctx) => computer.upload(ctx, String(a.path ?? ''), String(a.to ?? defaultTo(a))),
+      run: (a, ctx) => computer.upload(ctx, String(a.path ?? ''), String(a.to ?? defaultTo(a)), tmpDir()),
     },
     {
       name: 'computer_download',
@@ -269,7 +266,7 @@ export function computerTools(computer: ComputerService, tmpDir: () => string): 
       tier: 'read',
       direct: true,
       description:
-        "Ask the user to take control of the computer when a step needs them: a sign-in, a password, a two-factor code, a CAPTCHA, a payment, a choice only they can make. Never ask the user for a password or code to type yourself; hand the computer over instead. The user is shown a card in the chat and takes control in the computer's panel, while this call and every other computer call wait: until they hand it back, decline, or the time runs out (15 minutes to start, 30 once started). It says only how it ended and the user's note, never what they did. Afterwards take a screenshot. Not available in a run nobody is watching.",
+        "Ask the user to take control of the computer when a step needs them: a sign-in, a password, a two-factor code, a CAPTCHA, a payment, a choice only they can make. Never ask the user for a password or code to type yourself; hand the computer over instead. The user is shown a card in the chat and takes control in the computer's panel; this call waits until they hand it back, decline, or the time runs out (15 minutes to start, 30 once started), and while they have control every computer call is refused. It says only how it ended and the user's note, never what they did. Afterwards take a screenshot. Not available in a run nobody is watching.",
       inputSchema: {
         type: 'object',
         properties: {

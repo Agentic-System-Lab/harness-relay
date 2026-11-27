@@ -44,7 +44,7 @@ async function openComputer(page: Page) {
 }
 
 test.describe('the chat’s computer', () => {
-  test('an agent looks at it, the user watches, takes control, clicks and types, hands it back, and deletes it in Settings', async ({
+  test('an agent looks at it, the user watches, takes control, clicks and types, hands it back; Settings deletes it, then removes Cua', async ({
     page,
     relay,
     fakeBinDir,
@@ -119,6 +119,15 @@ test.describe('the chat’s computer', () => {
     await listed.getByRole('button', { name: `Delete the computer of ${relay.workDir}` }).click();
     await expect(settings.locator('.computer-list')).toContainText('No conversation has used a computer yet.');
     await expect.poll(() => cuaLog(relay).some((e) => e.args?.slice(0, 2).join(' ') === 'sb rm')).toBe(true);
+
+    // Removing Cua altogether: its downloads, its runtime (nothing else is left), and Harness Relay's own copy.
+    acceptNextDialog(page);
+    await settings.getByRole('button', { name: 'Remove Cua' }).click();
+    await expect(settings).toContainText('Removed Cua.');
+    expect(cuaLog(relay).map((e) => e.args?.slice(0, 3).join(' '))).toEqual(
+      expect.arrayContaining(['--json cache prune', '--json host remove']),
+    );
+    await expect(settings.getByRole('button', { name: 'Install Cua' })).toBeVisible();
   });
 
   test('an agent asks the user to take over: the card opens the computer, the user hands it back with a note', async ({

@@ -4,8 +4,19 @@ import { api } from '../api';
 import { logTail } from '../clis';
 import { useT } from '../i18n';
 
-/** Shown when a local prerequisite is missing. Reopening Settings resumes a running install. */
-export function AppDependencyInstall({ name, onReady }: { name: AppDependency; onReady: () => Promise<unknown> }) {
+/**
+ * Shown when a local prerequisite is missing. Reopening Settings resumes a running install. `checkAgain`:
+ * a button to look again for one the user installed themselves (not for Cua, which its row finds on its own).
+ */
+export function AppDependencyInstall({
+  name,
+  onReady,
+  checkAgain = true,
+}: {
+  name: AppDependency;
+  onReady: () => Promise<unknown>;
+  checkAgain?: boolean;
+}) {
   const t = useT();
   const [view, setView] = useState<AppDependencyView>();
   const [starting, setStarting] = useState(false);
@@ -100,7 +111,7 @@ export function AppDependencyInstall({ name, onReady }: { name: AppDependency; o
             {failed ? t.apps.retryInstall : label}
           </button>
         )}
-        {((view && !busy) || error) && (
+        {((view && !busy && checkAgain) || error) && (
           <button type="button" className="ghost small-button" disabled={starting} onClick={retry}>
             {t.apps.checkAgain}
           </button>

@@ -1459,7 +1459,7 @@ export const zhTW = {
 
   computer: {
     button: '電腦',
-    buttonTitle: '這個對話的電腦（Cua）',
+    buttonTitle: '這個對話所在資料夾的電腦（Cua）',
     title: '電腦',
     resize: '調整電腦面板寬度',
     status: { off: '關機', starting: '開機中…', ready: '開機', stopping: '關機中…', failed: '無法開機' },
@@ -1480,7 +1480,7 @@ export const zhTW = {
     send: '送出',
     keys: '按鍵',
     off: '電腦沒有開機。agent 第一次用它時會自動開機，你也可以現在開機。',
-    firstTime: '第一次開機要下載它的映像檔（約 1.5 GB），需要幾分鐘。',
+    firstTime: '第一次開機要下載 Cua 的虛擬機和映像檔（約 2 GB，只需一次），可能要一段時間。',
     starting: '正在開機…',
     startingFor: (minutes: number) => (minutes ? `正在開機（已 ${minutes} 分鐘）…` : '正在開機…'),
     notInstalled: '這台電腦還沒有安裝 Cua。',
@@ -1530,7 +1530,7 @@ export const zhTW = {
     computer: {
       label: (agent: string) => `@${agent} 要請你接手電腦`,
       heading: (agent: string) => `@${agent} 需要你接手電腦`,
-      kept: '你在電腦裡登入的帳號和輸入的內容會留在這個對話的電腦裡，agent 之後都能使用和看到，直到刪除電腦為止。agent 看不到你操作的過程，只知道你何時交還和你的留言。',
+      kept: '你在電腦裡登入的帳號和輸入的內容會留在電腦裡，這個工作目錄所有對話的 agent 之後都能使用和看到，直到刪除電腦為止。agent 看不到你操作的過程，只知道你何時交還和你的留言。',
       start: '接手電腦',
       startHint: '電腦會顯示在這個聊天的電腦面板裡，你的點擊、捲動和按鍵會傳給它；agent 這段時間不能操作或截圖。',
       active: '電腦在你手上，請在電腦面板中操作。',
@@ -2451,6 +2451,12 @@ export const zhTW = {
       confirmRemove: (folder: string) =>
         `要刪除 ${folder} 的電腦嗎？裡面的檔案、安裝的軟體和登入的帳號都會一起刪除，這個目錄的對話之後會用一台新的電腦。`,
       status: { off: '已暫停', starting: '開機中', ready: '開機', stopping: '關機中', failed: '無法開機' },
+      removeCua: '移除 Cua',
+      confirmRemoveCua: (n: number) =>
+        `要移除 Cua 嗎？會刪除這個 Harness Relay 的${n ? ` ${n} 台` : ''}電腦（裡面的檔案、安裝的軟體和登入的帳號）、Cua 下載的映像檔，以及 Harness Relay 安裝的 Cua。沒有其他 Cua 沙箱時，Cua 的 Linux 虛擬機也會一起移除。你自己安裝的 Cua 不會被刪除。`,
+      removing: '正在移除 Cua…',
+      removed: '已移除 Cua。',
+      removalFailed: '沒有完全移除 Cua：',
     },
     checkAgain: '重新檢查',
     vault: '選擇筆記庫',
@@ -3628,9 +3634,9 @@ export const zhTW = {
         action: '新自動任務',
       },
       {
-        title: '常用 App',
-        body: '連接 Gmail、行事曆、Slack 等服務，agent 就能幫你查閱；寄信或發訊息前，一定先等你確認。',
-        action: '開啟常用 App',
+        title: '常用 App 與工具',
+        body: '連接 Gmail、行事曆、Slack 等服務，agent 就能幫你查閱，寄信或發訊息前一定先等你確認。也可以在工具庫加入 MCP 伺服器、skill 和記憶。',
+        action: '開啟 App 與工具',
       },
       {
         title: '電腦',

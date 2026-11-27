@@ -2522,6 +2522,8 @@ export interface ComputerSettingsView {
   installs: string;
   /** Whether a Linux computer can run here, in `cua runtime doctor`'s words; undefined until checked. */
   runtime?: { ready: boolean; detail: string };
+  /** Removing Cua (Settings' Remove Cua): its steps, while it runs and once it ended. */
+  removal?: CliInstallJobView;
   /**
    * This server's computers, on or suspended: one per working directory, with the chats there (none for one
    * whose chats were all deleted, or one of an older Harness Relay, kept until deleted here).

@@ -43,7 +43,9 @@ import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets'
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
 import {
   agentFolderOptions,
+  agentProtectedReads,
   clearRunTmp,
+  cuaHomeDir,
   dataDirInTemp,
   makeCodespaceGhDir,
   protectedReads,
@@ -76,7 +78,7 @@ import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
 import { commonAppDependencies } from './appDependencies';
 import { cuaEnv, cuaRunner, linuxRuntime } from './computer/cua';
-import { cuaAvailable, findCua, usableCua } from './computer/install';
+import { cuaAvailable, findCua, uninstallCua, usableCua } from './computer/install';
 import { StdioMcp } from './computer/mcp';
 import { COMPUTER_MCP_PERMISSIONS, ComputerService } from './computer/session';
 import { computerTools } from './computer/tools';
@@ -208,6 +210,10 @@ const computer = new ComputerService({
   handovers: browser.handovers,
   // One computer per working directory: the chats there share it.
   folderOf: (id) => store.cwdOf(id),
+  // Remove Cua's last step: Harness Relay's own copy of cua (the user's own stays).
+  uninstall: () => uninstallCua(),
+  // What a copy to or from a computer never touches: the folders kept from agents, Cua's home too.
+  protectedPaths: () => [...agentProtectedReads(), cuaHomeDir()],
 });
 gateway.register([
   outboxTool((id) => outbox.list(id)),
@@ -249,7 +255,7 @@ if (process.platform !== 'win32') {
     }),
   ]);
 }
-// A chat's computer stays: the other chats in its folder share it (the user deletes it from its panel or Settings).
+// A chat's computer stays: the other chats in its folder share it (the user deletes it in Settings).
 orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
 // The password helper of the commands the user runs from their cards (sudo -A, ssh, git) asks over the gateway's socket.

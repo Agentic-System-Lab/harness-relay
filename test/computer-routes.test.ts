@@ -191,6 +191,33 @@ describe('the computer over the HTTP API', () => {
     await computer.shutdown();
   });
 
+  it('removes Cua in the background, Settings told how it goes', async () => {
+    const { app, computer, headers, runs } = await setup();
+    const removed = await app.request('/api/computer/remove', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toMatchObject({ removal: { state: expect.stringMatching(/running|success/) } });
+    await expect
+      .poll(
+        async () => ((await (await app.request('/api/computer', { headers })).json()) as { removal?: { state: string } }).removal?.state,
+      )
+      .toBe('success');
+    expect(
+      runs.map((r) =>
+        r
+          .filter((a) => a !== '--json')
+          .slice(0, 2)
+          .join(' '),
+      ),
+    ).toEqual(expect.arrayContaining(['sb rm', 'cache prune']));
+    // A plain form post (no JSON) is refused, as every write.
+    expect((await app.request('/api/computer/remove', { method: 'POST', headers, body: 'x' })).status).toBe(415);
+    await computer.shutdown();
+  });
+
   it('says Cua is missing, in the request’s language', async () => {
     const { computer, headers, post, view } = await setup(false);
     expect(await view()).toMatchObject({ available: false });

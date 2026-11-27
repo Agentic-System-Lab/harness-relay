@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { fileKey } from '../src/server/db';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -8,7 +9,16 @@ import type { ComputerScreenEvent, HandoverPart } from '../src/shared/types';
 import { Handovers } from '../src/server/browser/handover';
 import { cuaEnv, cuaFailure, cuaHome, lastJson, linuxRuntime } from '../src/server/computer/cua';
 import { checkComputerInputs } from '../src/server/computer/input';
-import { atLeast, CUA_MIN_VERSION, CUA_VERSION, cuaBuild, findCua, installCua, parseCuaVersion } from '../src/server/computer/install';
+import {
+  atLeast,
+  CUA_MIN_VERSION,
+  CUA_VERSION,
+  cuaBuild,
+  findCua,
+  installCua,
+  parseCuaVersion,
+  uninstallCua,
+} from '../src/server/computer/install';
 import { InstallJob } from '../src/server/cliInstall';
 import { StdioMcp, toolResult, type McpToolResult } from '../src/server/computer/mcp';
 import {
@@ -20,6 +30,7 @@ import {
   computerName,
   folderKey,
   imageSize,
+  pinnedCopy,
   insideFolder,
   isGuestPath,
   runtimeSummary,
@@ -76,8 +87,21 @@ class FakeMcp implements ComputerMcp {
   }
 }
 
-function setup(o: { info?: SpawnResult; create?: SpawnResult[]; dataDir?: string; available?: boolean } = {}) {
+function setup(
+  o: {
+    info?: SpawnResult;
+    create?: SpawnResult[];
+    dataDir?: string;
+    available?: boolean;
+    protectedPaths?: string[];
+    /** Held before cua answers: a slow step. */
+    before?: (args: string[]) => Promise<void> | undefined;
+    /** Told of each `sb cp`, before the fake copies. */
+    cp?: (args: string[]) => void;
+  } = {},
+) {
   const runs: string[][] = [];
+  let mcpStarts = 0;
   const creates = [...(o.create ?? [ok('{"status":"ready"}')])];
   const mcp = new FakeMcp();
   const handovers = new Handovers();
@@ -86,6 +110,8 @@ function setup(o: { info?: SpawnResult; create?: SpawnResult[]; dataDir?: string
   const service = new ComputerService({
     run: async (args) => {
       runs.push(args);
+      await o.before?.(args);
+      if (args[1] === 'cp') o.cp?.(args);
       if (args.includes('info')) return o.info ?? fail('not found: sandbox');
       if (args.includes('create')) return creates.shift() ?? ok();
       if (args.includes('ls'))
@@ -104,11 +130,13 @@ function setup(o: { info?: SpawnResult; create?: SpawnResult[]; dataDir?: string
     },
     available: () => o.available ?? true,
     startMcp: async () => {
+      mcpStarts++;
       mcp.alive = true;
       return mcp;
     },
     found: () => ({ bin: '/x/cua', version: CUA_VERSION, own: true }),
     dataDir: o.dataDir ?? root,
+    protectedPaths: () => o.protectedPaths ?? [],
     handovers,
     // Every chat in `root` but `elsewhere`, in a folder of its own.
     folderOf: (id) => (id === 'elsewhere' ? ELSEWHERE : root),
@@ -124,6 +152,7 @@ function setup(o: { info?: SpawnResult; create?: SpawnResult[]; dataDir?: string
     mcp,
     handovers,
     shots,
+    mcpStarts: () => mcpStarts,
     advance: (ms: number) => {
       now += ms;
     },
@@ -171,8 +200,9 @@ describe('installing Cua', () => {
   });
 
   it('starts its own copy first, else the user’s own when it is new enough', () => {
-    const folder = join(root, 'clis-cua');
-    const own = join(folder, 'cua');
+    // A Linux computer's paths, on every system the tests run on.
+    const folder = '/srv/relay/data/clis/cua';
+    const own = '/srv/relay/data/clis/cua/cua';
     const theirs = '/home/u/.local/bin/cua';
     const programs = new Set<string>();
     const probe = (bin: string) => (bin === own ? '0.31.2' : bin === theirs ? version : undefined);
@@ -183,7 +213,7 @@ describe('installing Cua', () => {
     programs.add(theirs);
     expect(find()).toEqual({ bin: theirs, version: '0.31.5', own: false });
     // An older one on the PATH is too old (and Settings offers its own).
-    const older = join('/opt/old', 'cua');
+    const older = '/opt/old/cua';
     expect(
       findCua({
         env: { PATH: '/opt/old' },
@@ -230,6 +260,20 @@ describe('installing Cua from Settings', () => {
     expect(job.view().progress).toEqual({ done: tarball.length, total: tarball.length });
     expect(seen).toContain(10);
     expect(job.view().log).toMatch(/Cua 0\.31\.2/);
+  });
+});
+
+describe('removing Cua’s program', () => {
+  it('deletes its own copy, never the user’s own', async () => {
+    const folder = join(root, 'uninstall', 'cua');
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, process.platform === 'win32' ? 'cua.exe' : 'cua'), 'x');
+    expect(await uninstallCua(folder, () => undefined)).toEqual({ removed: true });
+    expect(existsSync(folder)).toBe(false);
+    expect(await uninstallCua(folder, () => ({ bin: '/home/u/.local/bin/cua', version: '0.31.2', own: false }))).toEqual({
+      kept: '/home/u/.local/bin/cua',
+    });
+    expect(await uninstallCua(folder, () => undefined)).toBeUndefined();
   });
 });
 
@@ -369,6 +413,15 @@ describe('the chat’s computer', () => {
     expect(sandboxState({ state: 'exited' })).toBe('stopped');
     expect(sandboxState(undefined)).toBeUndefined();
     expect(imageSize(png(1200, 750))).toEqual({ width: 1200, height: 750 });
+    // A JPEG's, past its first segments.
+    const jpeg = Buffer.from([
+      ...[0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10],
+      ...Array<number>(14).fill(0),
+      ...[0xff, 0xc0, 0x00, 0x11, 0x08, 0x02, 0xee, 0x04, 0xb0, 0x03],
+      ...Array<number>(9).fill(0),
+    ]);
+    expect(imageSize(jpeg.toString('base64'))).toEqual({ width: 1200, height: 750 });
+    expect(imageSize(Buffer.from('not an image').toString('base64'))).toBeUndefined();
     expect(imageSize(Buffer.from('GIF89a........................').toString('base64'))).toBeUndefined();
   });
 
@@ -463,6 +516,11 @@ describe('the chat’s computer', () => {
     await bridge.service.call(ctx(), 'computer_click', { x: 1, y: 2 }, 'click');
     expect(bridge.runs.filter((r) => r.includes('create'))).toHaveLength(2);
     await bridge.service.shutdown();
+    // Another failure that names the runtime is not gVisor's: no runc for it.
+    const named = setup({ create: [fail('cua: pull ghcr.io/trycua/linux:24.04 (runtime runsc): network unreachable')] });
+    await expect(named.service.call(ctx(), 'computer_click', { x: 1, y: 2 }, 'click')).rejects.toThrow(/network unreachable/);
+    expect(named.runs.filter((r) => r.includes('create'))).toHaveLength(1);
+    await named.service.shutdown();
     const broken = setup({ create: [fail('cua: local runtime: no container engine')] });
     await expect(broken.service.call(ctx(), 'computer_click', { x: 1, y: 2 }, 'click')).rejects.toThrow(/no container engine/);
     expect(broken.service.view('c1')).toMatchObject({ status: 'failed', error: expect.stringContaining('no container engine') });
@@ -590,6 +648,107 @@ describe('the chat’s computer', () => {
     );
   });
 
+  it('leaves the user the control they had as a hand-over ends, and asks for one hand-over at a time', async () => {
+    const { service, handovers } = setup();
+    await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
+    const card = () => ({ update: () => undefined });
+    const asking = ctx({ ask: async () => ({ allow: true }), handoverCard: card });
+    service.takeControl('c1');
+    const first = service.handOver(asking, 'Sign in');
+    // Another agent's (a chat of the same folder too) is refused while this one is asked, from its start on.
+    expect(await service.handOver(ctx({ ...asking, agentId: 'a2', agentName: 'Codex' }), 'Me too')).toMatchObject({
+      isError: true,
+      text: expect.stringContaining('already asked'),
+    });
+    await vi.waitFor(() => expect(service.view('c1').handover).toBeDefined());
+    handovers.answer('c1', service.view('c1').handover!.id, { action: 'cancel' });
+    await first;
+    expect(service.view('c1').control).toBe('user');
+    // Taken over while the user had it already: it stays theirs as the turn ends.
+    const turn = new AbortController();
+    const second = service.handOver({ ...asking, signal: turn.signal }, 'Again');
+    await vi.waitFor(() => expect(service.view('c1').handover).toBeDefined());
+    handovers.answer('c1', service.view('c1').handover!.id, { action: 'start', mode: 'computer' });
+    await vi.waitFor(() => expect(service.view('c1').handover?.status).toBe('active'));
+    turn.abort();
+    await expect(second).rejects.toThrow();
+    expect(service.view('c1').control).toBe('user');
+    expect(service.view('c1').handover).toBeUndefined();
+    // One that gave the user control gives it back as the turn ends.
+    service.handBack('c1');
+    const again = new AbortController();
+    const third = service.handOver({ ...asking, signal: again.signal }, 'Once more');
+    await vi.waitFor(() => expect(service.view('c1').handover).toBeDefined());
+    handovers.answer('c1', service.view('c1').handover!.id, { action: 'start', mode: 'computer' });
+    await vi.waitFor(() => expect(service.view('c1').control).toBe('user'));
+    again.abort();
+    await expect(third).rejects.toThrow();
+    expect(service.view('c1').control).toBe('agents');
+    await service.shutdown();
+  });
+
+  it('starts again only once a suspend under way has ended', async () => {
+    let release: (() => void) | undefined;
+    const { service, runs, advance } = setup({
+      // The first suspend only.
+      before: (args) => (args.includes('suspend') && !release ? new Promise<void>((resolve) => (release = resolve)) : undefined),
+    });
+    await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
+    advance(61_000);
+    const idle = service.suspendIdle();
+    await vi.waitFor(() => expect(service.view('c1').status).toBe('stopping'));
+    const call = service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const suspendAt = runs.findIndex((r) => r.includes('suspend'));
+    expect(runs.slice(suspendAt + 1)).toEqual([]);
+    release!();
+    await idle;
+    expect((await call).isError).toBeFalsy();
+    expect(runs.slice(suspendAt + 1).some((r) => r.includes('info'))).toBe(true);
+    expect(service.view('c1').status).toBe('ready');
+    await service.shutdown();
+  });
+
+  it('stops a start under way when its computer is deleted, and keeps nothing it started', async () => {
+    let release: (() => void) | undefined;
+    const { service, runs, mcpStarts } = setup({
+      // The first create only.
+      before: (args) => (args.includes('create') && !release ? new Promise<void>((resolve) => (release = resolve)) : undefined),
+    });
+    const call = service.call(ctx(), 'computer_screenshot', {}, 'screenshot').catch((err: Error) => err);
+    await vi.waitFor(() => expect(runs.some((r) => r.includes('create'))).toBe(true));
+    const removing = service.removeByName(NAME);
+    release!();
+    await removing;
+    expect(await call).toBeInstanceOf(Error);
+    expect(runs.at(-1)).toEqual(['sb', 'rm', 'local:' + NAME, '--force']);
+    expect(mcpStarts()).toBe(0);
+    expect(service.view('c1').status).toBe('off');
+    // Used again, it is made again.
+    await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
+    expect(service.view('c1').status).toBe('ready');
+    await service.shutdown();
+  });
+
+  it('says what was done in the language each panel asks in', async () => {
+    const { service } = setup();
+    const seen = { en: [] as ComputerScreenEvent[], zh: [] as ComputerScreenEvent[] };
+    const stop = [
+      withLang('en', () => service.watch('c1', (e) => seen.en.push(e))),
+      withLang('zh-TW', () => service.watch('c1', (e) => seen.zh.push(e))),
+    ];
+    service.takeControl('c1');
+    const said = (events: ComputerScreenEvent[]) => {
+      const state = events.filter((e) => e.type === 'state').at(-1);
+      return state?.type === 'state' ? state.view.recent.at(-1)?.what : undefined;
+    };
+    expect(said(seen.en)).toBe('You took control of the computer');
+    expect(said(seen.zh)).toBe('你接手了電腦');
+    expect(withLang('en', () => service.view('c1').recent.at(-1)?.what)).toBe('You took control of the computer');
+    for (const end of stop) end();
+    await service.shutdown();
+  });
+
   it('is suspended when unused, turned off and deleted on the user’s word', async () => {
     const { service, runs, advance } = setup();
     await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
@@ -660,7 +819,91 @@ describe('the chat’s computer', () => {
     await service.shutdown();
   });
 
-  it('gives a link to Cua’s viewer of a computer that is on: to watch only, unless the user has control', async () => {
+  it('removes Cua from Settings: this server’s computers, the cache, Cua’s runtime when nothing else is left, and its own copy', async () => {
+    let sandboxes = [{ name: NAME, state: 'running', status: 'ready' }];
+    const runs: string[][] = [];
+    let uninstalled = 0;
+    const service = new ComputerService({
+      run: async (args) => {
+        runs.push(args);
+        if (args.includes('ls')) return ok(JSON.stringify(sandboxes));
+        if (args.includes('rm')) sandboxes = sandboxes.filter((s) => 'local:' + s.name !== args[2]);
+        if (args.includes('info')) return fail('not found');
+        return ok('{}');
+      },
+      available: () => true,
+      startMcp: async () => new FakeMcp(),
+      dataDir: root,
+      handovers: new Handovers(),
+      folderOf: () => root,
+      shotsDir: () => join(root, 'shots-removal'),
+      uninstall: async () => {
+        uninstalled++;
+        return { removed: true };
+      },
+    });
+    service.startRemoval();
+    await vi.waitFor(async () => expect((await service.settingsView(false, () => [])).removal?.state).toBe('success'));
+    expect(runs.map((r) => r.slice(0, 3).join(' '))).toEqual([
+      '--json sb ls',
+      'sb rm local:' + NAME,
+      '--json sb ls',
+      '--json cache prune',
+      '--json host remove',
+    ]);
+    expect(uninstalled).toBe(1);
+    const { removal } = await service.settingsView(false, () => []);
+    expect(removal?.log).toMatch(/relay-/);
+    // Another sandbox left in Cua's home (the user's own): Cua's runtime stays.
+    sandboxes = [{ name: 'their-own', state: 'running', status: 'ready' }];
+    runs.length = 0;
+    service.startRemoval();
+    await vi.waitFor(async () => expect((await service.settingsView(false, () => [])).removal?.state).toBe('success'));
+    expect(runs.some((r) => r.includes('host'))).toBe(false);
+    expect(runs.some((r) => r.includes('rm'))).toBe(false);
+    await service.shutdown();
+  });
+
+  it('says which steps of removing Cua did not finish', async () => {
+    const service = new ComputerService({
+      run: async (args) => (args.includes('prune') ? fail('cua: cache is locked') : args.includes('ls') ? ok('[]') : ok('{}')),
+      available: () => true,
+      startMcp: async () => new FakeMcp(),
+      dataDir: root,
+      handovers: new Handovers(),
+      shotsDir: () => join(root, 'shots-removal3'),
+    });
+    withLang('en', () => service.startRemoval());
+    await vi.waitFor(async () => expect((await service.settingsView(false, () => [])).removal?.state).toBe('failed'));
+    expect((await service.settingsView(false, () => [])).removal?.error).toMatch(/Clearing the images.*cache is locked/);
+    await service.shutdown();
+  });
+
+  it('starts no computer while Cua is being removed', async () => {
+    let finish!: () => void;
+    const slow = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const service = new ComputerService({
+      run: async (args) => {
+        if (args.includes('prune')) await slow;
+        if (args.includes('ls')) return ok('[]');
+        return ok('{}');
+      },
+      available: () => true,
+      startMcp: async () => new FakeMcp(),
+      dataDir: root,
+      handovers: new Handovers(),
+      shotsDir: () => join(root, 'shots-removal2'),
+    });
+    service.startRemoval();
+    await expect(service.call(ctx(), 'computer_screenshot', {}, 'screenshot')).rejects.toThrow();
+    finish();
+    await vi.waitFor(async () => expect((await service.settingsView(false, () => [])).removal?.state).toBe('success'));
+    await service.shutdown();
+  });
+
+  it('gives a link to Cua’s viewer of a computer that is on, to watch only: even while the user has control', async () => {
     const { service, runs } = setup();
     await expect(service.viewerLink('c1')).rejects.toThrow();
     await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
@@ -670,9 +913,10 @@ describe('the chat’s computer', () => {
       expiresAt: 2_000_000,
     });
     expect(runs.at(-1)).toContain('--view-only');
+    // Cua cannot take a link back: one with input would go on after the user handed the computer back.
     service.takeControl('c1');
-    expect(await service.viewerLink('c1')).toMatchObject({ viewOnly: false });
-    expect(runs.at(-1)).not.toContain('--view-only');
+    expect(await service.viewerLink('c1')).toMatchObject({ viewOnly: true });
+    expect(runs.at(-1)).toContain('--view-only');
     await service.shutdown();
   });
 
@@ -714,16 +958,29 @@ describe('copying files in and out', () => {
     expect(isGuestPath('/a\nb')).toBe(false);
   });
 
-  it('copies a file in with cua, and out through a file of its own into place', async () => {
-    const { service, runs } = setup();
+  const tmp = join(root, 'tmp');
+  const data = join(root, 'relay-data');
+
+  it('copies a file in through a copy of its own, and out through a file of its own into place', async () => {
+    const uploads: string[] = [];
+    const { service, runs } = setup({
+      dataDir: data,
+      cp: (args) => {
+        if (args[3]!.startsWith('local:')) uploads.push(readFileSync(args[2]!, 'utf8'));
+      },
+    });
     const c = ctx({ cwd: work });
     await service.call(c, 'computer_screenshot', {}, 'screenshot');
-    expect(await service.upload(c, 'app.py', '/home/cua/Desktop/app.py')).toEqual({
+    expect(await service.upload(c, 'app.py', '/home/cua/Desktop/app.py', tmp)).toEqual({
       text: 'Copied app.py to /home/cua/Desktop/app.py in the computer.',
     });
-    expect(runs.at(-1)).toEqual(['sb', 'cp', join(work, 'app.py'), `local:${NAME}:/home/cua/Desktop/app.py`]);
-    expect((await service.upload(c, 'sub', '/tmp/x')).isError).toBe(true);
-    expect((await service.upload(c, 'app.py', 'relative')).isError).toBe(true);
+    // What cua reads is Harness Relay's copy of the file as it was checked, gone once copied.
+    const cp = runs.at(-1)!;
+    expect(cp).toEqual(['sb', 'cp', expect.stringContaining(tmp), `local:${computerName(data, folderKey(root))}:/home/cua/Desktop/app.py`]);
+    expect(uploads).toEqual(['print(1)']);
+    expect(existsSync(cp[2]!)).toBe(false);
+    expect((await service.upload(c, 'sub', '/tmp/x', join(root, 'tmp'))).isError).toBe(true);
+    expect((await service.upload(c, 'app.py', 'relative', join(root, 'tmp'))).isError).toBe(true);
     expect((await service.download(ctx({ cwd: work, permission: 'read-only' }), '/tmp/r.txt', 'r.txt', join(root, 'tmp'))).isError).toBe(
       true,
     );
@@ -732,6 +989,71 @@ describe('copying files in and out', () => {
     });
     expect(readFileSync(join(work, 'sub', 'r.txt'), 'utf8')).toBe('from the computer');
     await service.shutdown();
+  });
+
+  it('never copies what is kept from agents: .git, the data folder, the protected folders, the withheld files', async () => {
+    const inner = join(work, 'data');
+    mkdirSync(inner, { recursive: true });
+    writeFileSync(join(inner, 'relay.db'), 'db');
+    mkdirSync(join(work, '.git', 'hooks'), { recursive: true });
+    writeFileSync(join(work, '.git', 'config'), '[core]');
+    mkdirSync(join(work, 'profile'), { recursive: true });
+    writeFileSync(join(work, 'profile', 'Cookies'), 'c');
+    // Harness Relay's data folder inside the working directory (a read-only chat may work there).
+    const { service, runs } = setup({ dataDir: inner, protectedPaths: [join(work, 'profile')] });
+    const c = ctx({ cwd: work });
+    await service.call(c, 'computer_screenshot', {}, 'screenshot');
+    const before = runs.length;
+    for (const path of ['.git/config', 'data/relay.db', 'profile/Cookies'])
+      expect(await service.upload(c, path, '/tmp/x', tmp), path).toMatchObject({
+        isError: true,
+        text: expect.stringMatching(/keeps from agents/),
+      });
+    for (const path of ['.git/hooks/pre-commit', 'data/new.txt', 'profile/x'])
+      expect(await service.download(c, '/tmp/r.txt', path, tmp), path).toMatchObject({
+        isError: true,
+        text: expect.stringMatching(/keeps from agents/),
+      });
+    expect(runs.slice(before).some((r) => r[1] === 'cp')).toBe(false);
+    expect(existsSync(join(work, '.git', 'hooks', 'pre-commit'))).toBe(false);
+    // The files this server withholds (its database's, wherever it is).
+    writeFileSync(join(work, 'app.db'), 'x');
+    const withheld = new Set([fileKey(statSync(join(work, 'app.db'), { bigint: true }))]);
+    expect(insideFolder(work, 'app.db', false, { dataDir: data, protectedPaths: () => [], withheld: () => withheld })).toEqual({
+      error: expect.stringMatching(/keeps from agents/),
+    });
+    await service.shutdown();
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'places a file copied out only where it was checked: a link put in its way meanwhile is refused',
+    async () => {
+      mkdirSync(join(work, 'drop'), { recursive: true });
+      const { service } = setup({
+        dataDir: data,
+        cp: (args) => {
+          if (!args[2]!.startsWith('local:')) return;
+          rmSync(join(work, 'drop'), { recursive: true });
+          symlinkSync(outside, join(work, 'drop'));
+        },
+      });
+      const c = ctx({ cwd: work });
+      await service.call(c, 'computer_screenshot', {}, 'screenshot');
+      expect(await service.download(c, '/tmp/evil', 'drop/evil.plist', tmp)).toMatchObject({
+        isError: true,
+        text: expect.stringContaining('outside'),
+      });
+      expect(existsSync(join(outside, 'evil.plist'))).toBe(false);
+      await service.shutdown();
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('reads a file it copies in through the descriptor it opened, never through a link', async () => {
+    writeFileSync(join(work, 'mine.txt'), 'mine');
+    symlinkSync(join(outside, 'secret.txt'), join(work, 'swapped.txt'));
+    await expect(pinnedCopy(join(work, 'swapped.txt'), tmp)).rejects.toThrow();
+    const copy = await pinnedCopy(join(work, 'mine.txt'), tmp);
+    expect(readFileSync(copy, 'utf8')).toBe('mine');
   });
 });
 

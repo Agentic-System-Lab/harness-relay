@@ -11490,6 +11490,12 @@ a.share-action {
   gap: 8px;
 }
 
+/* Removing Cua: what did not finish, a step a line. */
+.computer-removal p {
+  margin: 0;
+  white-space: pre-line;
+}
+
 .computer-bar,
 .computer-handover,
 .computer-note,
