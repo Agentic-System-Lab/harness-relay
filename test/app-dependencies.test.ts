@@ -14,7 +14,11 @@ describe('common app prerequisites', () => {
       ready = true;
     });
     const github = { available: () => ready, plan: () => ({ install }) };
-    const deps = new AppDependencies({ github, browser: { available: () => false, plan: () => ({ command: 'install chromium' }) } });
+    const deps = new AppDependencies({
+      github,
+      browser: { available: () => false, plan: () => ({ command: 'install chromium' }) },
+      cua: { available: () => false, plan: () => ({}) },
+    });
     expect(deps.view('github')).toMatchObject({ available: false, canInstall: true });
     expect(deps.view('browser')).toMatchObject({ available: false, canInstall: false, command: 'install chromium' });
     expect(() => deps.install('browser')).toThrow();
@@ -39,7 +43,7 @@ describe('common app prerequisites', () => {
         },
       }),
     };
-    const deps = new AppDependencies({ github: dep, browser: dep });
+    const deps = new AppDependencies({ github: dep, browser: dep, cua: dep });
     deps.install('browser');
     await vi.waitFor(() => expect(deps.view('browser').job?.state).toBe('failed'));
     expect(deps.view('browser').canInstall).toBe(true);
@@ -66,7 +70,7 @@ it('reserves one host Docker install for simultaneous requests and checks engine
     ...dep,
     probe: vi.fn(async () => ({ state: ready ? ('ready' as const) : present ? ('unavailable' as const) : ('missing' as const) })),
   };
-  const deps = new AppDependencies({ github: dep, browser: dep }, docker);
+  const deps = new AppDependencies({ github: dep, browser: dep, cua: dep }, docker);
   expect(await deps.dockerView()).toMatchObject({ state: 'missing', canInstall: true, available: false });
   expect(install).not.toHaveBeenCalled();
   const clicks = await Promise.all([deps.installDocker(), deps.installDocker()]);

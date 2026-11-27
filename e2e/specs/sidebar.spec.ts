@@ -288,7 +288,7 @@ test.describe('the sidebar', () => {
     await more.focus();
     await page.keyboard.press('Enter');
     const actions = page.locator('.chat-head-actions');
-    await expect(actions.getByRole('button')).toHaveText(['Pin', 'Share', 'Files', 'Automation', 'Team settings', 'Preview']);
+    await expect(actions.getByRole('button')).toHaveText(['Pin', 'Share', 'Files', 'Automation', 'Team settings', 'Preview', 'Computer']);
     await page.keyboard.press(tabToButton);
     await expect(headPin).toBeFocused();
     await page.keyboard.press('Escape');

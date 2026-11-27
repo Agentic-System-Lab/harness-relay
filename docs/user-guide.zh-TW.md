@@ -380,7 +380,7 @@ agent 從不使用它的 CLI 自己的提問表單（Claude Code、Codex、Grok�
 
 ### 常用 App
 
-開啟**設定 → App 與工具**，選擇**常用 App**分頁。四組服務都在同一頁。**郵件與行事曆**分別管理郵件及行事曆帳號。**團隊通訊**包含 Microsoft Teams 與 Slack。**文件與筆記**包含 Google Drive、Notion、Heptabase 與 Obsidian。**開發與瀏覽**包含 GitHub 與瀏覽器。展開 Teams 即可直接用 Microsoft 帳號登入。Slack 可按**連結**選擇 Claude 或 Codex，也可在**從 Relay 傳送訊息**設定直接發文。使用 Notion 或 Heptabase 時，按該服務那一列即可開始登入。
+開啟**設定 → App 與工具**，選擇**常用 App**分頁。四組服務都在同一頁。**郵件與行事曆**分別管理郵件及行事曆帳號。**團隊通訊**包含 Microsoft Teams 與 Slack。**文件與筆記**包含 Google Drive、Notion、Heptabase 與 Obsidian。**開發與瀏覽**包含 GitHub、瀏覽器與電腦（Cua）。展開 Teams 即可直接用 Microsoft 帳號登入。Slack 可按**連結**選擇 Claude 或 Codex，也可在**從 Relay 傳送訊息**設定直接發文。使用 Notion 或 Heptabase 時，按該服務那一列即可開始登入。
 
 | App | 在聊天中可以做什麼 |
 | --- | --- |
@@ -394,6 +394,7 @@ agent 從不使用它的 CLI 自己的提問表單（Claude Code、Codex、Grok�
 | Obsidian | 可在執行 Relay 的電腦上連結一個或多個筆記庫。獲得授權的每位助理都能列出所有已連結筆記庫中的資料夾、讀取 Markdown 筆記，並提議修改。要解除某個筆記庫的連結，請使用該完整路徑旁的按鈕。筆記會留在磁碟上。 |
 | GitHub | 列出儲存庫的拉取請求。展開 GitHub 可安裝 GitHub CLI、使用畫面上的代碼登入，或管理已登入的帳號。 |
 | 瀏覽器 | 選擇哪些助理可以開啟網頁與擷取畫面。「要啟動的瀏覽器」可指定執行檔。 |
+| 電腦（Cua） | 安裝 Cua 後，選擇哪些助理可以使用同一個工作目錄的對話共用的 Linux 桌面：截圖、點擊、打字與執行指令，你在對話中觀看並可接手。見[對話的電腦](#對話的電腦cua)。 |
 
 要在 Claude 連結 Slack，請用與 Relay 的 Claude Code 相同的 Claude 訂閱帳號。使用 Codex 時，在該帳號的 ChatGPT 工作區安裝外掛、授權，再到 Relay 建立新對話。在供應商頁面授權 Slack 後，請回到 Relay。Slack 列會分別顯示 Claude 與 Codex 的狀態，以及目前查詢的帳號。Claude 顯示已連結時，代表 Claude Code 回報連線成功。Codex 顯示可使用時，代表該 App 已啟用且可呼叫；按**重新檢查連線**或從供應商頁回到 Relay 時，Codex 會透過該服務唯讀查詢自己的個人資料。顯示**已在 Codex 連結**表示已通過需要登入的查詢，狀態回應不包含個人資料。要核對授權的工作區或帳號，可在 Codex 的**設定 → 外掛（Plugins）**開啟該 App，查看已連結帳號。若未授權就關閉頁面，可按**重新檢查連線**更新兩個供應商的狀態。已連結的供應商會顯示解除連結的選項。使用 Claude 時，請前往連接器管理頁移除服務。若使用 Codex，請在該 App 的已連結帳號中選取帳號後解除連結，再回到 Relay 確認結果。移除帳號授權後，該 App 仍可能顯示為可使用。若查詢失敗，狀態會顯示無法確認。另一個供應商與 Relay 的直接連線各有自己的權限。若要檢視 CLI 載入的工具，請打開該助理的設定、選擇帳號，在 CLI 自行載入的工具清單中按「查詢」。Claude Code 查看「MCP 工具」，Codex 查看「Plugins」。若 Codex 沒有列出該 App，請檢查該帳號的外掛目錄。所選服務會收到你請它讀取的內容，適用你自己的方案與工作區規則。這些連結不使用 Relay 發行者的 API 憑證。
 
@@ -472,6 +473,26 @@ CLI 自己對這些工具的詢問，由 Harness Relay 直接回答、不顯示�
 若要解除單一 Google 或 Microsoft 帳號的連結，請開啟**常用 App → 帳號登入設定（OAuth 2.0）**，在對應服務提供者下找到電子郵件地址，核對列出的服務後按**解除帳號連結**。確認後，Relay 會移除該帳號的權杖及其連結的信箱與行事曆，並終止列出的其他存取權，包括 Drive 和 Google 文件。其他帳號仍可使用。Relay 也會向 Google 要求撤銷該權杖。Microsoft 則提供可撤銷 App 授權的頁面。[查看 OAuth 設定中的已連結帳號](../site/assets/media/docs/tools-oauth-accounts-zh-TW.webp)
 
 Microsoft 365 在國家雲時，用 `RELAY_MICROSOFT_LOGIN_URL` 與 `RELAY_MICROSOFT_GRAPH_URL` 指定它的登入與 Graph，用於它的行事曆；它的郵件還不支援（`RELAY_MICROSOFT_IMAP` 與 `RELAY_MICROSOFT_SMTP` 是給測試中這台電腦上的替身用的）。
+
+### 對話的電腦（Cua）
+
+每個工作目錄可以有一台電腦：用 [Cua](https://github.com/trycua/cua) 做出的 Linux 桌面（Ubuntu、Xfce 與 Firefox），由這個資料夾的對話、它們的 agent 和你共用。它不是執行 Harness Relay 的那台電腦。agent 用電腦工具查看與操作它，你在對話旁邊看著，隨時可以接手。
+
+**安裝 Cua。** 開啟**設定 → App 與工具 → 常用 App → 開發與瀏覽 → 電腦（Cua）**，按**安裝 Cua**。Harness Relay 會把 Cua 的官方發行版（0.31.2）下載到它自己的資料夾，檢查校驗碼，並顯示下載進度，不會更動你電腦上的其他東西。你自己安裝的 0.31.0 以上的 `cua` 會直接拿來用（在 `PATH`、`~/.local/bin`，或 Windows 的 `%LOCALAPPDATA%\Programs\cua\bin`）；版本太舊時會指出是哪一個，並提供 Harness Relay 自己的版本。**檢查這台電腦能不能執行**會詢問 Cua（`cua runtime doctor`，需要幾秒），並說明缺了什麼。接著在**選擇助理以啟用工具**中，勾選可以使用電腦的助理。
+
+**電腦在哪裡執行。** 在 macOS 與 Windows 上，執行在 Cua 自己的 Linux 虛擬機裡（Windows 上是 Cua 自己的 WSL 2 發行版），和你的 Docker 分開；在 Linux 上，執行在這台電腦的 Docker 或 Podman 裡，裝了 gVisor 時用 gVisor（gVisor 啟動不了 Cua 的映像檔時，Harness Relay 會改用 runc 再試一次，面板上會說明）。Harness Relay 環境中的 `CUA_RUNTIME_LINUX` 可以改變這個選擇。Cua 把電腦和映像檔放在它的家目錄 `~/.cua`（或 `CUA_HOME`）；Harness Relay 啟動 Cua 時會關掉它的使用統計（`DO_NOT_TRACK=1`、`CUA_TELEMETRY=0`），也不會把你的任何金鑰交給它。
+
+**第一次開機**要下載 Cua 的虛擬機與桌面映像檔，大約 2 GB，可能需要很多分鐘。這台電腦上只會下載這一次：之後任何資料夾的電腦都從同一個映像檔開機，只要幾秒，刪除電腦後再開一台新的也一樣。不論是誰啟動的，它都會在背景繼續：這段期間 agent 來使用時，會被告知電腦還在開機、稍後再看，面板上也會顯示已經開機多久。
+
+**一個工作目錄一台。** 工作目錄是同一個資料夾的對話共用一台電腦：裡面的檔案、安裝的程式、登入的帳號，以及由誰操作（你在其中一個對話接手時，這些對話的 agent 都會等待）。其他資料夾的對話有自己的電腦。閒置 30 分鐘後會暫停（記憶體與磁碟都保留，再次使用時很快就會醒來）。刪除對話不會刪除電腦，它會留給同一個資料夾的其他對話；要刪除時請在設定的清單中操作，清單會列出每台電腦的資料夾和有幾個對話在用（也包括已經沒有對話在用的電腦）。
+
+**移除 Cua。** 同一個設定列的**移除 Cua**，在你確認後把 Cua 從這台電腦移除：在背景刪除這個 Harness Relay 的電腦（連同磁碟），清除 Cua 下載的映像檔（其他沙箱還在用的會保留），Cua 的家目錄裡沒有其他 Cua 沙箱時（你自己的，或另一個 Harness Relay 的；有的話就保留），也移除 Cua 自己的 Linux 虛擬機（macOS），或 Linux 上 Cua 在 Docker 裡的映像檔與輔助容器（Windows 上 Cua 的 WSL 發行版會保留，設定列會說明如何用 `wsl --unregister` 移除），最後刪除 Harness Relay 安裝的 `cua`（你自己安裝的不會刪）。這段期間不會啟動任何電腦。完成後設定列會顯示**已移除 Cua。**，或哪些步驟沒有完成；按**安裝 Cua** 可以再裝回來。
+
+**面板。** 在對話中開啟 **⋯ → 電腦**。它會出現在對話旁邊應用程式預覽的位置（拖曳邊界可調整寬度），電腦畫面一有變化，很快就會更新。agent 操作時，你在旁觀看。按**接手**後電腦就交給你：你的點擊、拖曳、捲動與按鍵都會傳給它，也有打字框（手機鍵盤、輸入法、貼上）和按鍵選單；這段期間 agent 的呼叫都會被拒絕（請它們等待），連截圖也不行，所以它們看不到你打的內容。按**交還給 agent** 就交回去。**用 Cua 檢視器開啟**會在新分頁開啟 Cua 自己的檢視器，畫面更流暢，但只能在執行 Harness Relay 的那台電腦上開（它的網址是本機的 port），而且只能觀看，你接手時也一樣：Cua 收不回已經給出的連結，能操作的連結在你交還電腦之後仍然可以打字。你的點擊和按鍵請在面板操作。**最近的操作**列出誰做了什麼（某個 agent、你，或啟動它的 Harness Relay）。**關機**會暫停它。面板所在的頁面在背景時（切到其他分頁、視窗被蓋住），面板會停止接收畫面，所以開著不管的面板不會讓電腦一直醒著，也不會讓它一直截圖。要連同磁碟一起刪除（這個資料夾的所有對話都會失去它），請在設定的清單中操作（下次使用時會開一台新的，不用重新下載）。
+
+**agent 的工具。** 拿到電腦的成員會有 `computer_screenshot`（讀取：在任何權限下都會執行，截圖會存在回覆能顯示的地方），以及 `computer_click`、`computer_type`、`computer_key`、`computer_scroll`、`computer_drag`、`computer_open`（開啟 App）、`computer_shell`（在那台電腦裡執行指令，不是你的電腦）、`computer_upload`（把工作目錄的檔案複製到電腦）與 `computer_download`（把電腦的檔案複製到工作目錄；唯讀對話不行）；這些會改變東西，在完全存取以下會和其他動作一樣用卡片問你（每個工具都可以**一律允許**）。座標是最新一張截圖的像素。複製檔案絕不會碰到 agent 被擋住的東西：`.git`、Harness Relay 的資料夾（工作目錄包含它時也一樣）、所有 agent 都被擋住的資料夾（瀏覽器的設定檔、Cua 的家目錄）以及 Harness Relay 的資料庫檔案。你接手時所有呼叫都會被拒絕；你交還之後，agent 必須先重新截圖才能操作。需要你本人的步驟（登入、密碼、CAPTCHA），成員會呼叫 `computer_hand_over`：卡片說明原因，按**接手電腦**會打開面板並把電腦交給你，交還時（可以留話）agent 只會知道你交還了和你的留言，不會知道你做了什麼。如果它開口時電腦已經在你手上，交接結束後電腦仍然是你的。一台電腦一次只有一個交接：這段期間其他 agent（例如同資料夾另一個對話的）提出的交接會被拒絕。沒有人在看的執行中不能使用。
+
+**需要什麼。** 虛擬化：沒有虛擬化的電腦，或沒有開啟巢狀虛擬化的虛擬機（例如 Apple silicon 上 Parallels 裡的 Windows 11 on Arm），都無法啟動 Cua 的虛擬機，面板與設定會用 Cua 的說法告訴你。Cua 的 macOS 與 Windows 桌面還沒有提供，Cua 自己的雲端也已在 2026 年結束：電腦都在這台電腦上執行。
 
 ### 實驗室
 
@@ -1113,7 +1134,7 @@ compose 檔要能用 Render 免費方案的一個服務執行才能發布：一�
 
 ## 6. 資料存在哪裡
 
-所有對話、範本與設定都存在專案資料夾的 `data/relay.db`（SQLite），只有你的帳號能讀取。你分享的連結也記在那裡；頁面本身（連同附上的檔案）是 GitHub 上的 secret gist。API key 例外：它們放在系統的金鑰儲存區（見上方「API key（選用）」），模型來源的金鑰也一樣（端點本身則存在 `data/relay.db`）；在沒有金鑰儲存區的系統上，它們加密存在 `data/relay.db`，金鑰在 `data/secrets.key`。側邊欄鈴鐺列出的通知、瀏覽器的推播訂閱與伺服器用來簽署推播通知的金鑰則存在 `data/relay.db`（瀏覽器登出時移除它的訂閱）。附加的檔案和資料夾存在 `data/attachments/<對話>/`，只有你的帳號能讀取（自動任務自己的那份存在 `data/relay.db`，每次執行時複製一份），刪除對話時（或編輯較早的訊息而刪掉它們所屬的訊息時）會一併刪除。平行模式的 worktree 放在 `data/worktrees/`（對應你 repository 中的 `relay/…` 分支），刪除對話時會一併移除。各 CLI 也會在它們平常的位置（`~/.claude…`、`~/.codex`、`~/.grok`、`~/.cursor`、`~/.gemini`、`~/.copilot`、`~/.local/share/muse`）保存自己的 session 紀錄；設定了[各 CLI 自己的資料夾](#agent-的-session各-cli-自己的資料夾與-agentsview)時則放在那個資料夾；[其他帳號](#多個帳號)放在各自的資料夾，沒有設定各 CLI 自己的資料夾時位於 `data/accounts/`。開源 agent 把它們的紀錄放在那個資料夾裡它們的家目錄，或 `data/agent-homes/`，在每位對話成員自己的資料夾（`private/<key>`）裡；它們每次執行另有自己的暫存資料夾，執行結束就刪除（完全存取以外在 `data/relay-sandbox/`，完全存取時在 `data/run-tmp/`）；伺服器在執行中停止時，則在下次啟動時刪除。刪除對話時，會移除這些 agent 為它保存的東西。Muse Code 每一輪自己的設定資料夾（這次執行的設定）放在 `data/muse-runs/`，這一輪結束就刪除；伺服器在這一輪中停止時，則由之後的某一輪刪除。[從設定頁安裝](#從設定頁安裝-cli)的 CLI 放在 `data/clis/`，一個 CLI 一個資料夾；CLI 卡片上的 **移除** 會刪掉它的資料夾。語音輸入的模型（以及 Linux 與 Windows 上的引擎）放在 `data/voice/`；**設定 → 語音輸入 → 移除語音輸入** 會把它們刪除。[工具庫](#工具庫mcp-伺服器skill-與記憶)也存在 `data/relay.db`，但 MCP 伺服器變數和標頭的值例外，它們跟 API key 一樣放在金鑰儲存區。[Harness Relay 的工具](#harness-relay-的工具瀏覽器郵件與行事曆)的資料也在這裡：郵件與行事曆帳號在 `data/relay.db`，密碼在金鑰儲存區（之後不會再顯示，一部分也不會）；待送出匣的卡片、要寄出的內容與結果在 `data/relay.db`；每個對話的瀏覽器設定檔（它的 cookie 與登入狀態）在 `data/browser/<對話>/`，在完全存取以下任何 agent 都碰不到，隨對話刪除；瀏覽器的截圖在 `data/attachments/<對話>/`，和附加檔案一樣只有你的帳號能讀取（分支會複製它的回覆中顯示的截圖）。介面語言、外觀與看過的導覽主題則記在瀏覽器中。要備份時，先停止程式再複製 `data/`（連同 `secrets.key`：少了它，加密存在資料庫裡的金鑰就讀不回來）。[桌面 app](#桌面-app) 則把同樣的檔案存在它自己的資料夾，而不是 `data/`。
+所有對話、範本與設定都存在專案資料夾的 `data/relay.db`（SQLite），只有你的帳號能讀取。你分享的連結也記在那裡；頁面本身（連同附上的檔案）是 GitHub 上的 secret gist。API key 例外：它們放在系統的金鑰儲存區（見上方「API key（選用）」），模型來源的金鑰也一樣（端點本身則存在 `data/relay.db`）；在沒有金鑰儲存區的系統上，它們加密存在 `data/relay.db`，金鑰在 `data/secrets.key`。側邊欄鈴鐺列出的通知、瀏覽器的推播訂閱與伺服器用來簽署推播通知的金鑰則存在 `data/relay.db`（瀏覽器登出時移除它的訂閱）。附加的檔案和資料夾存在 `data/attachments/<對話>/`，只有你的帳號能讀取（自動任務自己的那份存在 `data/relay.db`，每次執行時複製一份），刪除對話時（或編輯較早的訊息而刪掉它們所屬的訊息時）會一併刪除。平行模式的 worktree 放在 `data/worktrees/`（對應你 repository 中的 `relay/…` 分支），刪除對話時會一併移除。各 CLI 也會在它們平常的位置（`~/.claude…`、`~/.codex`、`~/.grok`、`~/.cursor`、`~/.gemini`、`~/.copilot`、`~/.local/share/muse`）保存自己的 session 紀錄；設定了[各 CLI 自己的資料夾](#agent-的-session各-cli-自己的資料夾與-agentsview)時則放在那個資料夾；[其他帳號](#多個帳號)放在各自的資料夾，沒有設定各 CLI 自己的資料夾時位於 `data/accounts/`。開源 agent 把它們的紀錄放在那個資料夾裡它們的家目錄，或 `data/agent-homes/`，在每位對話成員自己的資料夾（`private/<key>`）裡；它們每次執行另有自己的暫存資料夾，執行結束就刪除（完全存取以外在 `data/relay-sandbox/`，完全存取時在 `data/run-tmp/`）；伺服器在執行中停止時，則在下次啟動時刪除。刪除對話時，會移除這些 agent 為它保存的東西。Muse Code 每一輪自己的設定資料夾（這次執行的設定）放在 `data/muse-runs/`，這一輪結束就刪除；伺服器在這一輪中停止時，則由之後的某一輪刪除。[從設定頁安裝](#從設定頁安裝-cli)的 CLI 放在 `data/clis/`，一個 CLI 一個資料夾；CLI 卡片上的 **移除** 會刪掉它的資料夾。語音輸入的模型（以及 Linux 與 Windows 上的引擎）放在 `data/voice/`；**設定 → 語音輸入 → 移除語音輸入** 會把它們刪除。[工具庫](#工具庫mcp-伺服器skill-與記憶)也存在 `data/relay.db`，但 MCP 伺服器變數和標頭的值例外，它們跟 API key 一樣放在金鑰儲存區。[Harness Relay 的工具](#harness-relay-的工具瀏覽器郵件與行事曆)的資料也在這裡：郵件與行事曆帳號在 `data/relay.db`，密碼在金鑰儲存區（之後不會再顯示，一部分也不會）；待送出匣的卡片、要寄出的內容與結果在 `data/relay.db`；每個對話的瀏覽器設定檔（它的 cookie 與登入狀態）在 `data/browser/<對話>/`，在完全存取以下任何 agent 都碰不到，隨對話刪除；瀏覽器的截圖在 `data/attachments/<對話>/`，和附加檔案一樣只有你的帳號能讀取（分支會複製它的回覆中顯示的截圖）。[對話的電腦](#對話的電腦cua)：從設定安裝的 Cua 放在 `data/clis/cua/`；電腦本身（它們的磁碟、映像檔與權杖）放在 Cua 的家目錄 `~/.cua`（或 `CUA_HOME`），在完全存取以下任何 agent 都碰不到，每個工作目錄一台，直到你在設定中刪除為止；agent 對電腦的截圖放在 `data/attachments/<對話>/`。介面語言、外觀與看過的導覽主題則記在瀏覽器中。要備份時，先停止程式再複製 `data/`（連同 `secrets.key`：少了它，加密存在資料庫裡的金鑰就讀不回來）。[桌面 app](#桌面-app) 則把同樣的檔案存在它自己的資料夾，而不是 `data/`。
 
 ## 7. 疑難排解
 

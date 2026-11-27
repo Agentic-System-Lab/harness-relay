@@ -31,6 +31,10 @@
  * `npm` the same way: a script on macOS and Linux, the same executable under one more name on Windows
  * (it runs the fake npm when it runs as `npm`). It installs a CLI's fake from this folder.
  *
+ * The fake Cua CLI (`e2e/fake-cli/fake-cua.cjs`), which starts the chats' computers, is built the same way
+ * (a script, or the executable under one more name), but in a folder of its own off the PATH
+ * (`fakeCuaIn()`): only a spec that links it into its server's own Cua folder has Cua installed.
+ *
  * For `e2e/specs/windows.spec.ts`, `installFakeLaunchers()` also builds the fakes as some Windows
  * users' CLIs come: Cursor's own launcher (`cursor-agent.cmd`, which starts a Node and a script of its
  * own), Muse Code's (`muse.cmd`, which starts the binary its `.muse-version` names), and npm's shims
@@ -57,7 +61,7 @@ import { createRequire } from 'node:module';
 import { basename, dirname, join, relative } from 'node:path';
 import { PROVIDERS, type Provider } from '../../src/shared/types';
 import { FACTS } from './clis/all';
-import { FAKE_CLI_DIR, FAKE_DIALOG_SCRIPT, FAKE_GH_SCRIPT, FAKE_NPM_SCRIPT, FAKE_PWSH_SCRIPT, ROOT } from './paths';
+import { FAKE_CLI_DIR, FAKE_CUA_SCRIPT, FAKE_DIALOG_SCRIPT, FAKE_GH_SCRIPT, FAKE_NPM_SCRIPT, FAKE_PWSH_SCRIPT, ROOT } from './paths';
 
 /** The CLIs whose fake is written; the others' fakes say they are not and exit with code 2. */
 export const IMPLEMENTED_FAKES: readonly Provider[] = PROVIDERS.filter((p) => FACTS[p].implemented);
@@ -105,7 +109,13 @@ const OPENHANDS_VENV = {
 };
 
 /** The fakes that are standalone scripts of their own, not modules of the fake CLIs. */
-const STANDALONE = new Set([basename(FAKE_PWSH_SCRIPT), basename(FAKE_DIALOG_SCRIPT), basename(FAKE_GH_SCRIPT), basename(FAKE_NPM_SCRIPT)]);
+const STANDALONE = new Set([
+  basename(FAKE_PWSH_SCRIPT),
+  basename(FAKE_DIALOG_SCRIPT),
+  basename(FAKE_GH_SCRIPT),
+  basename(FAKE_NPM_SCRIPT),
+  basename(FAKE_CUA_SCRIPT),
+]);
 
 /** The fake CLIs' modules: every `.cjs` under e2e/fake-cli/ but the standalone ones, by their path there without `.cjs` (`lib/rpc`). */
 function fakeModules(): [id: string, text: string][] {
@@ -163,6 +173,14 @@ export function bundleFakeCli(): string {
   ].join('\n');
 }
 
+/**
+ * The fake Cua CLI in the fakes' folder (`e2e/fake-cli/fake-cua.cjs`): in a folder of its own, off the PATH,
+ * so that only a spec that links it into a server's own Cua folder (`linkFakeCua()`) has Cua installed.
+ */
+export function fakeCuaIn(folder: string): string {
+  return join(folder, 'cua-fake', `cua${exe}`);
+}
+
 /** Builds (or finds) the fake CLIs and returns their folder. */
 export async function installFakeClis(): Promise<string> {
   const script = bundleFakeCli();
@@ -170,6 +188,7 @@ export async function installFakeClis(): Promise<string> {
   const ghScript = readFileSync(FAKE_GH_SCRIPT, 'utf8');
   const npmScript = readFileSync(FAKE_NPM_SCRIPT, 'utf8');
   const pwshScript = readFileSync(FAKE_PWSH_SCRIPT, 'utf8');
+  const cuaScript = readFileSync(FAKE_CUA_SCRIPT, 'utf8');
   const key = createHash('sha256')
     .update(LAYOUT)
     .update(PROVIDERS.map((p) => FACTS[p].bin).join(','))
@@ -178,6 +197,7 @@ export async function installFakeClis(): Promise<string> {
     .update(ghScript)
     .update(npmScript)
     .update(pwshScript)
+    .update(cuaScript)
     .update(process.version)
     .update(process.execPath)
     .update(`${process.platform}-${process.arch}-${sea ? 'sea' : 'script'}`)
@@ -190,8 +210,9 @@ export async function installFakeClis(): Promise<string> {
   const gh = join(folder, `gh${exe}`);
   const npm = join(folder, `npm${exe}`);
   const pwsh = join(folder, 'powershell', `pwsh${exe}`);
+  const cua = fakeCuaIn(folder);
   const litellm = sea ? [] : [join(folder, OPENHANDS_VENV.models)];
-  if ([...bins, ...(dialog ? [dialog] : []), gh, npm, pwsh, ...litellm].every((b) => existsSync(b))) {
+  if ([...bins, ...(dialog ? [dialog] : []), gh, npm, pwsh, cua, ...litellm].every((b) => existsSync(b))) {
     // Marked as in use, so that another run, of a changed module, leaves it to this one.
     const now = new Date();
     utimesSync(folder, now, now);
@@ -206,6 +227,7 @@ export async function installFakeClis(): Promise<string> {
     if (Date.now() - statSync(path).mtimeMs > IN_USE_MS) rmSync(path, { recursive: true, force: true });
   }
   mkdirSync(dirname(pwsh), { recursive: true });
+  mkdirSync(dirname(cua), { recursive: true });
   if (sea) {
     // Each fake that is written answers `--version` as its module says (a broken module fails here, not in each test).
     const load = createRequire(import.meta.url);
@@ -214,10 +236,10 @@ export async function installFakeClis(): Promise<string> {
       (load(join(FAKE_CLI_DIR, 'agents', `${p}.cjs`)) as { versionRe: RegExp }).versionRe,
     ]);
     await buildExecutables(
-      seaEntry(script, ghScript, npmScript, pwshScript),
+      seaEntry(script, ghScript, npmScript, pwshScript, cuaScript),
       folder,
-      [...bins, gh, npm, pwsh],
-      [...checks, [gh, /^gh version/], [npm, /^10\.9\.9-e2e/], [pwsh, /^PowerShell 7/]],
+      [...bins, gh, npm, pwsh, cua],
+      [...checks, [gh, /^gh version/], [npm, /^10\.9\.9-e2e/], [pwsh, /^PowerShell 7/], [cua, /^cua 0\.31\.2/]],
     );
   } else {
     for (const p of PROVIDERS) {
@@ -227,17 +249,18 @@ export async function installFakeClis(): Promise<string> {
     writeScript(gh, ghScript);
     writeScript(npm, npmScript);
     writeScript(pwsh, pwshScript);
+    writeScript(cua, cuaScript);
   }
   if (dialog) writeScript(dialog, dialogScript);
   return folder;
 }
 
 /**
- * The single executable's script runs the matching fake for `gh`, `npm` and `pwsh`,
+ * The single executable's script runs the matching fake for `gh`, `npm`, `pwsh` and `cua`,
  * else the fake CLIs (which tell the CLIs apart by the same name). Each runs in a function of its own,
  * as it would in a module of its own.
  */
-function seaEntry(cliScript: string, ghScript: string, npmScript: string, pwshScript: string): string {
+function seaEntry(cliScript: string, ghScript: string, npmScript: string, pwshScript: string, cuaScript: string): string {
   return [
     "'use strict';",
     "const __runName = require('node:path').basename(process.execPath).replace(/\\.exe$/i, '').toLowerCase();",
@@ -252,6 +275,10 @@ function seaEntry(cliScript: string, ghScript: string, npmScript: string, pwshSc
     "} else if (__runName === 'pwsh') {",
     '(function () {',
     pwshScript,
+    '})();',
+    "} else if (__runName === 'cua') {",
+    '(function () {',
+    cuaScript,
     '})();',
     '} else {',
     '(function () {',

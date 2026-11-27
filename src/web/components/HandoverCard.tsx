@@ -17,6 +17,7 @@ import {
 } from '../../shared/types';
 import { api } from '../api';
 import { sseMessages } from '../appPreview';
+import { OPEN_COMPUTER } from '../computer';
 import {
   addressEntry,
   framePoint,
@@ -74,6 +75,10 @@ export function HandoverCard({
 }) {
   const t = useT();
   const h = t.browserHandover;
+  /** An agent asks the user to take over the chat's computer (`computer_hand_over`), not its browser. */
+  const computer = part.modes.includes('computer');
+  const hc = h.computer;
+  const showComputer = () => window.dispatchEvent(new CustomEvent(OPEN_COMPUTER, { detail: convId }));
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -95,6 +100,7 @@ export function HandoverCard({
     try {
       await api.answerHandover(convId, part.id, body);
       if (body.action === 'start' && body.mode === 'screencast') setPanel(true);
+      if (body.action === 'start' && body.mode === 'computer') showComputer();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -125,10 +131,10 @@ export function HandoverCard({
           {mark}
         </span>
         <span className="approval-text">
-          <span className="approval-what">{h.heading(agentName)}</span>
+          <span className="approval-what">{computer ? hc.heading(agentName) : h.heading(agentName)}</span>
           <span className="approval-outcome">
             {outcome}
-            {part.mode ? (part.mode === 'window' ? h.inWindow : h.inChat) : ''}
+            {part.mode ? (part.mode === 'computer' ? hc.inComputer : part.mode === 'window' ? h.inWindow : h.inChat) : ''}
             {part.note ? h.withNote(part.note) : ''}
           </span>
         </span>
@@ -139,12 +145,16 @@ export function HandoverCard({
   const left = part.deadline ? minutesLeft(part.deadline, now) : 0;
   const modes: HandoverMode[] = [first, ...part.modes.filter((m) => m !== first)];
   return (
-    <section className="approval-card handover-card" id={`handover-${part.id}`} aria-label={h.label(agentName)}>
+    <section
+      className="approval-card handover-card"
+      id={`handover-${part.id}`}
+      aria-label={computer ? hc.label(agentName) : h.label(agentName)}
+    >
       <header className="approval-head">
         <span className="approval-icon" aria-hidden>
           ⇄
         </span>
-        <strong>{h.heading(agentName)}</strong>
+        <strong>{computer ? hc.heading(agentName) : h.heading(agentName)}</strong>
         <span className="approval-waiting">
           {status === 'active' ? h.inUse : h.waiting}
           {left > 0 && ` · ${h.left(left)}`}
@@ -158,7 +168,25 @@ export function HandoverCard({
           <span className="muted">{h.page}</span> <code>{part.url}</code>
         </p>
       )}
-      {status === 'pending' && (
+      {status === 'pending' && computer && (
+        <>
+          <p className="approval-reason handover-kept">{hc.kept}</p>
+          <div className="handover-modes">
+            <div className="handover-mode">
+              <button
+                type="button"
+                className="primary small-button"
+                disabled={busy}
+                onClick={() => void answer({ action: 'start', mode: 'computer' })}
+              >
+                {hc.start}
+              </button>
+              <span className="muted small">{hc.startHint}</span>
+            </div>
+          </div>
+        </>
+      )}
+      {status === 'pending' && !computer && (
         <>
           <p className="approval-reason handover-kept">{h.kept}</p>
           <p className="approval-reason">{h.rules}</p>
@@ -181,7 +209,9 @@ export function HandoverCard({
           </div>
         </>
       )}
-      {status === 'active' && <p className="approval-reason">{part.mode === 'window' ? h.activeWindow : h.activeScreencast}</p>}
+      {status === 'active' && (
+        <p className="approval-reason">{computer ? hc.active : part.mode === 'window' ? h.activeWindow : h.activeScreencast}</p>
+      )}
       <input
         className="approval-note"
         value={note}
@@ -203,8 +233,13 @@ export function HandoverCard({
                 {h.showPanel}
               </button>
             )}
+            {computer && (
+              <button type="button" className="ghost small-button" onClick={showComputer}>
+                {hc.show}
+              </button>
+            )}
             <button type="button" className="primary small-button" disabled={busy} onClick={() => void finish('done')}>
-              {h.done}
+              {computer ? hc.done : h.done}
             </button>
             <button type="button" className="ghost small-button approval-deny" disabled={busy} onClick={() => void finish('cancel')}>
               {h.cancel}

@@ -2971,7 +2971,7 @@ details.sub .model-picker {
 }
 
 .team-chip.speaking {
-  border-color: var(--accent);
+  border-color: var(--info);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
@@ -5558,7 +5558,7 @@ video.chat-media {
 }
 
 .method.on {
-  border-color: var(--accent);
+  border-color: var(--info);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
@@ -11455,6 +11455,142 @@ a.share-action {
   .app-preview .drawer-head .icon-button {
     grid-area: 1 / 3;
   }
+}
+
+/* The chat's computer (Cua), in the panel the app preview takes: its state and controls in a row, the
+   screen fitted below it, the typing box and what was done lately under the screen. */
+.computer-panel .drawer-head {
+  display: flex;
+  align-items: center;
+}
+
+.computer-panel .drawer-head .icon-button {
+  margin-inline-start: auto;
+}
+
+.computer-status {
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
+.computer-status.ready {
+  color: var(--ok);
+}
+
+.computer-status.failed {
+  color: var(--danger);
+}
+
+.computer-bar,
+.computer-type,
+.computer-runtime {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Removing Cua: what did not finish, a step a line. */
+.computer-removal p {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.computer-bar,
+.computer-handover,
+.computer-note,
+.computer-panel > .approval-note,
+.computer-type,
+.computer-recent {
+  margin: 10px 18px 0;
+}
+
+.computer-bar > span {
+  flex: 1 1 12em;
+}
+
+.computer-handover p {
+  margin: 0;
+}
+
+.computer-screen {
+  position: relative;
+  flex: none;
+  max-height: calc(100% - 120px);
+  margin: 10px 18px 0;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.computer-screen[hidden] {
+  display: none;
+}
+
+/* Taken control of: the screen takes the touches and the keys, and says so with its outline. */
+.computer-screen.controlled {
+  touch-action: none;
+  cursor: default;
+  border-color: var(--info);
+}
+
+.computer-screen.controlled:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+
+.computer-screen img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.computer-type input {
+  flex: 1 1 12em;
+  min-width: 0;
+}
+
+.computer-recent {
+  margin-bottom: 14px;
+}
+
+.computer-recent ol {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.download-progress {
+  display: grid;
+  gap: 6px;
+  max-width: 28rem;
+}
+
+.download-progress progress {
+  width: 100%;
+}
+
+.computer-list h5 {
+  margin: 12px 0 6px;
+}
+
+.computer-list li {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.computer-list li > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
 /* Settings → Labs: its modes, one at a time, each with what it is good for and what it costs (in a

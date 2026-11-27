@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 55 個 spec 檔、676 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 56 個 spec 檔、679 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -67,6 +67,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 | [App 設定與確認](#app-設定與確認) | [`app-confirmation.spec.ts`](specs/app-confirmation.spec.ts) | 12 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [聊天中的 App 存取權](#聊天中的-app-存取權) | [`app-lifecycle.spec.ts`](specs/app-lifecycle.spec.ts) | 7 | [使用者說明 → 常用 App](../docs/user-guide.zh-TW.md#常用-app) |
 | [接手瀏覽器](#接手瀏覽器) | [`handover.spec.ts`](specs/handover.spec.ts) | 4 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[架構 → Harness Relay 自己的工具](../docs/architecture.zh-TW.md#工具庫) |
+| [對話的電腦](#對話的電腦) | [`computer.spec.ts`](specs/computer.spec.ts) | 3 | [使用者說明 → 對話的電腦](../docs/user-guide.zh-TW.md#對話的電腦cua)、[架構 → 對話的電腦](../docs/architecture.zh-TW.md#對話的電腦) |
 | [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 13 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
 | [直接連結 Microsoft Teams](#直接連結-microsoft-teams) | [`teams.spec.ts`](specs/teams.spec.ts) | 3 | [使用者說明 → 連結 Microsoft Teams](../docs/user-guide.zh-TW.md#連結-microsoft-teams-並發送訊息) |
 | [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 5 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
@@ -522,6 +523,18 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 
 交接的視窗在這裡只以無頭模式開啟（`RELAY_HEADLESS_WINDOWS`），所以沒有人在裡面點擊：它的啟動、環境變數與交接的票在 `test/handover.test.ts`，用真的 Chromium 測試畫面串流與視窗（無頭模式）則在 `test/browser.test.ts`。
 
+## 對話的電腦
+
+[`computer.spec.ts`](specs/computer.spec.ts) 用假的 Cua CLI（[`fake-cli/fake-cua.cjs`](fake-cli/fake-cua.cjs)）測試對話的電腦，它代替 `cua` 與它的電腦，從不啟動容器。它和假 CLI 一起建置，但不在 PATH 上，所以只有測試把它連結到伺服器自己的 Cua 資料夾（`<data>/clis/cua/`，和設定的安裝放的位置一樣）時才算安裝了 Cua；Harness Relay 除了 Cua 的家目錄之外，不會把測試的變數交給 `cua`，所以假的 cua 把沙箱放在 `$CUA_HOME/fake-cua`，並把紀錄（每次啟動、每個 MCP 工具呼叫）寫進測試的紀錄。它的截圖是一張真正的 1200×750 PNG；移除 Cua 的 `cache prune` 它回答沒有東西可移除（測試的 Cua 家目錄裡沒有 Cua 自己的執行環境）。Claude Code 的假 CLI 用 `e2e:mcp` 呼叫電腦工具，在完全存取下。
+
+| 情境 | 檢查的內容 |
+| --- | --- |
+| agent 查看電腦，使用者旁觀、接手、點擊與打字、交還；在設定刪除它，再移除 Cua | 設定的**電腦（Cua）**那一列顯示 **Cua 0.31.2 (installed by Harness Relay)**；`computer_screenshot` 在第一次使用時建立電腦（`sb create linux --name relay-…`），並說明截圖的大小；**⋯ → Computer** 開啟面板，**On**、agent 在操作、畫面是 PNG；旁觀時點擊畫面不會送出；**Take control**：點畫面中央會送到 Cua 上大約對應的像素，打的按鍵送成文字，Enter 送成按鍵；這段期間 agent 的呼叫會被拒絕並說明原因；**Hand back to the agents**，**Lately** 列出使用者接手；面板上沒有刪除按鈕；在設定的**電腦（Cua）**列出它的工作目錄與 **used by 1 chat**，確認後在那裡刪除它（`sb rm`），清單變空；確認 **Remove Cua** 後顯示 **Removed Cua.**，等電腦刪除後向假的 cua 要求 `--json cache prune`，絕不要求 `host`（那會取消使用者自己設定的 Cua 主機），那一列又提供 **Install Cua**。 |
+| agent 請使用者接手 | `computer_hand_over`：卡片 **@Claude asks you to take over the computer** 附上原因；**Take control of the computer** 開啟面板，由使用者操作並顯示 agent 的原因；在面板留言並按 **Hand back to the agents** 結束：agent 只知道這件事與留言，卡片顯示 **Handed back (computer): Signed in**。 |
+| 沒有 Cua | 設定的那一列提供 **Install Cua** 並說明會安裝什麼；面板說明沒有安裝 Cua。 |
+
+安裝 Cua 會從 GitHub 下載它的發行版，這些測試從不這麼做：`test/computer.test.ts` 用替身壓縮檔安裝它，並回報下載進度。
+
 ## 用 OAuth 登入的帳號
 
 [`oauth.spec.ts`](specs/oauth.spec.ts)：在**設定 → App 與工具 → 常用 App** 選**郵件 → Outlook** 或**行事曆 → Outlook**，對這台電腦上 Microsoft 登入頁面與 Graph 的替身，以及只接受替身給的 Exchange Online 權杖、以 XOAUTH2 登入的 Exchange Online IMAP 與 SMTP 替身測試，測試的伺服器指向它們（`RELAY_MICROSOFT_LOGIN_URL`、`RELAY_MICROSOFT_GRAPH_URL`、`RELAY_MICROSOFT_IMAP`、`RELAY_MICROSOFT_SMTP`）。
@@ -532,7 +545,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 | 相同電子郵件地址的 Google 與 Microsoft 帳號可各自解除連結 | — | 兩個服務提供者分別列出該地址及其授權用途。在 Microsoft 下按「解除帳號連結」只會列出 Outlook 行事曆與舊版 Teams 存取權。取消會保留帳號，確認後 Google 的 Gmail、Drive 和文件授權仍可使用。 |
 | 為郵件用 Microsoft 登入的帳號加入它的郵件帳號，它的「測試」以 XOAUTH2 登入它的 IMAP 與 SMTP 伺服器 | — | 在**郵件 → Outlook** 按**用 … 登入** 與替身的 **Allow** 只為郵件登入帳號（交換一次授權碼）。**郵件**會列出這個帳號。它的郵件帳號 `Outlook · ming@contoso.com` 加入郵件帳號，用替身伺服器（`127.0.0.1`），沒有 **編輯**，也沒有加入行事曆。它的 **測試** 顯示 **Connected: the sign-in works.**，替身看到 IMAP 與 SMTP 以這個帳號進行的 XOAUTH2 登入，各用一個 Exchange Online 的權杖（不是 Graph 的）。只從郵件帳號移除它（確認）後，帳號的 **加入信箱**（Add mailbox）不必重新登入就再加入它，之後這個按鈕就不見了。從行事曆登入並選取相同的 Microsoft 帳號後，原有的郵件帳號會新增行事曆用途，Teams 權限維持關閉。等候授權時無法從郵件再開始登入。回呼頁面連回常用 App，同一帳號具有兩種用途。移除信箱後，如果共用的登入失效，收合的郵件列會顯示**需要重新登入**。從郵件重新登入可恢復兩項授權，再按**加入信箱**即可加回信箱。在共用 OAuth 設定的 **Microsoft** 區塊解除該帳號連結前會列出兩種用途，確認後才移除信箱與行事曆。 |
 | 較早的回應延遲時依舊正確移除資源 | — | 同帳號第一個行事曆的刪除回應延遲，不會讓已刪除的第二個行事曆重現。來自行事曆的較早清單回應也不會讓已移除的信箱重現。兩個服務中都仍可從該帳號加回資源。 |
-| 找到常用 App 的連線方式 | — | 十個服務中，郵件與行事曆排在最前面。Teams 可直接登入 Microsoft，Slack 提供可用鍵盤操作的 Claude、Codex 連線。Drive 提供 Google OAuth 與獨立的 Google 文件編輯授權。 |
+| 找到常用 App 的連線方式 | — | 十一列中，郵件與行事曆排在最前面。Teams 可直接登入 Microsoft，Slack 提供可用鍵盤操作的 Claude、Codex 連線。Drive 提供 Google OAuth 與獨立的 Google 文件編輯授權。 |
 | 三個服務共用 Google 桌面用戶端 | — | Gmail、行事曆與 Drive 會開啟同一份用戶端表單。儲存後三者皆可登入，各服務向 Google 要求授權時都使用已儲存的用戶端 ID 與該服務的權限範圍。已設定的 Gmail 與 Google Calendar 各只顯示一個登入按鈕。 |
 | 重試失敗的儲存並保留較新的草稿 | — | 儲存失敗可重試，較舊的請求完成時也不會覆寫另一個服務提供者較新的草稿。 |
 | 從帳號登入設定開啟教學（英文、繁體中文） | — | 兩家服務的連結會在新分頁開啟 Relay 隨附的本機圖解。步驟和圖片可以讀取，手機與桌面上的圖片都保持原比例，並可點開原圖。編輯註冊資料時會顯示該服務的指南。 |
@@ -667,7 +680,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 | 未安裝的 CLI 在設定與側邊欄顯示未安裝 | Cursor、Antigravity | 設成未安裝（`missingClis`）：它們的狀態點與卡片顯示**未安裝**（Not installed）。助理總覽顯示 Claude Code 已可用，展開**連接另一個助理**就能選 Cursor 前往設定。 |
 | 沒有模型來源的開源 agent 還不能用，它的回合說明要先設定一個 | OpenCode | `openBackend: false`：助理總覽裡的 OpenCode 連到**模型連線**。按 Enter 後焦點到達標題，Tab 會走進該區的設定。狀態點寫著「Model access not set up」，卡片顯示**尚未就緒**（Not ready）與「No model backend set up yet (Settings → Model connections)」，回答的錯誤說 OpenCode 沒有模型。 |
 | 可以指定 CLI 的執行檔路徑，錯誤的路徑顯示找不到 | Grok | 不存在的路徑顯示**未安裝**（Not installed）；清空後又找到它。 |
-| 常用 App 與工具庫共用一張設定卡片 | — | 設定導覽列只有一個 **App 與工具**連結。開啟 `#/settings/apps` 會選到**常用 App**，`#/settings/tools` 則會選到**工具庫**。只會顯示選定分頁的內容。End 與向左鍵可在分頁間移動焦點。重新載入後同一個導覽連結仍會標亮；用瀏覽器的上一頁回到工具庫時，尚未儲存的記憶草稿會保留。常用 App 的十列中，八個內建工具各有一組聊天存取選項，連線前即可設定。 十個服務也依順序列在正確的四個具名區域中。 |
+| 常用 App 與工具庫共用一張設定卡片 | — | 設定導覽列只有一個 **App 與工具**連結。開啟 `#/settings/apps` 會選到**常用 App**，`#/settings/tools` 則會選到**工具庫**。只會顯示選定分頁的內容。End 與向左鍵可在分頁間移動焦點。重新載入後同一個導覽連結仍會標亮；用瀏覽器的上一頁回到工具庫時，尚未儲存的記憶草稿會保留。常用 App 的十一列（十個服務和電腦）中，內建工具的列各有一組聊天存取選項，連線前即可設定。 十一列也依順序列在正確的四個具名區域中。 |
 | 連結列把 agent 合成一個選單，選單通往每個 agent 的卡片，並顯示正在看的那一個 | — | 連結列從**助理總覽**開始，放著除了 agent 以外每張卡片的連結（兩個分頁共用一個 **App 與工具**連結），模型連線與首席助理之間有一個**助理設定**（Agents）按鈕。打開後選單列出十二個 agent，開源 agent 在名為**開源 agent**（Open-source agents）的群組中，焦點在第一個；方向鍵（到兩端會繞回）、Home、End 與 Escape（回到按鈕）可以移動與關閉；在按鈕上按 ArrowUp 會打開並停在最後一個，Tab 會關閉並移到**首席 agent**（Lead agent），Shift+Tab 回到按鈕。點選單的標題時焦點留在原本的項目，按鍵照常有效；焦點移到別的連結會關閉選單。選 **Codex** 會關閉選單、前往 `#/settings/codex` 且卡片在畫面內，按鈕的名稱是 **助理設定：Codex**（Agents: Codex）並標亮；再打開時 Codex 有標記與焦點；點別處會關閉。點**首席 agent** 後標亮回到它，而且它不會移動（按鈕寬度不變）；`#/settings/opencode` 的按鈕名稱是 **助理設定：OpenCode**（Agents: OpenCode）。 |
 | 在矮的視窗裡，agent 選單留在視窗內，按鍵會顯示移到的項目 | — | 在 1280×480 下，從設定頁頂端（連結列比固定後低）打開時，選單底部在視窗內；End 讓 **Pi** 取得焦點並捲進選單的可見範圍，Home 回到第一個。 |
 | 在手機上，agent 按鈕完整顯示，選單留在螢幕內並跟著按鈕，並通往卡片 | — | 在 390×844 下，從 `#/settings/codex` 進來時連結列會讓出左上角按鈕的位置而變窄，**助理設定：Codex**（Agents: Codex）仍完整顯示；用 Tab 離開選單時會把**首席 agent**（Lead agent）捲進畫面；按鈕在連結列右端時選單在螢幕內打開，連結列捲動時選單保持打開並跟著按鈕移動；選 **Pi** 會前往它的卡片。 |
@@ -916,6 +929,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 | 工具庫 HTTP MCP 伺服器自己的登入（登入頁面在另一台主機時先經過確認）：存取權杖放在伺服器的 `Authorization` 標頭，登入失效後那一回合不給它 | ✓ | — | — | — | — | — | — |
 | 團隊檢查：找出受保護檔案和是誰發言時改的、擋住等待的訊息、略過、重新檢查、請成員修正、無法預覽的應用程式自動交回，指令（完整權限，和在 Harness Relay 自己的沙箱裡），以及平行模式的結果在仍要套用前不套用 | ✓ | — | — | — | — | — | — |
 | 接手瀏覽器（`browser_hand_over`）：用滑鼠、按鍵與觸控操作畫面串流、婉拒，以及從它的視窗（無頭模式）交回 | ✓ | — | — | — | — | — | — |
+| 對話的電腦（Cua）：截圖、使用者接手時被拒絕、它的交接 | ✓ | — | — | — | — | — | — |
 | 透過 gateway 使用 Harness Relay 自己的工具：郵件在待送出匣等到使用者按送出；完全存取以下，CLI 自己的詢問被代為回答、gateway 對 act 的卡片 | ✓ | ✓（透過本機 HTTP，完全存取以下） | — | — | — | ✓（透過本機 HTTP，完全存取以下） | — |
 | 在設定中開放或關閉常用 App，以同一個聊天內的兩個回合核對工具是否可用 | ✓ | — | — | — | — | — | — |
 | 已登入的 Drive 帳號可搜尋檔案，停用 Google 後會暫停存取。在完全存取中，Google 文件與 Obsidian 的提案等使用者確認才寫入，Teams 和 Slack 訊息等使用者按「送出」才張貼。 | ✓ | — | — | — | — | — | — |
@@ -1019,6 +1033,7 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 
 - **伺服器環境變數裡的金鑰，每個 CLI 拿到哪些的大部分。** 端對端測試列出 Claude Code、Codex 與 Grok 被擋下的金鑰，檢查 Claude Code 與 Grok 的執行，並把一個金鑰傳給 Claude Code（沒有檢查 Codex 的執行）。離線測試（`test/agent-env.test.ts`）涵蓋：七個有登入的 CLI 各自保留自己的金鑰、Codex 保留它的 `config.toml` 指定的、開源 agent 維持原樣、預設以外的帳號、GitHub 與雲端的 token 和網址類的變數從不擋下，以及清單在重新啟動後仍保留。
 - **交接的視窗，以及完全存取以下的畫面串流。** 沒有 spec 會開出顯示在執行 Harness Relay 的電腦上的視窗（它以無頭模式開啟，`RELAY_HEADLESS_WINDOWS`），也沒有在視窗中通過 CAPTCHA：它的啟動參數與環境變數、在哪裡提供，以及交接的票在 `test/handover.test.ts`，並在 Mac 上手動試過（視窗開在那個網頁、`chrome://` 頁面與檔案會被送回、新分頁會被關閉、視窗關閉後登入的 session cookie 還在）。spec 也沒有在面板中回答新主機的詢問、真正的輸入法組字（它們直接插入文字）、貼上，或會把瀏覽器當成自動化瀏覽器的網站。
+- **真正的 Cua 電腦，以及安裝 Cua。** spec 用的是假的 `cua`；安裝 Cua 要從 GitHub 下載發行版，`test/computer.test.ts` 則改用替身壓縮檔。真正的電腦用 HTTP API 與介面手動試過：在 Linux arm64 上（Docker，gVisor 改用 runc），由真正的 Claude Code 與 Codex 操作（開終端機、輸入並執行指令、可編輯模式下的核准），也從卡片在面板中接手交接；在 Apple silicon 的 macOS 上，由 Cua 自己的 Linux 虛擬機建立電腦；在 Parallels 裡的 Windows 11 on Arm 上，從設定安裝了 Cua，但沒有虛擬化時它的 WSL 2 執行環境無法啟動，真正的 Claude Code 收到這個結果後說明了原因。移除 Cua 用真正的 `cua` 試過：在 Linux arm64 上，Cua 的家目錄裡還有另一個沙箱時（它和它用的映像檔都保留下來），以及沒有時（先刪除電腦，再從 Docker 移除 Cua 的輔助容器與映像檔，之後從頭重新安裝 Cua 並建立電腦）；在 macOS 上還留著另一個伺服器的電腦，所以 Cua 的 Linux 虛擬機保留下來。spec 沒有試過慢速連線下面板的畫面、手機在畫面上的觸控，以及從面板開啟 Cua 的檢視器。
 - **長期記憶的大部分。**端對端測試檢查記下、提供、擱置、還原、釘選與整理記憶，以及關閉記憶。以下情況在離線測試中涵蓋（`test/memory.test.ts`、`test/orchestrator-memory.test.ts`）：修正與 forget、等使用者確認的記憶（需確認）、使用者自己的記憶不讓 agent 改動、只適用一個資料夾的記憶、每個 session 只提供一次、自動整理與它的變更遵守的規則。
 - **發布到真的 Render 與 Neon**：spec 用的是它們 API 的替身；以及透過 UI 發布後端、`Dockerfile` 或含 PostgreSQL 的 compose 檔（Neon 專案、用 `psql` 執行的初始化腳本、改寫的環境變數），這些由 `test/publish.test.ts` 用替身與真的 git 測試，`test/publish-initdb.test.ts` 用假的 Docker 測試（真的 `psql` 已手動試過）。
 - **密鑰與固定指令的大部分。** 端對端測試只用 Claude Code 的 fake 提供密鑰、儲存試跑並分享固定指令、從待送出匣送出一次執行、從卡片和待送出匣核准改過的程式碼、確認會發布的指令的試跑、在卡片上停止執行中的指令（目前為止的輸出收起來），以及建立只執行指令的提議自動任務（自動任務到時間執行指令的部分，連同它的說明與核准，在離線測試裡）：區塊是伺服器讀的純文字，所以每個 CLI 的回覆讀法都一樣。只有回覆漏掉、再問 agent 一次補上的卡片，是用每個 CLI 在完整權限下測（Windows 上不測，那裡不會要卡片）；補問後仍缺的部分（Harness Relay 自己的密鑰卡片、沒有指令的腳本的提示，以及只告訴 agent 一次）、pass 記號、補問那次執行被停止，以及不補問的自動化執行，由離線測試涵蓋（`test/orchestrator-handoffs.test.ts`），哪些檔案算這種腳本也是（`test/handoff-gaps.test.ts`）。離線測試涵蓋：區塊的各種寫法與哪些留作文字、遮蔽、儲存區（`test/handoffs.test.ts`），執行的沙箱、環境、密鑰檔與續期的值、執行中回報的內容、以 0 結束的執行被擋下的主機（以及卡片上的警告），以及在真的儲存庫上的鎖定（`test/fixed-commands.test.ts`），鎖定失效、自動任務的固定指令和它的各種結果（`test/orchestrator-handoffs.test.ts`），以及路由（`test/handoffs-api.test.ts`）。任何 agent 自己的沙箱都讀不到執行中的密鑰檔，靠的是轉接器（`agentProtectedReads()`），沒有在端對端測試裡試過。

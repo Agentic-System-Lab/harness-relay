@@ -19,7 +19,7 @@
     <meta property="og:title" content="給團隊的工具 · Harness Relay 文件" />
     <meta
       property="og:description"
-      content="在常用 App 連結郵件、行事曆、Google Drive 與文件、Slack、Teams、Obsidian、GitHub 和瀏覽器。設定 OAuth、選擇助理，並審核要送出的訊息與文件變更。工具庫收錄 MCP 伺服器、skill、記憶和 hook；實驗室有長期記憶。"
+      content="在常用 App 連結郵件、行事曆、Google Drive 與文件、Slack、Teams、Obsidian、GitHub 和瀏覽器，也能用 Cua 讓每個工作目錄有一台對話共用的電腦。設定 OAuth、選擇助理，並審核要送出的訊息與文件變更。工具庫收錄 MCP 伺服器、skill、記憶和 hook；實驗室有長期記憶。"
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
@@ -294,6 +294,15 @@
                           </ol>
                         </details>
                       </li>
+                      <li>
+                        <details>
+                          <summary>電腦（Cua）</summary>
+                          <ol>
+                            <li><a href="#computer" aria-label="電腦（Cua）概覽">概覽</a></li>
+                            <li><a href="#computer-control">觀看與接手</a></li>
+                          </ol>
+                        </details>
+                      </li>
                     </ol>
                   </details>
                 </li>
@@ -355,7 +364,7 @@
       <div class="doc-body">
         <section id="common-apps" aria-labelledby="common-apps-title">
           <h2 id="common-apps-title">常用 App</h2>
-          <p><b>常用 App</b> 分頁最上方是<a href="#oauth-settings">帳號登入設定</a>，下方依序顯示四組服務。<b>郵件與行事曆</b>包含郵件和行事曆，<b>團隊通訊</b>包含 Microsoft Teams 和 Slack，<b>文件與筆記</b>包含 Google Drive、Notion、Heptabase 和 Obsidian，<b>開發與瀏覽</b>包含 GitHub 和瀏覽器。</p>
+          <p><b>常用 App</b> 分頁最上方是<a href="#oauth-settings">帳號登入設定</a>，下方依序顯示四組服務。<b>郵件與行事曆</b>包含郵件和行事曆，<b>團隊通訊</b>包含 Microsoft Teams 和 Slack，<b>文件與筆記</b>包含 Google Drive、Notion、Heptabase 和 Obsidian，<b>開發與瀏覽</b>包含 GitHub、瀏覽器和電腦（Cua）。</p>
           <p><a href="../../../assets/media/docs/tools-common-apps-desktop-zh-TW.webp">常用 App 桌面版畫面</a> · <a href="../../../assets/media/docs/tools-common-apps-phone-zh-TW.webp">常用 App 手機版畫面</a></p>
           <p>
             在<b>常用 App</b> 展開<b>瀏覽器</b>、<b>郵件</b>或<b>行事曆</b>，再展開<b>選擇助理以啟用工具</b>，勾選能使用該工具的助理。選好後，展開<b>可使用此工具的助理 · N 種</b>即可更改。直接透過 Relay 使用 Drive、Teams、GitHub 或 Obsidian 時，做法也一樣。Slack 則在發文設定內選擇助理。工具連結了多個帳號時，選擇適用於該工具的所有帳號。
@@ -582,6 +591,26 @@
               <p>你在這裡登入的帳號，在刪除對話之前，這個對話的 agent 都能在它的瀏覽器裡使用，也看得到那個帳號顯示的內容。會顯示金鑰或權杖的網頁，請改用你自己的瀏覽器開，<a href="../permissions/#secrets">密鑰卡片</a>上的連結就是開在那裡。它是同一個瀏覽器、同一套規則：只有一個分頁、不能下載、在完全存取以下開新網站前會先問你，也不會儲存密碼。沒人看著的自動任務不能交接瀏覽器。</p>
             </div>
           </div>
+        </section>
+
+        <section id="computer" aria-labelledby="computer-title">
+          <h2 id="computer-title">電腦（Cua）</h2>
+          <p><b>電腦</b>：每個工作目錄一台 Linux 桌面電腦（Ubuntu，內建 Firefox，用
+              <a href="https://github.com/trycua/cua">Cua</a> 建立），由那裡的對話、它們的 agent 和你共用。agent
+              可以截圖、點擊、打字、按鍵、開啟應用程式、在裡面執行指令，也能在它和工作目錄之間複製檔案。它絕不是執行 Relay 的那台電腦，上面也沒有登入你的任何帳號。</p>
+          <p>展開<b>常用 App → 開發與瀏覽 → 電腦（Cua）</b>，按<b>安裝 Cua</b>。Relay 會下載 Cua 的官方發行版、檢查校驗碼後安裝到自己的資料夾，並顯示下載進度；你自己安裝的
+              <code>cua</code> 0.31.0 以上也可以用。按<b>檢查這台電腦能不能執行</b>，再到<b>選擇助理以啟用工具</b>勾選可以使用電腦的助理。Cua
+              在 macOS 上不需要其他東西（它有自己的 Linux 虛擬機）；在 Linux 上需要 Docker 或 Podman；在 Windows 上需要 WSL 2，也就要開啟虛擬化（在虛擬機裡要開巢狀虛擬化，而且不是每種虛擬機都會把它交給 Windows）。</p>
+          <p>同一個工作目錄的對話共用一台電腦：上面的檔案、安裝的應用程式、登入的帳號，以及由誰操作。其他資料夾的對話有自己的一台。第一次使用時才開機；這台電腦上最初那一次要下載
+              Cua 的 Linux 執行環境和桌面映像檔，約 2 GB，只下載一次，不管花多久都會在背景繼續，之後每台電腦開機只要幾秒。閒置 30 分鐘後會暫停。刪除對話不會刪除電腦，它會留給同一個資料夾的其他對話：要刪除請在設定中的這一列操作，那裡會列出每個資料夾的電腦和有幾個對話在用。同一列的<b>移除 Cua</b>
+              會把它整個移除：Relay 的電腦、Cua 下載的映像檔、沒有其他 Cua 沙箱需要時 Cua 在 macOS 上自己的 Linux 虛擬機（Linux 上則是 Cua 在 Docker 裡的映像檔；Windows 上，設定會說明如何移除 Cua 的 WSL 發行版），以及 Relay 安裝的 Cua（你自己安裝的會保留）。</p>
+          <h3 id="computer-control">觀看與接手</h3>
+          <p>在對話中打開 <b>⋯</b> 選單，選<b>電腦</b>：它會開在對話旁邊、應用程式預覽的位置，拖曳邊緣可以調整寬度。你可以看 agent
+              在做什麼，也有一份誰做了什麼的紀錄。選<b>接手</b>就能自己操作：你的點擊、拖曳、捲動和按鍵都會傳給它，用手機時也有打字框和<b>按鍵</b>選單可用。這段時間所有
+              agent 都會等你，也看不到畫面。完成後選<b>交還給 agent</b>，每個 agent 動手前都會先重新看一次畫面。在執行 Relay 的那台電腦上，<b>用 Cua
+              檢視器開啟</b>會在新分頁顯示它，畫面更流暢，但只能觀看：要操作請在面板接手。</p>
+          <p>在完全存取以下，agent 要在電腦上點擊、打字或執行指令之前，Relay 會先問你，和<a href="#browser">瀏覽器</a>一樣；選「本對話都允許」，這個對話之後的同一種動作就不再問。需要你本人的步驟（登入、密碼、CAPTCHA），agent
+              會請你接手，而不是向你要密碼：在它的卡片上選<b>接手電腦</b>，完成後交還，也可以附上給 agent 的話。agent 只會知道這些，絕不會知道你打了什麼。沒人看著的自動任務不能請你接手。</p>
         </section>
 
         <section id="library" aria-labelledby="library-title">

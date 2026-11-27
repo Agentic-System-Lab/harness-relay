@@ -63,7 +63,7 @@ export const CWD_MISSING = 'cwd-missing';
 export const GIT_MISSING = 'git-missing';
 export type GitRequirement = 'git' | 'gitBash';
 
-export type AppDependency = 'github' | 'browser';
+export type AppDependency = 'github' | 'browser' | 'cua';
 
 export interface AppDependencyView {
   available: boolean;
@@ -260,7 +260,7 @@ export type ToolKind = 'mcp' | 'skill' | 'memory' | 'relay';
  * Harness Relay's own tools, which every agent reaches through one MCP server of Harness Relay's (the
  * gateway, `src/server/gateway.ts`), in groups the user gives to the CLIs they choose.
  */
-export const RELAY_TOOL_GROUPS = ['browser', 'mail', 'calendar', 'drive', 'obsidian', 'github', 'teams', 'slack'] as const;
+export const RELAY_TOOL_GROUPS = ['browser', 'computer', 'mail', 'calendar', 'drive', 'obsidian', 'github', 'teams', 'slack'] as const;
 export type RelayToolGroup = (typeof RELAY_TOOL_GROUPS)[number];
 
 /** The name agents see Harness Relay's gateway under (`mcp__relay__browser_open` in Claude Code). */
@@ -2350,9 +2350,11 @@ export interface ApprovalReview {
 
 /**
  * How the user is shown the page: in a window of the browser itself on the computer Harness Relay runs
- * on, or in the chat, as Chromium's screencast, with the user's clicks and keys sent back.
+ * on, or in the chat, as Chromium's screencast, with the user's clicks and keys sent back. `computer`: not
+ * the browser but the chat's Cua computer (`computer_hand_over`), which the user takes control of in its
+ * panel (`ComputerView`).
  */
-export type HandoverMode = 'window' | 'screencast';
+export type HandoverMode = 'window' | 'screencast' | 'computer';
 
 /**
  * Where a hand-over stands: waiting for the user to start it (or decline), in the user's hands, or over:
@@ -2437,6 +2439,97 @@ export type HandoverInput =
 /** The user's answer to a hand-over: start it (one of its modes), hand it back, or decline or cancel it. */
 export type HandoverAnswer =
   { action: 'start'; mode: HandoverMode } | { action: 'done'; note?: string } | { action: 'cancel'; note?: string };
+
+// --- The chat's computer: a Cua desktop the agents and the user share -------------------------
+// (src/server/computer/; docs/architecture.md, "The computer")
+
+/**
+ * Where a chat's computer stands: none yet (`off`), being made or started (`starting`), on (`ready`), being
+ * stopped (`stopping`), or it could not start (`failed`, with why).
+ */
+export type ComputerStatus = 'off' | 'starting' | 'ready' | 'stopping' | 'failed';
+
+/** Who acts on the computer: the agents (the user watches), or the user, who took control (the agents wait). */
+export type ComputerControl = 'agents' | 'user';
+
+/**
+ * One thing done on the computer, as its panel lists it: when, who (an agent, by its name; the user; or
+ * Harness Relay itself, making or waking it) and what, in a line.
+ */
+export interface ComputerAction {
+  at: number;
+  who: 'agent' | 'user' | 'relay';
+  /** The agent's name. */
+  by?: string;
+  what: string;
+}
+
+/** A chat's computer, as its panel shows it (`GET /api/conversations/:id/computer`). */
+export interface ComputerView {
+  status: ComputerStatus;
+  /** Why it could not start or stopped (`failed`), in a line. */
+  error?: string;
+  /** When it began starting (`starting`): the first start downloads for minutes. */
+  startedAt?: number;
+  control: ComputerControl;
+  /** The newest things done on it, oldest first (at most `COMPUTER_LIMITS.recent`). */
+  recent: ComputerAction[];
+  /** An agent asked the user to take over (`computer_hand_over`), in a chat (`convId`): waiting for them, or theirs now. */
+  handover?: { id: string; convId: string; agentName: string; reason: string; status: 'pending' | 'active' };
+  /** The working directory whose chats share it: one computer per folder. */
+  folder?: string;
+  /** Cua is installed here, so the computer can be started. */
+  available: boolean;
+}
+
+/** What the computer's panel is told (`GET /api/conversations/:id/computer/screen`): a frame of its screen, or its state. */
+export type ComputerScreenEvent =
+  { type: 'frame'; data: string; mimeType: string; width: number; height: number } | { type: 'state'; view: ComputerView };
+
+/**
+ * What the user does in the computer's panel while they have control (`POST …/computer/input`), in order.
+ * `x` and `y` are fractions (0 to 1) of the frame shown, which the server turns into the screen's pixels; a
+ * key is Cua's name for it, with modifiers joined by `+` (`ctrl+c`, `enter`); text is typed as it is.
+ */
+export type ComputerInput =
+  | { type: 'click'; x: number; y: number; button?: 'left' | 'middle' | 'right'; double?: boolean }
+  | { type: 'drag'; x: number; y: number; toX: number; toY: number }
+  | { type: 'scroll'; x: number; y: number; direction: 'up' | 'down' | 'left' | 'right'; amount: number }
+  | { type: 'key'; keys: string }
+  | { type: 'text'; text: string };
+
+/**
+ * The computer's limits: things its panel lists, input events in one request, text typed at once, lines of
+ * one scroll, the minutes a computer stays on unused before it is stopped (its disk kept), and a command's
+ * output kept for the agent.
+ */
+export const COMPUTER_LIMITS = {
+  recent: 20,
+  eventsMax: 50,
+  textMax: 2000,
+  scrollMax: 25,
+  idleMinutes: 30,
+  outputMax: 20_000,
+} as const;
+
+/** Settings → Common apps → Computer: Cua as found here, whether its computers can run, and the chats' computers. */
+export interface ComputerSettingsView {
+  /** The `cua` the computer tools start: its version, and whether Harness Relay installed it. */
+  cua?: { version: string; own: boolean; path: string };
+  /** The user's own `cua`, too old for the computer tools. */
+  tooOld?: { version?: string; path: string };
+  /** The version Settings installs. */
+  installs: string;
+  /** Whether a Linux computer can run here, in `cua runtime doctor`'s words; undefined until checked. */
+  runtime?: { ready: boolean; detail: string };
+  /** Removing Cua (Settings' Remove Cua): its steps, while it runs and once it ended. */
+  removal?: CliInstallJobView;
+  /**
+   * This server's computers, on or suspended: one per working directory, with the chats there (none for one
+   * whose chats were all deleted, or one of an older Harness Relay, kept until deleted here).
+   */
+  computers: { name: string; folder?: string; chats: string[]; status: ComputerStatus }[];
+}
 
 /** One step of an agent's plan / to-do list. */
 export interface PlanEntry {
@@ -3666,6 +3759,8 @@ export interface CliInstallJobView {
   state: LoginState;
   startedAt: number;
   finishedAt?: number;
+  /** How much of a download is done, in bytes, of how much in all (when known). */
+  progress?: { done: number; total?: number };
   /** The installer's output, its last lines (colours and progress bars taken out). */
   log: string;
   error?: string;

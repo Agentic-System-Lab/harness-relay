@@ -102,6 +102,15 @@ describe('Store (SQLite)', () => {
     expect(new Store(reopen()).get(conv.id)!.messages.map((m) => m.parts)).toEqual([userMsg.parts, agentMsg.parts, followUp.parts]);
   });
 
+  it("reads a conversation's working directory, and every one's, without loading them (the computers go by them)", () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    expect(store.cwdOf(conv.id)).toBe(conv.settings.cwd);
+    expect(store.cwdOf('missing')).toBeUndefined();
+    expect(store.folders()).toContainEqual({ id: conv.id, title: conv.title, cwd: conv.settings.cwd });
+  });
+
   it('round-trips a conversation, its messages and agent sessions', () => {
     const store = new Store(db);
     const conv = sampleConversation();

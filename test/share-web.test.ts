@@ -130,7 +130,7 @@ describe('what a shared page holds', () => {
     const dir = join(__dirname, '../src/web/components');
     for (const file of ['HandoffCards.tsx', 'HandoverCard.tsx']) {
       const source = readFileSync(join(dir, file), 'utf8');
-      const sections = [...source.matchAll(/<section className=\{?[`"']([^`"']*)/g)].map((m) => m[1]!);
+      const sections = [...source.matchAll(/<section\s+className=\{?[`"']([^`"']*)/g)].map((m) => m[1]!);
       expect(sections.length, file).toBeGreaterThan(0);
       // Each card's own box is one a shared page drops: its names, proposals, runs and notes stay in the app.
       for (const cls of sections)

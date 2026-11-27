@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { delimiter, dirname, isAbsolute, join, win32 } from 'node:path';
 import { isProgram, sha256Of } from './executable';
@@ -60,12 +60,16 @@ export interface PortableBuild {
   exe: string;
   /** Some makers wrap their binary and license in a versioned top-level directory. */
   stripDirectory?: boolean;
+  /** The archive's size in bytes, when known: the download's progress is shown against it. */
+  size?: number;
 }
 
 export type ArchiveFailure = 'tools' | 'download' | 'run';
 export interface ArchiveHost {
   tool?: typeof systemArchiveTool;
   run?: (bin: string, args: string[], signal: AbortSignal) => Promise<boolean>;
+  /** Told how much of the archive is downloaded (bytes), every half second while it downloads, and once done. */
+  progress?: (done: number, total?: number) => void;
 }
 
 /** Verify the maker's fixed digest, unpack in a sibling directory, and publish only after the program starts there. */
@@ -82,6 +86,7 @@ export async function installPortableArchive(
       const result = await runProcess({ bin, args, signal: stop, timeoutMs: 300000, cwd: dirname(folder), env, maxCapture: 256 });
       return result.code === 0 && !result.timedOut;
     },
+    progress,
   }: ArchiveHost = {},
 ): Promise<void> {
   const curl = tool('curl');
@@ -92,6 +97,14 @@ export async function installPortableArchive(
   const temp = await mkdtemp(folder + '-install-');
   const archive = join(temp, 'archive');
   const staged = join(temp, 'runtime');
+  const downloaded = () => {
+    try {
+      progress?.(statSync(archive).size, build.size);
+    } catch {
+      // Not there yet.
+    }
+  };
+  const watch = progress ? setInterval(downloaded, 500) : undefined;
   try {
     const download = await run(
       curl,
@@ -114,7 +127,10 @@ export async function installPortableArchive(
         build.url,
       ],
       signal,
-    );
+    ).finally(() => {
+      clearInterval(watch);
+      downloaded();
+    });
     if (!download || (await sha256Of(archive)) !== build.sha256) throw failure('download');
     signal.throwIfAborted();
     await mkdir(staged, { mode: 0o700 });

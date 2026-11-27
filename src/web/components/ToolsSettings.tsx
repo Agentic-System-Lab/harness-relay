@@ -279,7 +279,9 @@ function RelayAccess({ group, lib, change }: { group: RelayToolGroup; lib: ToolL
     <details className="sub app-chat-access">
       <summary>{group === 'slack' ? t.apps.postingAssistants(providers.length) : t.apps.chatAccess(providers.length)}</summary>
       <fieldset className="sub-body app-access-controls" disabled={saving} aria-label={t.tools.givenTo}>
-        <p className="small muted">{group === 'browser' || group === 'obsidian' ? t.apps.deviceGrant : t.apps.grantHint}</p>
+        <p className="small muted">
+          {group === 'browser' || group === 'computer' || group === 'obsidian' ? t.apps.deviceGrant : t.apps.grantHint}
+        </p>
         {(!lib.gateway.available || lib.gateway.reason) && (
           <p className="warn-line small">{t.tools.relay.unavailable[lib.gateway.reason ?? 'not-started']}</p>
         )}

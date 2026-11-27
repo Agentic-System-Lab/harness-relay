@@ -104,7 +104,7 @@ test.describe('the guided tour', () => {
     await page.reload();
     await appShown(page);
     await expect(tour(page)).toHaveCount(0);
-    await expect(nudge(page)).toContainText('The guided tour has 4 topics you have not read. Take a look?');
+    await expect(nudge(page)).toContainText('The guided tour has 5 topics you have not read. Take a look?');
   });
 
   test('asks on the home page about the topics left: Show me opens the first of them, Not now stops asking', async ({ page }) => {
@@ -158,7 +158,7 @@ test.describe('the guided tour', () => {
     await page.reload();
     await appShown(page);
     await expect(tour(page)).toHaveCount(0);
-    await expect(nudge(page)).toContainText('The guided tour has 8 topics you have not read. Take a look?');
+    await expect(nudge(page)).toContainText('The guided tour has 9 topics you have not read. Take a look?');
     await nudge(page).getByRole('button', { name: 'Show me' }).click();
     await expect(shown(page)).toHaveText('Get an agent ready');
     await expect(checked(page)).toHaveText(['Meet Harness Relay', 'Get an agent ready']);
@@ -180,19 +180,28 @@ test.describe('the guided tour', () => {
     });
     await page.reload();
     await appShown(page);
-    await expect(nudge(page)).toContainText('The guided tour has 4 topics you have not read.');
+    await expect(nudge(page)).toContainText('The guided tour has 6 topics you have not read.');
     await nudge(page).getByRole('button', { name: 'Show me' }).click();
     await expect(shown(page)).toHaveText('Start a chat');
     await expect(tour(page)).toContainText('mic, attach files or folders');
     await expect(listed(page, 'While the team works')).toContainText('Updated');
     await expect(listed(page, 'After a reply')).toContainText('Updated');
     await expect(listed(page, 'Labs')).not.toContainText('Updated');
+    // The chat's computer is new since then: unread, not updated; the apps topic, now with the tool library, updated.
+    await expect(listed(page, 'Computer')).not.toContainText('Updated');
+    await expect(listed(page, 'Common apps and tools')).toContainText('Updated');
     await tour(page).getByRole('button', { name: 'Next' }).click();
     await expect(tour(page)).toContainText('edit text files or delete files');
     await tour(page).getByRole('button', { name: 'Next' }).click();
     await expect(shown(page)).toHaveText('After a reply');
     await expect(tour(page)).toContainText('Share under a reply');
     await expect(tour(page)).toContainText('Question usage below your question');
+    await listed(page, 'Common apps and tools').click();
+    await expect(tour(page)).toContainText('Add MCP servers, skills and memory in the tool library.');
+    await expect(tour(page).getByRole('link', { name: 'Open Apps and tools' })).toHaveAttribute('href', /#\/settings\/apps$/);
+    await listed(page, 'Computer').click();
+    await expect(tour(page)).toContainText('take control any time');
+    await expect(tour(page).getByRole('link', { name: 'Install Cua' })).toHaveAttribute('href', /#\/settings\/apps$/);
     await listed(page, 'Labs').click();
     await expect(tour(page)).toContainText('CodeAct');
     await expect(tour(page)).toContainText('RLM');
