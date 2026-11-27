@@ -77,7 +77,7 @@ import { VoiceService } from './voice';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
 import { commonAppDependencies } from './appDependencies';
-import { cuaEnv, cuaRunner, linuxRuntime } from './computer/cua';
+import { cuaEnv, cuaRunner, linuxRuntime, removeCuaRuntime } from './computer/cua';
 import { cuaAvailable, findCua, uninstallCua, usableCua } from './computer/install';
 import { StdioMcp } from './computer/mcp';
 import { COMPUTER_MCP_PERMISSIONS, ComputerService } from './computer/session';
@@ -212,6 +212,8 @@ const computer = new ComputerService({
   folderOf: (id) => store.cwdOf(id),
   // Remove Cua's last step: Harness Relay's own copy of cua (the user's own stays).
   uninstall: () => uninstallCua(),
+  // Then Cua's own Linux VM (macOS), once no sandbox is left in Cua's home.
+  removeRuntime: () => removeCuaRuntime(),
   // What a copy to or from a computer never touches: the folders kept from agents, Cua's home too.
   protectedPaths: () => [...agentProtectedReads(), cuaHomeDir()],
 });

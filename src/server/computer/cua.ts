@@ -1,4 +1,5 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { portableInstallEnv } from '../portableInstall';
@@ -118,4 +119,98 @@ export function cuaRunner(bin: () => string | undefined, env: () => NodeJS.Proce
       maxStderrCapture: 64 * 1024,
     });
   };
+}
+
+/**
+ * Removes Cua's own Linux runtime, Remove Cua's last step on Cua's side (once no sandbox is left in its home):
+ * on macOS a Lima VM (`colima-cua`) under `<home>/runtimes/linux`, stopped and deleted with the `limactl`
+ * Cua put there, then that folder (its disk is most of it). Cua has no command for this. Nothing is deleted
+ * while a VM there could not be stopped. On Windows its WSL distribution stays (`kept`): its name is Cua's
+ * own; on Linux, Cua's images and helper in Docker instead (`kept-docker` while other Cua sandboxes are there).
+ */
+export async function removeCuaRuntime(
+  o: {
+    home?: string;
+    platform?: NodeJS.Platform;
+    run?: (bin: string, args: string[], env: NodeJS.ProcessEnv) => Promise<SpawnResult>;
+  } = {},
+): Promise<'removed' | 'none' | 'kept-wsl' | 'kept-docker'> {
+  const dir = join(o.home ?? cuaHome(), 'runtimes', 'linux');
+  const platform = o.platform ?? process.platform;
+  const run =
+    o.run ??
+    ((bin: string, args: string[], env: NodeJS.ProcessEnv) => runProcess({ bin, args, env, timeoutMs: 180_000, maxCapture: 1 << 20 }));
+  // On Linux the computers ran in the user's Docker, where Cua's images and its helper stay after its cache is pruned.
+  const docker = platform === 'linux' ? await removeCuaFromDocker(run) : 'none';
+  if (!existsSync(dir)) return docker;
+  if (platform === 'win32') return 'kept-wsl';
+  const lima = join(dir, 'vm', '_lima');
+  const limactl = readdirSync(dir)
+    .filter((name) => name.startsWith('colima-'))
+    .map((name) => join(dir, name, 'lima', 'bin', 'limactl'))
+    .find((p) => existsSync(p));
+  if (existsSync(lima)) {
+    if (!limactl) throw new Error(`Cua's Linux VM in ${dir} could not be stopped: its limactl is missing`);
+    const env = { ...cuaEnv(), LIMA_HOME: lima };
+    const listed = await run(limactl, ['list', '--json'], env);
+    if (listed.code !== 0) throw new Error(`Cua's Linux VM could not be listed: ${tail(listed.stderr || listed.stdout, 300)}`);
+    const names = listed.stdout
+      .split('\n')
+      .map((line) => {
+        try {
+          return (JSON.parse(line) as { name?: unknown }).name;
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((name): name is string => typeof name === 'string' && /^[\w.-]+$/.test(name));
+    for (const name of names) {
+      await run(limactl, ['stop', '--force', name], env);
+      const deleted = await run(limactl, ['delete', '--force', name], env);
+      if (deleted.code !== 0)
+        throw new Error(`Cua's Linux VM ${name} could not be deleted: ${tail(deleted.stderr || deleted.stdout, 300)}`);
+    }
+  }
+  await rm(dir, { recursive: true, force: true, maxRetries: 3 });
+  return 'removed';
+}
+
+/**
+ * What Cua left in the user's Docker on Linux, once none of Cua's sandboxes is there (of any Cua home: Cua
+ * labels its containers `ai.cua.managed`): its helper containers (`ai.cua.kind=helper`, which set up gVisor),
+ * then its images (`ghcr.io/trycua/…`, `cua-vmm/helper`), each with a plain `docker rmi`, which Docker refuses
+ * for an image a container still uses. Without Docker (Podman), nothing.
+ */
+async function removeCuaFromDocker(
+  run: (bin: string, args: string[], env: NodeJS.ProcessEnv) => Promise<SpawnResult>,
+): Promise<'removed' | 'none' | 'kept-wsl' | 'kept-docker'> {
+  const env = cuaEnv();
+  let listed: SpawnResult;
+  try {
+    listed = await run(
+      'docker',
+      ['ps', '-a', '--filter', 'label=ai.cua.managed=true', '--format', '{{.Names}}\t{{.Label "ai.cua.kind"}}'],
+      env,
+    );
+  } catch {
+    return 'none';
+  }
+  if (listed.code !== 0) return 'none';
+  const containers = listed.stdout
+    .split('\n')
+    .map((line) => line.trim().split('\t'))
+    .filter(([name]) => name);
+  // A sandbox of Cua's still there (another Cua home's): its helper and images stay.
+  if (containers.some(([, kind]) => kind !== 'helper')) return 'kept-docker';
+  let removed = false;
+  for (const [name] of containers) if ((await run('docker', ['rm', '--force', name!], env)).code === 0) removed = true;
+  const images = await run('docker', ['images', '--format', '{{.Repository}}:{{.Tag}}'], env);
+  if (images.code === 0)
+    for (const ref of images.stdout.split('\n').map((l) => l.trim())) {
+      if (!/^(ghcr\.io\/trycua\/[\w./-]+|cua-vmm\/helper):[\w.-]+$/.test(ref)) continue;
+      const r = await run('docker', ['rmi', ref], env);
+      if (r.code === 0) removed = true;
+      else throw new Error(`Cua's image ${ref} stays in Docker: ${tail(r.stderr || r.stdout, 300)}`);
+    }
+  return removed ? 'removed' : 'none';
 }

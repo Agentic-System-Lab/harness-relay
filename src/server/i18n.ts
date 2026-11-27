@@ -1165,6 +1165,8 @@ const zhTW = {
       computer: (name: string) => `刪除電腦 ${name}`,
       prune: '清除 Cua 下載的映像檔（其他沙箱還在用的會保留）',
       runtime: '移除 Cua 自己的 Linux 虛擬機與執行環境',
+      runtimeKept: 'Cua 在 Windows 上的 WSL 發行版沒有移除：用 wsl --list 找到它的名稱後，以 wsl --unregister 移除。',
+      dockerKept: 'Docker 裡還有其他 Cua 沙箱，所以 Cua 在 Docker 裡的映像檔和輔助容器保留下來。',
       othersLeft: (n: number) => `Cua 的資料夾裡還有 ${n} 個不是這個 Harness Relay 的沙箱，所以保留 Cua 的虛擬機與執行環境。`,
       othersUnknown: '無法確認 Cua 的資料夾裡是否還有其他沙箱，所以保留 Cua 的虛擬機與執行環境。',
       program: '已移除 Harness Relay 安裝的 Cua。',
@@ -2715,6 +2717,8 @@ const en: ServerMessages = {
       computer: (name) => `Deleting the computer ${name}`,
       prune: 'Clearing the images Cua downloaded (any another sandbox uses stay)',
       runtime: "Removing Cua's own Linux virtual machine and runtime",
+      runtimeKept: "Cua's WSL distribution on Windows stays: find its name with wsl --list, then remove it with wsl --unregister.",
+      dockerKept: "Docker still has other Cua sandboxes, so Cua's images and helper container in Docker stay.",
       othersLeft: (n) =>
         `Cua's folder still has ${n} sandbox${n === 1 ? '' : 'es'} that ${n === 1 ? 'is' : 'are'} not this Harness Relay's, so Cua's virtual machine and runtime stay.`,
       othersUnknown: "Harness Relay could not tell whether Cua's folder has other sandboxes, so Cua's virtual machine and runtime stay.",

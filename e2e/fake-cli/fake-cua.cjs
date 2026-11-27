@@ -15,7 +15,7 @@
  * - `sb suspend|resume|restart|rm <ref> [--force]`: changes or deletes it;
  * - `--json sb view <ref> --no-open …`: a viewer link on a local port, view-only when asked;
  * - `sb cp <src> <dst>`: a copy into the sandbox is noted; one out of it writes `from the fake computer`;
- * - `--json cache prune --all`, `--json host remove --force` (Settings' Remove Cua): nothing to remove;
+ * - `--json cache prune --all` (Settings' Remove Cua): nothing to remove;
  * - `mcp --sandbox <ref> --permissions computer:all`: an MCP server over stdio with the computer tools.
  *   Its screenshot is a real PNG, 1200 by 750, whose colour changes with each input, so a frame shows
  *   what was done; each tool call goes to the log.
@@ -175,7 +175,6 @@ function main() {
     return out({ backends: [{ backend: 'container', ready: true, detail: 'Fake container engine', missing: [], provisionable: false }] });
   if (cmd === 'mcp') return mcp(rest[rest.indexOf('--sandbox') + 1]);
   if (cmd === 'cache' && sub === 'prune') return out({ gc: { freed: 0, removed: [] }, reaped: [] });
-  if (cmd === 'host' && sub === 'remove') return out({ removed: true });
   if (cmd !== 'sb' && cmd !== 'sandbox') return fail(`not faked: ${args.join(' ')}`);
   const name = nameOf(more.find((a) => !a.startsWith('-')));
   switch (sub) {

@@ -58,9 +58,12 @@ describe('the computer over the HTTP API', () => {
     const handovers = new Handovers();
     const calls: [string, Record<string, unknown>][] = [];
     const runs: string[][] = [];
+    // Its one computer, until `sb rm` deletes it.
+    let listed = true;
     const computer = new ComputerService({
       run: async (args): Promise<SpawnResult> => {
         runs.push(args);
+        if (args.includes('rm')) listed = false;
         if (args.includes('info')) return { code: 1, stdout: '', stderr: 'not found', timedOut: false, aborted: false } as SpawnResult;
         if (args.includes('view'))
           return {
@@ -73,7 +76,9 @@ describe('the computer over the HTTP API', () => {
         if (args.includes('ls'))
           return {
             code: 0,
-            stdout: JSON.stringify([{ name: computerName(join(root, 'data'), folderKey(root)), state: 'running', status: 'ready' }]),
+            stdout: JSON.stringify(
+              listed ? [{ name: computerName(join(root, 'data'), folderKey(root)), state: 'running', status: 'ready' }] : [],
+            ),
             stderr: '',
             timedOut: false,
             aborted: false,

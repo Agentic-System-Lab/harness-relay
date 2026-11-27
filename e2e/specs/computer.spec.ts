@@ -120,13 +120,12 @@ test.describe('the chat’s computer', () => {
     await expect(settings.locator('.computer-list')).toContainText('No conversation has used a computer yet.');
     await expect.poll(() => cuaLog(relay).some((e) => e.args?.slice(0, 2).join(' ') === 'sb rm')).toBe(true);
 
-    // Removing Cua altogether: its downloads, its runtime (nothing else is left), and Harness Relay's own copy.
+    // Removing Cua altogether: its downloads and Harness Relay's own copy (no runtime of Cua's own here: a container engine).
     acceptNextDialog(page);
     await settings.getByRole('button', { name: 'Remove Cua' }).click();
     await expect(settings).toContainText('Removed Cua.');
-    expect(cuaLog(relay).map((e) => e.args?.slice(0, 3).join(' '))).toEqual(
-      expect.arrayContaining(['--json cache prune', '--json host remove']),
-    );
+    expect(cuaLog(relay).map((e) => e.args?.slice(0, 3).join(' '))).toEqual(expect.arrayContaining(['--json cache prune']));
+    expect(cuaLog(relay).some((e) => e.args?.includes('host'))).toBe(false);
     await expect(settings.getByRole('button', { name: 'Install Cua' })).toBeVisible();
   });
 

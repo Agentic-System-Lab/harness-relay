@@ -88,6 +88,10 @@ export interface ComputerDeps {
    * user's own is left where it is (`kept`, with its path), or there is none.
    */
   uninstall?: () => Promise<{ removed: true } | { kept: string } | undefined>;
+  /** Removing Cua's own Linux runtime (`removeCuaRuntime()`), once no sandbox is left in Cua's home. */
+  removeRuntime?: () => Promise<'removed' | 'none' | 'kept-wsl' | 'kept-docker'>;
+  /** How long Remove Cua waits for each poll of `sb ls` while its deletions finish (tests: shorter). */
+  removalPollMs?: number;
   /** How long a computer may take to be made (its image downloaded the first time). */
   createMs?: number;
   /** How long an agent's call waits for a computer that is starting before it is told to look again (45 s). */
@@ -877,10 +881,10 @@ export class ComputerService {
   private removal?: InstallJob;
 
   /**
-   * Settings' Remove Cua, in the background: this server's computers deleted with their disks; Cua's cache
-   * pruned (never what another sandbox uses); when no other sandbox is left in Cua's home (the user's own,
-   * another Harness Relay's), Cua's own runtimes removed too (`cua host remove`: its Linux VM on macOS, its
-   * WSL distribution on Windows); then Harness Relay's own copy of `cua` (the user's own stays).
+   * Settings' Remove Cua, in the background: this server's computers deleted with their disks (waited for:
+   * `sb rm` only starts it); Cua's cache pruned (never what another sandbox uses); when no other sandbox is
+   * left in Cua's home (the user's own, another Harness Relay's), Cua's own Linux runtime too
+   * (`removeCuaRuntime()`: its VM on macOS); then Harness Relay's own copy of `cua` (the user's own stays).
    */
   startRemoval(): void {
     if (this.removal?.state === 'running') return;
@@ -912,7 +916,8 @@ export class ComputerService {
         if (c.frameTimer) clearTimeout(c.frameTimer);
       }
       if (this.deps.available()) {
-        for (const x of await this.list()) await step(r.computer(x.name), ['sb', 'rm', 'local:' + x.name, '--force'], 180_000);
+        const ours = await this.list();
+        for (const x of ours) await step(r.computer(x.name), ['sb', 'rm', 'local:' + x.name, '--force'], 180_000);
         for (const c of this.computers.values()) {
           c.status = 'off';
           c.recent = [];
@@ -921,12 +926,39 @@ export class ComputerService {
           this.changed(c);
         }
         this.computers.clear();
-        const all = await this.deps.run(['--json', 'sb', 'ls', '--local', '--no-size'], { timeoutMs: 60_000 });
-        const left = lastJson(all.stdout);
-        const others = all.code === 0 && Array.isArray(left) ? left.length : -1;
+        // The deletions go on after `sb rm` answers: the cache is pruned once they are done (an image a computer
+        // being deleted still uses would stay), at most a few minutes.
+        const names = new Set(ours.map((x) => x.name));
+        let others = -1;
+        for (let wait = 0; wait < 90 && !job.abort.signal.aborted; wait++) {
+          const all = await this.deps.run(['--json', 'sb', 'ls', '--local', '--no-size'], { timeoutMs: 60_000, signal: job.abort.signal });
+          const left = lastJson(all.stdout);
+          if (all.code !== 0 || !Array.isArray(left)) break;
+          const named = left.map((s) => (s && typeof s === 'object' ? String((s as { name?: unknown }).name ?? '') : ''));
+          if (!named.some((n) => names.has(n))) {
+            others = named.length;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, this.deps.removalPollMs ?? 2000));
+        }
+        job.abort.signal.throwIfAborted();
         await step(r.prune, ['--json', 'cache', 'prune', '--all'], 15 * 60_000);
-        if (others === 0) await step(r.runtime, ['--json', 'host', 'remove', '--force'], 15 * 60_000);
-        else job.append((others > 0 ? r.othersLeft(others) : r.othersUnknown) + '\n');
+        if (others === 0 && this.deps.removeRuntime) {
+          job.append(r.runtime + '\n');
+          try {
+            const runtime = await this.deps.removeRuntime();
+            // Said in Settings as a step that did not finish: Cua is not all gone.
+            if (runtime === 'kept-wsl' || runtime === 'kept-docker') {
+              const kept = runtime === 'kept-wsl' ? r.runtimeKept : r.dockerKept;
+              job.append(kept + '\n');
+              failed.push(kept);
+            }
+          } catch (err) {
+            const why = (err as Error).message;
+            job.append(why + '\n');
+            failed.push(`${r.runtime}: ${why}`);
+          }
+        } else if (others !== 0) job.append((others > 0 ? r.othersLeft(others) : r.othersUnknown) + '\n');
       }
       const program = await this.deps.uninstall?.();
       if (program && 'removed' in program) job.append(r.program + '\n');

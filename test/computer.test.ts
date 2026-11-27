@@ -3,11 +3,11 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { fileKey } from '../src/server/db';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { ComputerScreenEvent, HandoverPart } from '../src/shared/types';
 import { Handovers } from '../src/server/browser/handover';
-import { cuaEnv, cuaFailure, cuaHome, lastJson, linuxRuntime } from '../src/server/computer/cua';
+import { cuaEnv, cuaFailure, cuaHome, lastJson, linuxRuntime, removeCuaRuntime } from '../src/server/computer/cua';
 import { checkComputerInputs } from '../src/server/computer/input';
 import {
   atLeast,
@@ -274,6 +274,77 @@ describe('removing Cua’s program', () => {
       kept: '/home/u/.local/bin/cua',
     });
     expect(await uninstallCua(folder, () => undefined)).toBeUndefined();
+  });
+});
+
+describe('removing Cua’s own Linux runtime', () => {
+  it('stops and deletes its VM with Cua’s own limactl, then its folder; nothing where there is none', async () => {
+    const home = join(root, 'runtime-home');
+    const dir = join(home, 'runtimes', 'linux');
+    const limactl = join(dir, 'colima-0.10.3-lima-2.2.0', 'lima', 'bin', 'limactl');
+    mkdirSync(dirname(limactl), { recursive: true });
+    writeFileSync(limactl, '');
+    mkdirSync(join(dir, 'vm', '_lima', 'colima-cua'), { recursive: true });
+    const calls: { bin: string; args: string[]; lima?: string }[] = [];
+    const run = async (bin: string, args: string[], env: NodeJS.ProcessEnv) => {
+      calls.push({ bin, args, lima: env.LIMA_HOME });
+      return args[0] === 'list' ? ok(JSON.stringify({ name: 'colima-cua', status: 'Running' }) + '\n') : ok();
+    };
+    expect(await removeCuaRuntime({ home, platform: 'darwin', run })).toBe('removed');
+    expect(calls.map((c) => c.args.join(' '))).toEqual(['list --json', 'stop --force colima-cua', 'delete --force colima-cua']);
+    expect(calls.every((c) => c.bin === limactl && c.lima === join(dir, 'vm', '_lima'))).toBe(true);
+    expect(existsSync(dir)).toBe(false);
+    expect(await removeCuaRuntime({ home, platform: 'darwin', run })).toBe('none');
+    // A VM that could not be deleted keeps its folder.
+    mkdirSync(dirname(limactl), { recursive: true });
+    writeFileSync(limactl, '');
+    mkdirSync(join(dir, 'vm', '_lima'), { recursive: true });
+    const stuck = async (_bin: string, args: string[]) =>
+      args[0] === 'list' ? ok('{"name":"colima-cua"}\n') : args[0] === 'delete' ? fail('busy') : ok();
+    await expect(removeCuaRuntime({ home, platform: 'darwin', run: stuck })).rejects.toThrow(/could not be deleted/);
+    expect(existsSync(dir)).toBe(true);
+    // On Windows, its WSL distribution stays.
+    expect(await removeCuaRuntime({ home, platform: 'win32', run })).toBe('kept-wsl');
+  });
+
+  it('on Linux, takes Cua’s helper and images out of Docker once none of its sandboxes is there', async () => {
+    const home = join(root, 'runtime-linux');
+    const calls: string[] = [];
+    let containers = 'cua-runsc-helper\thelper\n';
+    const run = async (bin: string, args: string[]) => {
+      calls.push([bin, ...args].join(' '));
+      if (args[0] === 'ps') return ok(containers);
+      if (args[0] === 'images') return ok('ghcr.io/trycua/linux:24.04\ncua-vmm/helper:1\nubuntu:24.04\n');
+      return ok();
+    };
+    expect(await removeCuaRuntime({ home, platform: 'linux', run })).toBe('removed');
+    expect(calls).toEqual([
+      expect.stringMatching(/^docker ps -a --filter label=ai\.cua\.managed=true/),
+      'docker rm --force cua-runsc-helper',
+      expect.stringMatching(/^docker images/),
+      'docker rmi ghcr.io/trycua/linux:24.04',
+      'docker rmi cua-vmm/helper:1',
+    ]);
+    // A sandbox of Cua's still there (another Cua home's): nothing goes.
+    calls.length = 0;
+    containers = 'cua-runsc-helper\thelper\nrelay-x\tsandbox\n';
+    expect(await removeCuaRuntime({ home, platform: 'linux', run })).toBe('kept-docker');
+    expect(calls).toHaveLength(1);
+    // An image a container still uses: Docker refuses it, and that is said.
+    containers = '';
+    const inUse = async (bin: string, args: string[]) =>
+      args[0] === 'images' ? ok('ghcr.io/trycua/linux:24.04\n') : args[0] === 'rmi' ? fail('image is being used by container x') : ok('');
+    await expect(removeCuaRuntime({ home, platform: 'linux', run: inUse })).rejects.toThrow(/being used/);
+    // Without Docker (Podman): nothing.
+    expect(
+      await removeCuaRuntime({
+        home,
+        platform: 'linux',
+        run: async () => {
+          throw new Error('spawn docker ENOENT');
+        },
+      }),
+    ).toBe('none');
   });
 });
 
@@ -819,18 +890,29 @@ describe('the chat’s computer', () => {
     await service.shutdown();
   });
 
-  it('removes Cua from Settings: this server’s computers, the cache, Cua’s runtime when nothing else is left, and its own copy', async () => {
+  it('removes Cua from Settings: this server’s computers once deleted, the cache, Cua’s runtime when nothing else is left, and its own copy', async () => {
     let sandboxes = [{ name: NAME, state: 'running', status: 'ready' }];
     const runs: string[][] = [];
     let uninstalled = 0;
+    let runtimes = 0;
+    // `sb rm` only starts a deletion: the sandbox is listed a while longer.
+    let deleting = 0;
     const service = new ComputerService({
       run: async (args) => {
         runs.push(args);
-        if (args.includes('ls')) return ok(JSON.stringify(sandboxes));
-        if (args.includes('rm')) sandboxes = sandboxes.filter((s) => 'local:' + s.name !== args[2]);
+        if (args.includes('ls')) {
+          if (deleting && --deleting === 0) sandboxes = sandboxes.filter((s) => s.name !== NAME);
+          return ok(JSON.stringify(sandboxes));
+        }
+        if (args.includes('rm')) deleting = 3;
         if (args.includes('info')) return fail('not found');
         return ok('{}');
       },
+      removeRuntime: async () => {
+        runtimes++;
+        return 'removed';
+      },
+      removalPollMs: 1,
       available: () => true,
       startMcp: async () => new FakeMcp(),
       dataDir: root,
@@ -844,13 +926,17 @@ describe('the chat’s computer', () => {
     });
     service.startRemoval();
     await vi.waitFor(async () => expect((await service.settingsView(false, () => [])).removal?.state).toBe('success'));
+    // The cache is pruned only once the computer is gone.
     expect(runs.map((r) => r.slice(0, 3).join(' '))).toEqual([
       '--json sb ls',
       'sb rm local:' + NAME,
       '--json sb ls',
+      '--json sb ls',
+      '--json sb ls',
       '--json cache prune',
-      '--json host remove',
     ]);
+    expect(runs.some((r) => r.includes('host'))).toBe(false);
+    expect(runtimes).toBe(1);
     expect(uninstalled).toBe(1);
     const { removal } = await service.settingsView(false, () => []);
     expect(removal?.log).toMatch(/relay-/);
@@ -859,9 +945,36 @@ describe('the chat’s computer', () => {
     runs.length = 0;
     service.startRemoval();
     await vi.waitFor(async () => expect((await service.settingsView(false, () => [])).removal?.state).toBe('success'));
-    expect(runs.some((r) => r.includes('host'))).toBe(false);
+    expect(runtimes).toBe(1);
     expect(runs.some((r) => r.includes('rm'))).toBe(false);
     await service.shutdown();
+  });
+
+  it('says that Cua is not all gone where its runtime stays (Windows) or could not be removed', async () => {
+    for (const [runtime, said] of [
+      [async () => 'kept-wsl' as const, /wsl --unregister/],
+      [async () => 'kept-docker' as const, /Docker still has other Cua sandboxes/],
+      [
+        async () => {
+          throw new Error('Cua’s Linux VM colima-cua could not be deleted: busy');
+        },
+        /could not be deleted: busy/,
+      ],
+    ] as const) {
+      const service = new ComputerService({
+        run: async (args) => (args.includes('ls') ? ok('[]') : ok('{}')),
+        available: () => true,
+        startMcp: async () => new FakeMcp(),
+        dataDir: root,
+        handovers: new Handovers(),
+        shotsDir: () => join(root, 'shots-removal4'),
+        removeRuntime: runtime,
+      });
+      withLang('en', () => service.startRemoval());
+      await vi.waitFor(async () => expect((await service.settingsView(false, () => [])).removal?.state).toBe('failed'));
+      expect((await service.settingsView(false, () => [])).removal?.error).toMatch(said);
+      await service.shutdown();
+    }
   });
 
   it('says which steps of removing Cua did not finish', async () => {
