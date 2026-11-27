@@ -8,8 +8,9 @@
  * environment for the server and the CLIs it starts), `live` (the real CLIs: `e2e/live/`),
  * `missingClis` (the CLIs not installed: by default all but Claude Code, Codex and Grok,
  * `DEFAULT_CLIS`; `withClis()` and the per-CLI helpers of `support/clis.ts` set it),
- * `openBackend` (false: no model backend, so the open agents are installed but not ready) and
- * `sandboxTerminal` (false: OpenHands' terminal switch off).
+ * `openBackend` (false: no model backend, so the open agents are installed but not ready),
+ * `sandboxTerminal` (false: OpenHands' terminal switch off) and `fakeDocker` (true: the fake Docker CLI
+ * first on the server's PATH, for a spec that removes Cua, so that the host's Docker is never touched).
  */
 import { test as base, expect } from '@playwright/test';
 import type { Provider } from '../src/shared/types';
@@ -36,6 +37,8 @@ interface TestFixtures {
   openBackend: boolean;
   /** Whether OpenHands may use a terminal in Harness Relay's own sandbox (`startRelay`'s `sandboxTerminal`). */
   sandboxTerminal: boolean;
+  /** Whether the fake Docker CLI comes first on the server's PATH (`startRelay`'s `fakeDocker`). */
+  fakeDocker: boolean;
 }
 
 interface WorkerFixtures {
@@ -53,12 +56,13 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   missingClis: [notInstalledBut(), { option: true }],
   openBackend: [true, { option: true }],
   sandboxTerminal: [true, { option: true }],
+  fakeDocker: [false, { option: true }],
 
   fakeBinDir: [async ({}, use) => use(process.env.E2E_FAKE_BIN_DIR || (await installFakeClis())), { scope: 'worker' }],
 
   relay: [
-    async ({ fakeBinDir, serverEnv, live, missingClis, openBackend, sandboxTerminal }, use, testInfo) => {
-      const relay = await startRelay({ fakeBinDir, env: serverEnv, live, missingClis, openBackend, sandboxTerminal });
+    async ({ fakeBinDir, serverEnv, live, missingClis, openBackend, sandboxTerminal, fakeDocker }, use, testInfo) => {
+      const relay = await startRelay({ fakeBinDir, env: serverEnv, live, missingClis, openBackend, sandboxTerminal, fakeDocker });
       try {
         await use(relay);
       } finally {

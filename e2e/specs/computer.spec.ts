@@ -14,7 +14,9 @@ import type { RelayServer } from '../support/relay';
  * The fake Cua CLI (`e2e/fake-cli/fake-cua.cjs`) stands in for cua and its computer: it is linked into the
  * server's own Cua folder, as Settings' install puts it there; each of its starts and tool calls is in the
  * fake log. Installing Cua itself downloads from GitHub, which these tests never do: test/computer.test.ts
- * covers it.
+ * covers it. Remove Cua's last step asks Docker to take Cua's images out (on Linux): the fake Docker CLI
+ * (`e2e/fake-cli/fake-docker.cjs`) comes first on each server's PATH here, so the host's Docker is never
+ * touched.
  */
 
 /** Cua installed in the server's own folder (`<data>/clis/cua`), as Settings' install puts it: the fake, linked there. */
@@ -28,6 +30,9 @@ function installFakeCua(relay: RelayServer, fakeBinDir: string): void {
     copyFileSync(fakeCuaIn(fakeBinDir), target);
   }
 }
+
+// Remove Cua must never reach the Docker of the computer the tests run on.
+test.use({ fakeDocker: true });
 
 /** What the fake Cua was asked: its command lines, and the tools its MCP server was called with. */
 const cuaLog = (relay: RelayServer) =>
@@ -130,6 +135,24 @@ test.describe('the chat’s computer', () => {
     await expect(settings).toContainText('Removed Cua.');
     expect(cuaLog(relay).map((e) => e.args?.slice(0, 3).join(' '))).toEqual(expect.arrayContaining(['--json cache prune']));
     expect(cuaLog(relay).some((e) => e.args?.includes('host'))).toBe(false);
+    // With no Cua sandbox left, Cua's own runtime goes too: on Linux, its helper container and images in
+    // Docker (the fake's), never an image that is not Cua's; macOS and Windows ask Docker nothing.
+    const docker = relay
+      .fakeLog()
+      .filter((e) => (e as { cli?: string }).cli === 'docker')
+      .map((e) => ((e as { args?: string[] }).args ?? []).join(' '));
+    if (process.platform === 'linux') {
+      expect(docker).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/^ps -a --filter label=ai\.cua\.managed=true/),
+          'rm --force cua-runsc-helper',
+          expect.stringMatching(/^images --digests/),
+          `rmi ghcr.io/trycua/linux@sha256:${'3c'.repeat(32)}`,
+          'rmi cua-vmm/helper:1',
+        ]),
+      );
+      expect(docker.filter((a) => a.startsWith('rmi'))).toHaveLength(2);
+    } else expect(docker.filter((a) => /^(rm|rmi) /.test(a))).toEqual([]);
     await expect(settings.getByRole('button', { name: 'Install Cua' })).toBeVisible();
   });
 
