@@ -9014,6 +9014,8 @@ summary + .checks-editor-body {
 
 .preview-actions {
   display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   align-items: center;
   gap: 6px;
 }
@@ -9052,13 +9054,57 @@ summary + .checks-editor-body {
   border-radius: 6px;
 }
 
-.preview-markdown {
+.preview-markdown,
+.notebook-preview {
   flex: 1;
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px 20px;
+}
+
+.notebook-cell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 6px 10px;
+}
+
+.notebook-cell + .notebook-cell {
+  margin-top: 18px;
+}
+
+.notebook-cell > .markdown,
+.notebook-raw {
+  grid-column: 1 / -1;
+}
+
+.notebook-prompt {
+  padding-top: 12px;
+  color: var(--muted);
+  font: 12px/1.55 var(--mono);
+  white-space: pre;
+}
+
+.notebook-output {
+  grid-column: 2;
+  padding: 4px 12px;
+  border-left: 2px solid var(--border);
+}
+
+.notebook-output img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.notebook-output pre,
+.notebook-raw {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 13px/1.55 var(--mono);
 }
 
 .code-view {
