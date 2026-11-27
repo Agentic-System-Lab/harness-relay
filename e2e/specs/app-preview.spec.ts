@@ -143,7 +143,7 @@ test('a reply opens the author’s own file in parallel and the preview fits a p
     },
   );
   // On a phone the panel would cover the chat: the page the team made does not open by itself.
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 320, height: 568 });
   await send(page, 'Make a page.\n[page](site/index.html) e2e:write=site/index.html');
   const claude = await finishedReply(page, 'Claude');
   const codex = await finishedReply(page, 'Codex');
@@ -157,8 +157,13 @@ test('a reply opens the author’s own file in parallel and the preview fits a p
     await reply.getByRole('button', { name: 'Preview app' }).click();
     const panel = page.getByRole('dialog', { name: 'App preview' });
     await expect(panel).toContainText('@' + author);
-    await expect(panel.frameLocator('iframe').locator('body')).toContainText('Written by ' + author);
-    expect((await panel.boundingBox())!.width).toBeLessThanOrEqual(390);
+    const content = panel.frameLocator('iframe').locator('body');
+    await expect(content).toContainText('Written by ' + author);
+    expect(await content.evaluate(() => window.innerWidth)).toBe(await panel.evaluate((el) => el.clientWidth));
+    await expect(panel.locator('.app-preview-publish')).toBeVisible();
+    expect((await panel.boundingBox())!.width).toBeLessThanOrEqual(320);
+    expect(await panel.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    await expect(panel.getByRole('button', { name: 'Close' })).toBeInViewport({ ratio: 1 });
     await panel.getByRole('button', { name: 'Close' }).click();
   }
 });
