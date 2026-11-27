@@ -40,18 +40,50 @@ export function ComputerSettings({ access }: { access: ReactNode }) {
     await load(true);
     setChecking(false);
   };
-  // While Cua is being removed, its steps as they go; while its desktop image downloads, how far it is.
+  // While Cua is being removed, its steps as they go.
   const uninstalling = view?.removal?.state === 'running';
-  const downloading = view?.image?.job?.state === 'running';
   useEffect(() => {
-    if (!uninstalling && !downloading) return;
+    if (!uninstalling) return;
     const timer = setInterval(() => void load(), 1500);
     return () => clearInterval(timer);
-  }, [uninstalling, downloading, load]);
+  }, [uninstalling, load]);
+  // While its desktop image downloads, how far it is: the download alone (the computers are not listed for
+  // it), one request at a time; the whole row again once it ended.
+  const downloading = view?.image?.job?.state === 'running';
+  useEffect(() => {
+    if (!downloading) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const { image } = await api.computerImage();
+        if (stopped) return;
+        if (image?.job?.state === 'running') {
+          setView((v) => (v ? { ...v, image } : v));
+          timer = setTimeout(() => void poll(), 1500);
+        } else void load();
+      } catch {
+        if (!stopped) timer = setTimeout(() => void poll(), 3000);
+      }
+    };
+    timer = setTimeout(() => void poll(), 1500);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [downloading, load]);
   const downloadImage = async () => {
     try {
       setView(await api.downloadComputerImage());
       setError('');
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  const cancelImage = async () => {
+    try {
+      await api.cancelComputerImage();
+      await load();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -93,7 +125,9 @@ export function ComputerSettings({ access }: { access: ReactNode }) {
         {[view && !view.cua ? r.installs(view.installs) : '', r.where].filter(Boolean).join(t.filesEdit.sentenceGap)}
       </p>
       {view && !view.cua && <AppDependencyInstall name="cua" onReady={() => load()} checkAgain={false} />}
-      {view?.cua && view.image && !uninstalling && <ComputerImage image={view.image} onDownload={() => void downloadImage()} />}
+      {view?.cua && view.image && !uninstalling && (
+        <ComputerImage image={view.image} onDownload={() => void downloadImage()} onCancel={() => void cancelImage()} />
+      )}
       {view?.cua && (
         <div className="computer-runtime">
           <button type="button" className="ghost small-button" disabled={checking} onClick={() => void check()}>
@@ -171,7 +205,15 @@ export function ComputerSettings({ access }: { access: ReactNode }) {
  * The desktop image computers are made from: its download as it goes (bytes once Docker's pull says, else
  * that it is being prepared), downloaded, or a button to download it (again, after a failure: why, and its log).
  */
-function ComputerImage({ image, onDownload }: { image: NonNullable<ComputerSettingsView['image']>; onDownload: () => void }) {
+function ComputerImage({
+  image,
+  onDownload,
+  onCancel,
+}: {
+  image: NonNullable<ComputerSettingsView['image']>;
+  onDownload: () => void;
+  onCancel: () => void;
+}) {
   const t = useT();
   const r = t.apps.computerRow;
   const job = image.job;
@@ -189,6 +231,9 @@ function ComputerImage({ image, onDownload }: { image: NonNullable<ComputerSetti
               {r.imagePreparing}
             </p>
           )}
+          <button type="button" className="ghost small-button" onClick={onCancel}>
+            {t.common.cancel}
+          </button>
         </>
       ) : image.downloadedAt ? (
         <p className="small muted" role="status">
@@ -198,7 +243,7 @@ function ComputerImage({ image, onDownload }: { image: NonNullable<ComputerSetti
         <>
           {failed && (
             <p className="error-line" role="alert">
-              {r.imageFailed} {job.error ?? ''}
+              {job.error || r.imageFailed}
             </p>
           )}
           {failed && job.log && (
@@ -209,7 +254,7 @@ function ComputerImage({ image, onDownload }: { image: NonNullable<ComputerSetti
           )}
           <p className="small muted">{r.imageMissing}</p>
           <button type="button" className="ghost small-button" onClick={onDownload}>
-            {failed ? t.apps.retryInstall : r.imageDownload}
+            {failed ? r.imageRetry : r.imageDownload}
           </button>
         </>
       )}

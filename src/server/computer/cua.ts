@@ -209,8 +209,13 @@ export class PullProgress {
         if (!layer) this.layers.set(id, { done: 0, finished: false });
         break;
       case 'Downloading':
+        // A layer Docker downloads again (its retry) starts from nothing: the bar keeps what it showed.
         if (typeof current === 'number' && current >= 0 && typeof total === 'number' && total > 0)
-          this.layers.set(id, { done: Math.min(current, total), total, finished: false });
+          this.layers.set(id, {
+            done: Math.max(Math.min(current, total), layer?.total === total ? layer.done : 0),
+            total,
+            finished: false,
+          });
         break;
       case 'Verifying Checksum':
       case 'Download complete':

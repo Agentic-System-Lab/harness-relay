@@ -9,6 +9,7 @@ import {
   isDouble,
   mergeComputerInputs,
   pressInput,
+  startingNote,
   viewerReachable,
   wheelInput,
   type Press,
@@ -209,6 +210,8 @@ export function ComputerPanel({
     });
 
   const status = view?.status ?? 'off';
+  // Under "Starting…": the desktop image Settings is downloading, or the first start's own download.
+  const startNote = status === 'starting' && view ? startingNote(view) : undefined;
   const showViewer = status === 'ready' && viewerReachable({ desktop: isAppWindow(navigator.userAgent), hostname: location.hostname });
 
   return (
@@ -302,13 +305,19 @@ export function ComputerPanel({
             {status === 'starting' && (
               <p className="muted small computer-note" role="status">
                 {view?.startedAt ? c.startingFor(Math.floor((Date.now() - view.startedAt) / 60_000)) : c.starting}
-                {view?.image || view?.imageReady ? '' : ' ' + c.firstTime}
+                {startNote === 'first-time' ? ' ' + c.firstTime : ''}
               </p>
             )}
-            {status === 'starting' && view?.image && (
+            {(startNote === 'preparing' || typeof startNote === 'object') && (
               <div className="computer-note">
                 <p className="muted small">{c.waitingImage}</p>
-                <DownloadProgress done={view.image.done} total={view.image.total} />
+                {startNote === 'preparing' ? (
+                  <p className="muted small" role="status">
+                    {c.waitingPreparing}
+                  </p>
+                ) : (
+                  <DownloadProgress done={startNote.image.done} total={startNote.image.total} />
+                )}
               </div>
             )}
             {status === 'failed' && view?.error && (

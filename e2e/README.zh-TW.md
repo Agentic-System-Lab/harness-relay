@@ -525,13 +525,13 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 
 ## 對話的電腦
 
-[`computer.spec.ts`](specs/computer.spec.ts) 用假的 Cua CLI（[`fake-cli/fake-cua.cjs`](fake-cli/fake-cua.cjs)）測試對話的電腦，它代替 `cua` 與它的電腦，從不啟動容器。它和假 CLI 一起建置，但不在 PATH 上，所以只有測試把它連結到伺服器自己的 Cua 資料夾（`<data>/clis/cua/`，和設定的安裝放的位置一樣）時才算安裝了 Cua；Harness Relay 除了 Cua 的家目錄之外，不會把測試的變數交給 `cua`，所以假的 cua 把沙箱放在 `$CUA_HOME/fake-cua`，並把紀錄（每次啟動、每個 MCP 工具呼叫）寫進測試的紀錄。它的截圖是一張真正的 1200×750 PNG；移除 Cua 的 `cache prune` 它回答沒有東西可移除（測試的 Cua 家目錄裡沒有 Cua 自己的執行環境）；它的 `image pull` 在被要求時照 cua 記錄的方式寫出引擎的下載串流（三層，約三秒），`$CUA_HOME/fake-cua-pull.json` 要它失敗時就失敗。Claude Code 的假 CLI 用 `e2e:mcp` 呼叫電腦工具，在完全存取下。
+[`computer.spec.ts`](specs/computer.spec.ts) 用假的 Cua CLI（[`fake-cli/fake-cua.cjs`](fake-cli/fake-cua.cjs)）測試對話的電腦，它代替 `cua` 與它的電腦，從不啟動容器。它和假 CLI 一起建置，但不在 PATH 上，所以只有測試把它連結到伺服器自己的 Cua 資料夾（`<data>/clis/cua/`，和設定的安裝放的位置一樣）時才算安裝了 Cua；Harness Relay 除了 Cua 的家目錄之外，不會把測試的變數交給 `cua`，所以假的 cua 把沙箱放在 `$CUA_HOME/fake-cua`，並把紀錄（每次啟動、每個 MCP 工具呼叫）寫進測試的紀錄。它的截圖是一張真正的 1200×750 PNG；移除 Cua 的 `cache prune` 它回答沒有東西可移除（測試的 Cua 家目錄裡沒有 Cua 自己的執行環境）；它的 `image pull` 在被要求時照 cua 記錄的方式寫出引擎的下載串流（三層，約三秒；`$CUA_HOME/fake-cua-pull.json` 要它慢時會變慢），那個檔案要它失敗時就失敗；它的 `cache ls` 在下載或建立過後列出映像檔。Claude Code 的假 CLI 用 `e2e:mcp` 呼叫電腦工具，在完全存取下。
 
 | 情境 | 檢查的內容 |
 | --- | --- |
 | agent 查看電腦，使用者旁觀、接手、點擊與打字、交還；在設定刪除它，再移除 Cua | 設定的**電腦（Cua）**那一列顯示 **Cua 0.31.2 (installed by Harness Relay)**；`computer_screenshot` 在第一次使用時建立電腦（`sb create linux --name relay-…`），並說明截圖的大小；**⋯ → Computer** 開啟面板，**On**、agent 在操作、畫面是 PNG；旁觀時點擊畫面不會送出；**Take control**：點畫面中央會送到 Cua 上大約對應的像素，打的按鍵送成文字，Enter 送成按鍵；這段期間 agent 的呼叫會被拒絕並說明原因；**Hand back to the agents**，**Lately** 列出使用者接手；面板上沒有刪除按鈕；在設定的**電腦（Cua）**列出它的工作目錄與 **used by 1 chat**，確認後在那裡刪除它（`sb rm`），清單變空；確認 **Remove Cua** 後顯示 **Removed Cua.**，等電腦刪除後向假的 cua 要求 `--json cache prune`，絕不要求 `host`（那會取消使用者自己設定的 Cua 主機），那一列又提供 **Install Cua**。 |
 | agent 請使用者接手 | `computer_hand_over`：卡片 **@Claude asks you to take over the computer** 附上原因；**Take control of the computer** 開啟面板，由使用者操作並顯示 agent 的原因；在面板留言並按 **Hand back to the agents** 結束：agent 只知道這件事與留言，卡片顯示 **Handed back (computer): Signed in**。 |
-| 設定頁下載桌面映像檔 | 設定的那一列說映像檔 **Not downloaded yet**；假 cua 的下載失敗時，**Download the desktop image** 失敗並用 cua 的話說明（**Could not download the desktop image: cua: provider not configured: …**）；**Retry installation** 下載它，顯示 **Downloading the desktop image…**、324 MB 中已下載多少與進度條，接著 **The desktop image is downloaded**，重新載入後也一樣，不再有按鈕；兩次都要求假 cua 下載 `ghcr.io/trycua/linux:24.04`，並帶 `CUA_LOG=info,bollard::read=debug`。 |
+| 設定頁下載桌面映像檔 | 設定的那一列說映像檔 **Not downloaded yet**；假 cua 的下載失敗時，**Download the desktop image** 失敗並用 cua 的話說明（**Could not download the desktop image: cua: provider not configured: …**）；放慢的 **Download again** 顯示進度條，按 **Cancel** 停止，設定列回到原樣；接著 **Download the desktop image** 下載它，顯示 **Downloading the desktop image…**、324 MB 中已下載多少與進度條，接著 **The desktop image is downloaded**，重新載入後也一樣，不再有按鈕；三次都要求假 cua 下載 `ghcr.io/trycua/linux:24.04`，並帶 `CUA_LOG=info,bollard::read=debug`。 |
 | 沒有 Cua | 設定的那一列提供 **Install Cua** 並說明會安裝什麼；面板說明沒有安裝 Cua。 |
 
 安裝 Cua 會從 GitHub 下載它的發行版，這些測試從不這麼做：`test/computer.test.ts` 用替身壓縮檔安裝它，並回報下載進度；`test/computer-routes.test.ts` 則確認安裝成功後會自動開始下載桌面映像檔。

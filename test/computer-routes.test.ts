@@ -241,13 +241,27 @@ describe('the computer over the HTTP API', () => {
     const settingsImage = async () =>
       ((await (await app.request('/api/computer', { headers })).json()) as { image?: { downloadedAt?: number; job?: { state: string } } })
         .image;
-    expect(await settingsImage()).toEqual({});
+    // A computer of this server's is listed: its image is here.
+    expect(await settingsImage()).toEqual({ downloadedAt: expect.any(Number) });
     const started = await post('/api/computer/image', {});
     expect(started.status).toBe(200);
     expect(await started.json()).toMatchObject({ image: { job: { state: expect.stringMatching(/running|success/) } } });
     await expect.poll(async () => (await settingsImage())?.downloadedAt).toEqual(expect.any(Number));
     expect(runs.filter((r) => r[1] === 'image')).toEqual([['--json', 'image', 'pull', 'ghcr.io/trycua/linux:24.04']]);
     expect((await app.request('/api/computer/image', { method: 'POST', headers, body: 'x' })).status).toBe(415);
+    // The download alone, which Settings polls while it runs, and its Cancel.
+    const polled = await app.request('/api/computer/image', { headers });
+    expect(await polled.json()).toMatchObject({ image: { downloadedAt: expect.any(Number), job: { state: 'success' } } });
+    // As the page sends it (JSON, as every write); a plain one is refused.
+    expect((await app.request('/api/computer/image', { method: 'DELETE', headers })).status).toBe(415);
+    const cancelled = await app.request('/api/computer/image', {
+      method: 'DELETE',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(cancelled.status).toBe(200);
+    expect(await cancelled.json()).toMatchObject({ image: { job: { state: 'success' } } });
+    expect((await app.request('/api/computer/image', { headers: HOST })).status).toBe(401);
     await computer.shutdown();
 
     // Cua installed from Settings: the download follows by itself.
@@ -272,7 +286,8 @@ describe('the computer over the HTTP API', () => {
   });
 
   it('refuses to download the desktop image without Cua, in the request’s language', async () => {
-    const { computer, headers, post } = await setup(false);
+    const { app, computer, headers, post } = await setup(false);
+    expect(await (await app.request('/api/computer/image', { headers })).json()).toEqual({ image: null });
     const refused = await post('/api/computer/image', {}, { ...headers, 'x-relay-lang': 'en' });
     expect(refused.status).toBe(409);
     expect(await refused.json()).toMatchObject({ error: expect.stringMatching(/Cua is not installed/) });

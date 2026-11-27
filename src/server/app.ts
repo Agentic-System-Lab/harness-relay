@@ -3015,6 +3015,15 @@ export function createApp({
     return c.json(await computer.settingsView(false, () => store.folders()));
   });
 
+  // The desktop image's download alone, which Settings polls while it runs (the computers are not listed).
+  app.get('/api/computer/image', (c) => c.json({ image: computer.imageState() ?? null }));
+
+  // Settings' Cancel of the desktop image's download: it ends cancelled, and can be started again.
+  app.delete('/api/computer/image', (c) => {
+    computer.cancelImage();
+    return c.json({ image: computer.imageState() ?? null });
+  });
+
   // Settings' Remove Cua, in the background: this server's computers, Cua's downloads (unless another
   // sandbox uses them) and Harness Relay's own copy of cua; GET /api/computer says how it goes.
   app.post('/api/computer/remove', async (c) => {

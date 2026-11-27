@@ -85,9 +85,10 @@ describe('runProcess', () => {
     const reset = () => Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
     const res = await runProcess({
       bin: process.execPath,
-      args: ['-e', "process.stdout.write('one\\n')"],
+      args: ['-e', "process.stdout.write('one\\n'); process.stderr.write('two\\n')"],
       env: process.env,
       onLine: () => undefined,
+      onStderrLine: () => undefined,
       onSpawn: (child) => {
         child.stdout!.emit('error', reset());
         child.stderr!.emit('error', reset());

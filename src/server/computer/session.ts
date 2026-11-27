@@ -216,6 +216,8 @@ class Computer {
   suspending?: Promise<void>;
   /** Its first start waits for the desktop image Settings is downloading (rather than downloading it too). */
   waitingForImage = false;
+  /** Being made (`sb create`), which downloads the image itself when it is not here: Settings' download waits for it. */
+  creating = false;
   /** Deleted (Settings): a start still under way closes what it started. */
   gone = false;
   /** Stops its start when it is deleted. */
@@ -416,7 +418,14 @@ export class ComputerService {
       else if (!state) {
         this.note(c, () => t().computer.making, 'relay');
         await this.imageFirst(c, signal);
-        await this.create(c, signal);
+        // Cua being removed meanwhile (its download was stopped for it): nothing is made.
+        if (this.removal?.state === 'running') throw new Error(t().computer.removal.busy);
+        c.creating = true;
+        try {
+          await this.create(c, signal);
+        } finally {
+          c.creating = false;
+        }
         this.recordImage();
       }
       if (c.gone) throw new Error(t().computer.notOn);
@@ -892,6 +901,7 @@ export class ComputerService {
         folders.set(name, entry);
       }
       const listed = await this.list().catch(() => []);
+      await this.checkImage(listed.length > 0);
       computers = listed.map((x) => {
         const at = folders.get(x.name);
         const status = [...this.computers.values()].find((c) => c.name === x.name)?.status;
@@ -941,6 +951,8 @@ export class ComputerService {
   private imageToldAt = 0;
   /** What `imageRecordPath()` holds (read once): the desktop image downloaded here, and with which cua. */
   private imageRecord?: { at: number; cua: string } | null;
+  /** The desktop image in the catalog of the `cua` found (`images info`), asked once for each program and version. */
+  private catalog?: { of: string; image: { ref: string; download?: number } };
 
   /** Where this server records that the desktop image is downloaded (its data folder: Cua's home is Cua's). */
   private imageRecordPath(): string {
@@ -1007,6 +1019,67 @@ export class ComputerService {
   }
 
   /**
+   * The desktop image as Settings polls it while it downloads (`GET /api/computer/image`): its state alone,
+   * without listing the computers; undefined without a usable `cua`.
+   */
+  imageState(): ComputerSettingsView['image'] {
+    const found = this.deps.found?.();
+    return found && !found.tooOld ? this.imageView() : undefined;
+  }
+
+  /** The desktop image in the `cua` found's catalog (`cua --json images info linux`); its words when it has none. */
+  private async desktopImageOf(signal?: AbortSignal): Promise<{ ref: string; download?: number }> {
+    const found = this.deps.found?.();
+    const of = found && !found.tooOld ? found.bin + '@' + found.version : '';
+    if (of && this.catalog?.of === of) return this.catalog.image;
+    const info = await this.deps.run(['--json', 'images', 'info', DESKTOP_IMAGE], { signal, timeoutMs: 60_000 });
+    const image = info.code === 0 ? desktopImage(lastJson(info.stdout), this.deps.arch) : undefined;
+    if (!image)
+      throw new ComputerError(() =>
+        info.code === 0 ? `${t().computer.image.stepInfo}: ${t().computer.image.noRef}` : cuaFailure(info, t().computer.image.stepInfo),
+      );
+    if (of) this.catalog = { of, image };
+    return image;
+  }
+
+  /**
+   * Checks the record against Cua (Settings' view, while nothing is being downloaded or removed): `cua --json
+   * cache ls --category docker-images` lists the image pulled (`pulled-image`), or one the engine no longer has
+   * (`stale-record`, `orphan`: removed from Docker, or cleared from Cua's cache), which the record then is not;
+   * where Cua cannot reach the engine it lists nothing, and the record stands. A computer of this server's
+   * also says it is here (Cua never clears an image a sandbox uses), so one made before the record existed
+   * counts too.
+   */
+  private async checkImage(computers: boolean): Promise<void> {
+    if (this.imageJob?.state === 'running' || this.removal?.state === 'running' || !this.deps.available()) return;
+    let state: 'here' | 'gone' | undefined;
+    try {
+      const { ref } = await this.desktopImageOf();
+      const repo = ref.replace(/@sha256:[0-9a-f]{64}$/i, '').replace(/:[\w.-]+$/, '');
+      const r = await this.deps.run(['--json', 'cache', 'ls', '--category', 'docker-images'], { timeoutMs: 30_000 });
+      const listed = r.code === 0 ? lastJson(r.stdout) : undefined;
+      const ours = (Array.isArray(listed) ? listed : []).filter(
+        (e): e is { name: string; kind?: unknown; orphan?: unknown } =>
+          Boolean(e) &&
+          typeof (e as { name?: unknown }).name === 'string' &&
+          /^[@:]/.test((e as { name: string }).name.slice(repo.length)) &&
+          (e as { name: string }).name.startsWith(repo),
+      );
+      if (ours.some((e) => e.kind === 'pulled-image' && e.orphan !== true)) state = 'here';
+      else if (ours.some((e) => e.kind === 'stale-record' || e.orphan === true)) state = 'gone';
+    } catch {
+      // Not known: the record stands.
+    }
+    if (state === 'gone') this.forgetImage();
+    else if ((state === 'here' || computers) && !this.imageDownloaded()) this.recordImage();
+  }
+
+  /** Stops Settings' download of the desktop image (its Cancel): it ends `cancelled`, and can be started again. */
+  cancelImage(): void {
+    if (this.imageJob?.state === 'running') this.imageJob.abort.abort();
+  }
+
+  /**
    * Settings' download of the desktop image, in the background (and once Settings installed Cua): the Linux
    * desktop that computers are made from, pulled where they run, with Cua's own Linux VM set up on the way on
    * macOS and Windows, so that a computer's first start takes seconds. Its progress is Docker's, as cua logs
@@ -1015,7 +1088,7 @@ export class ComputerService {
   startImage(): void {
     if (this.imageJob?.state === 'running') return;
     if (this.stopping) throw new HttpError(503, t().shuttingDown);
-    if (this.removal?.state === 'running') throw new HttpError(409, t().computer.removal.busy);
+    if (this.removal?.state === 'running') throw new HttpError(409, t().computer.image.removing);
     if (!this.deps.available()) throw new HttpError(409, t().computer.notInstalled);
     const job = new InstallJob();
     this.imageJob = job;
@@ -1026,9 +1099,13 @@ export class ComputerService {
     const signal = AbortSignal.any([job.abort.signal, this.stopAll.signal]);
     const im = t().computer.image;
     try {
-      const info = await this.deps.run(['--json', 'images', 'info', DESKTOP_IMAGE], { signal, timeoutMs: 60_000 });
-      const image = info.code === 0 ? desktopImage(lastJson(info.stdout), this.deps.arch) : undefined;
-      if (!image) throw new ComputerError(() => cuaFailure(info, t().computer.image.stepInfo));
+      const image = await this.desktopImageOf(signal);
+      // A computer being made downloads the image itself: this download goes on once it is done (then quickly).
+      const making = [...this.computers.values()].filter((c) => c.creating && c.starting).map((c) => c.starting);
+      if (making.length) {
+        job.append(im.computerFirst + '\n');
+        await untilAborted(Promise.allSettled(making), signal);
+      }
       job.append(`$ cua image pull ${image.ref}\n`);
       if (this.deps.runtime?.() === 'builtin') job.append(im.vmFirst + '\n');
       const progress = new PullProgress(image.download);
@@ -1076,9 +1153,13 @@ export class ComputerService {
 
   private async runRemoval(job: InstallJob): Promise<void> {
     const r = t().computer.removal;
-    // A download of the desktop image stops first: its image goes with the others.
+    // A download of the desktop image stops first, its image going with the others, and so do the starts under
+    // way (a computer being made, or waiting for that download): none is made while Cua is being removed.
     this.imageJob?.abort.abort();
-    await this.imageJob?.ended;
+    const starting = [...this.computers.values()].filter((c) => c.starting);
+    for (const c of starting) c.abort.abort();
+    await Promise.allSettled([this.imageJob?.ended, ...starting.map((c) => c.starting)]);
+    for (const c of starting) c.abort = new AbortController();
     this.forgetImage();
     /** The steps that did not finish: the removal's error, Settings' only words besides "Removed". */
     const failed: string[] = [];
@@ -1283,6 +1364,23 @@ export class ComputerService {
   }
 }
 
+/** Waits for `p`, or throws as soon as `signal` is aborted. */
+async function untilAborted<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<never>((_, reject) => {
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener('abort', onAbort, { once: true });
+      }),
+    ]);
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
+}
+
 const clip = (note?: string) => (note?.trim() ? note.trim().slice(0, HANDOVER_LIMITS.noteMax) : undefined);
 
 /** The user's note, as the agent is told it: on one line, in quotes. */
@@ -1364,9 +1462,13 @@ export function insideFolder(folder: string, path: string, create = false, rules
   const wanted = isAbsolute(path) ? path : join(folder, path);
   const outside = { error: `${path} is outside the working directory` };
   const refused = { error: `${path} is one of the paths Harness Relay keeps from agents: it is never copied to or from the computer` };
-  /** Why `real` (inside `root`, as its relative path says) is kept out, or undefined. */
-  const kept = (real: string, rel: string): { error: string } | undefined => {
-    if (rel.split(/[\\/]/).some(isGit) || hiddenNatively(root, real)) return refused;
+  /**
+   * Why `real` (inside `root`, as its relative path says) is kept out, or undefined. `existing`: what of it is
+   * there for Windows' own real path (`hiddenNatively()`, which cannot spell out a file not made yet): itself,
+   * or for a new file its folder, whose own name `rel` has already been checked.
+   */
+  const kept = (real: string, rel: string, existing = real): { error: string } | undefined => {
+    if (rel.split(/[\\/]/).some(isGit) || hiddenNatively(root, existing)) return refused;
     if (!rules) return undefined;
     const under = (dir: string) => {
       const r = relative(dir, real);
@@ -1391,14 +1493,15 @@ export function insideFolder(folder: string, path: string, create = false, rules
     const target = join(parent, basename(wanted));
     const rel = within(root, target);
     if (rel === undefined || target === root) return outside;
-    const why = kept(target, rel);
-    if (why) return why;
+    let exists = true;
     try {
-      const st = lstatSync(target);
-      if (!st.isFile()) return { error: `${path} exists and is not a file` };
+      lstatSync(target);
     } catch {
-      // A new file.
+      exists = false;
     }
+    const why = kept(target, rel, exists ? target : parent);
+    if (why) return why;
+    if (exists && !lstatSync(target).isFile()) return { error: `${path} exists and is not a file` };
     return target;
   } catch {
     return { error: create ? `the folder of ${path} does not exist` : `${path} does not exist` };

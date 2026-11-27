@@ -873,8 +873,8 @@ describe('the chat’s computer', () => {
     expect(view).toEqual({
       cua: { version: CUA_VERSION, own: true, path: '/x/cua' },
       installs: CUA_VERSION,
-      // Not downloaded yet, and no download asked for.
-      image: {},
+      // A computer of this server's is listed: its image is here (Cua never clears one a sandbox uses).
+      image: { downloadedAt: expect.any(Number) },
       runtime: { ready: true, detail: 'Docker Engine' },
       computers: [{ name: NAME, folder: root, chats: ['Fix the app', 'Try it'], status: 'off' }],
     });
@@ -1116,6 +1116,12 @@ describe('the desktop image', () => {
     expect(p.line(layer('Download complete', '1e6e7ca511b9', { hidecounts: true }))).toEqual({ done: 350, total: 1200 });
     expect(p.line(layer('Extracting', '1e6e7ca511b9', { current: 1, units: 's' }))).toEqual({ done: 350, total: 1200 });
     expect(p.line(layer('Pull complete', 'db1d5603818e', { hidecounts: true }))).toEqual({ done: 1200, total: 1200 });
+    // A layer Docker downloads again (its retry) starts from nothing: the bar does not go back.
+    const retry = new PullProgress();
+    retry.line(layer('Pulling fs layer', 'aaaaaaaaaaaa'));
+    expect(retry.line(layer('Downloading', 'aaaaaaaaaaaa', { current: 80, total: 100 }))).toEqual({ done: 80, total: 100 });
+    expect(retry.line(layer('Downloading', 'aaaaaaaaaaaa', { current: 5, total: 100 }))).toEqual({ done: 80, total: 100 });
+    expect(retry.line(layer('Downloading', 'aaaaaaaaaaaa', { current: 90, total: 100 }))).toEqual({ done: 90, total: 100 });
     // What is not a line of the stream, or not one it knows.
     expect(p.line(debug({ status: 'Digest: ' + DIGEST }))).toBeUndefined();
     expect(p.line(`${at} DEBUG bollard::read: Decoding JSON line from stream: {not json`)).toBeUndefined();
@@ -1178,6 +1184,8 @@ describe('the desktop image', () => {
       info?: () => SpawnResult;
       pull?: (opts: { signal?: AbortSignal; onStderrLine?: (line: string) => void }) => Promise<SpawnResult>;
       create?: () => Promise<void>;
+      /** What `cua cache ls --category docker-images` says (nothing listed by default). */
+      cache?: () => SpawnResult;
       version?: string;
       record?: string;
       runtime?: string;
@@ -1201,6 +1209,7 @@ describe('the desktop image', () => {
           made.add(args[args.indexOf('--name') + 1]!);
           return ok('{"status":"ready"}');
         }
+        if (args[1] === 'cache') return o.cache?.() ?? ok('[]');
         if (args.includes('ls')) return ok('[]');
         return ok('{}');
       },
@@ -1253,7 +1262,8 @@ describe('the desktop image', () => {
     service.startImage();
     await vi.waitFor(async () => expect((await settings()).image?.job?.progress).toEqual({ done: 200_000_000, total: 1_400_706_377 }));
     expect(pulls()).toHaveLength(1);
-    expect(runs.map((r) => r.args).filter((a) => a[1] !== 'sb')).toEqual([
+    // (Settings' own views list the computers and ask Cua's cache, apart from the download.)
+    expect(runs.map((r) => r.args).filter((a) => a[1] !== 'sb' && a[1] !== 'cache')).toEqual([
       ['--json', 'images', 'info', 'linux'],
       ['--json', 'image', 'pull', REF],
     ]);
@@ -1283,16 +1293,16 @@ describe('the desktop image', () => {
     await other.service.shutdown();
   });
 
-  it('says on macOS and Windows that Cua sets up its own Linux VM first', async () => {
+  it('says on macOS and Windows that the image goes into Cua’s own Linux VM, set up first where it is not', async () => {
     const { service, settings } = imageService({ runtime: 'builtin' });
     withLang('en', () => service.startImage());
     await vi.waitFor(async () => expect((await settings()).image?.job?.state).toBe('success'));
-    expect((await settings()).image?.job?.log).toContain('Cua first sets up its own Linux virtual machine');
+    expect((await settings()).image?.job?.log).toContain("the image goes into Cua's own Linux virtual machine");
     await service.shutdown();
   });
 
   it('says why it could not be downloaded, in cua’s words, and downloads it again on the user’s word', async () => {
-    let catalog = fail('cua: images: unknown command');
+    let catalog = ok(JSON.stringify({ ref: '--runtime=runc/x' }));
     let pullsFail = true;
     const { service, settings } = imageService({
       info: () => catalog,
@@ -1310,6 +1320,13 @@ describe('the desktop image', () => {
     });
     withLang('en', () => service.startImage());
     await vi.waitFor(async () => expect((await settings()).image?.job?.state).toBe('failed'));
+    // A catalog that names no reference (here, something that would be an option of cua's) is said so.
+    expect((await withLang('en', () => settings())).image?.job?.error).toBe(
+      "Could not look up Cua's desktop image: Cua's catalog names no desktop image",
+    );
+    catalog = fail('cua: images: unknown command');
+    service.startImage();
+    await vi.waitFor(async () => expect((await settings()).image?.job?.error).toMatch(/unknown command/));
     // Said in the language each request asks in.
     expect((await withLang('en', () => settings())).image?.job?.error).toBe(
       "Could not look up Cua's desktop image: cua: images: unknown command",
@@ -1417,6 +1434,136 @@ describe('the desktop image', () => {
     await missing.service.shutdown();
   });
 
+  it('stops a computer waiting for it when Cua is removed: nothing is made, and the record stays gone', async () => {
+    const { pull } = heldPull();
+    const { service, runs, record, settings } = imageService({ pull });
+    service.startImage();
+    await vi.waitFor(() => expect(runs.some((r) => r.args[1] === 'image')).toBe(true));
+    service.turnOn('c1');
+    await vi.waitFor(() => expect(service.view('c1').image).toBeDefined());
+    service.startRemoval();
+    await vi.waitFor(async () => expect((await settings()).removal?.state).toBe('success'));
+    expect(runs.some((r) => r.args.includes('create'))).toBe(false);
+    expect(existsSync(record)).toBe(false);
+    const { image } = await settings();
+    expect(image?.downloadedAt).toBeUndefined();
+    expect(image?.job?.state).toBe('cancelled');
+    await service.shutdown();
+  });
+
+  it('lets a computer waiting for a download that failed make itself, downloading the image as before', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { service, runs, settings } = imageService({
+      pull: async () => {
+        await gate;
+        return fail('cua: provider not configured: a container engine is not available');
+      },
+    });
+    service.startImage();
+    await vi.waitFor(() => expect(runs.some((r) => r.args[1] === 'image')).toBe(true));
+    service.turnOn('c1');
+    // Nothing counted yet: the panel says it is being prepared.
+    await vi.waitFor(() => expect(service.view('c1').image).toEqual({ done: 0 }));
+    release();
+    await vi.waitFor(() => expect(service.view('c1').status).toBe('ready'));
+    expect((await settings()).image?.job?.state).toBe('failed');
+    expect(runs.some((r) => r.args.includes('create'))).toBe(true);
+    await service.shutdown();
+  });
+
+  it('stops a computer waiting for it when that computer is deleted, or the server stops: neither is made', async () => {
+    const { pull, release } = heldPull();
+    const { service, runs, settings } = imageService({ pull });
+    service.startImage();
+    await vi.waitFor(() => expect(runs.some((r) => r.args[1] === 'image')).toBe(true));
+    service.turnOn('c1');
+    await vi.waitFor(() => expect(service.view('c1').image).toBeDefined());
+    expect(await service.removeByName(NAME)).toBe(true);
+    expect(service.view('c1').status).toBe('off');
+    // Another folder's, waiting when the server stops.
+    service.turnOn('elsewhere');
+    await vi.waitFor(() => expect(service.view('elsewhere').image).toBeDefined());
+    await service.shutdown();
+    release();
+    expect(runs.some((r) => r.args.includes('create'))).toBe(false);
+    expect((await settings()).image?.job?.state).toBe('cancelled');
+  });
+
+  it('waits for a computer being made, which downloads the image itself, then pulls it (quickly)', async () => {
+    let made!: () => void;
+    const creating = new Promise<void>((resolve) => {
+      made = resolve;
+    });
+    const { service, runs, settings } = imageService({ create: () => creating });
+    service.turnOn('c1');
+    await vi.waitFor(() => expect(runs.some((r) => r.args.includes('create'))).toBe(true));
+    withLang('en', () => service.startImage());
+    await vi.waitFor(async () => expect((await settings()).image?.job?.log).toContain('A computer is being made'));
+    expect(runs.some((r) => r.args[1] === 'image')).toBe(false);
+    made();
+    await vi.waitFor(async () => expect((await settings()).image?.job?.state).toBe('success'));
+    const order = runs.map((r) => (r.args[1] === 'image' ? 'pull' : r.args.includes('create') ? 'create' : '')).filter(Boolean);
+    expect(order).toEqual(['create', 'pull']);
+    await service.shutdown();
+  });
+
+  it('is cancelled on the user’s word, also while it waits for a computer being made, and starts again', async () => {
+    const held = heldPull();
+    let pulls = 0;
+    const { service, settings } = imageService({ pull: (opts) => (++pulls === 1 ? held.pull(opts) : Promise.resolve(pulled)) });
+    service.startImage();
+    await vi.waitFor(async () => expect((await settings()).image?.job?.progress).toBeDefined());
+    service.cancelImage();
+    await vi.waitFor(async () => expect((await settings()).image?.job?.state).toBe('cancelled'));
+    expect(service.busy()).toBe(0);
+    service.cancelImage();
+    service.startImage();
+    await vi.waitFor(async () => expect((await settings()).image?.downloadedAt).toEqual(expect.any(Number)));
+    await service.shutdown();
+
+    const making = imageService({ create: () => new Promise<void>(() => undefined) });
+    making.service.turnOn('c1');
+    await vi.waitFor(() => expect(making.runs.some((r) => r.args.includes('create'))).toBe(true));
+    making.service.startImage();
+    await vi.waitFor(async () => expect((await making.settings()).image?.job?.log).toBeTruthy());
+    making.service.cancelImage();
+    await vi.waitFor(async () => expect((await making.settings()).image?.job?.state).toBe('cancelled'));
+    expect(making.pulls()).toHaveLength(0);
+    await making.service.shutdown();
+  });
+
+  it('checks the record against Cua’s cache: kept where Cua lists the image, forgotten where the engine lost it, as it was where Cua cannot tell', async () => {
+    const entry = (kind: string, orphan: boolean, name = `ghcr.io/trycua/linux@${DIGEST}`) => ({
+      name,
+      kind,
+      orphan,
+      category: 'docker-images',
+    });
+    let listing = ok(JSON.stringify([entry('pulled-image', false)]));
+    const { service, record, settings, runs } = imageService({ cache: () => listing });
+    // Pulled before (by a first start, another server): recorded now.
+    expect((await settings()).image?.downloadedAt).toEqual(expect.any(Number));
+    expect(existsSync(record)).toBe(true);
+    expect(runs.some((r) => r.args.join(' ') === '--json cache ls --category docker-images')).toBe(true);
+    // Cua cannot reach its engine (its VM off), or speaks of another image only: the record stands.
+    for (const said of [
+      ok('[]'),
+      fail('cua: no engine'),
+      ok(JSON.stringify([entry('stale-record', true, `ghcr.io/trycua/linux-dev@${DIGEST}`)])),
+    ]) {
+      listing = said;
+      expect((await settings()).image?.downloadedAt).toEqual(expect.any(Number));
+    }
+    // Removed from Docker, or cleared from Cua's cache: no longer said to be here.
+    listing = ok(JSON.stringify([entry('stale-record', true)]));
+    expect((await settings()).image).toEqual({});
+    expect(existsSync(record)).toBe(false);
+    await service.shutdown();
+  });
+
   it('stops a download under way at shutdown, and starts none after', async () => {
     const { pull } = heldPull();
     const { service, settings } = imageService({ pull });
@@ -1451,6 +1598,18 @@ describe('copying files in and out', () => {
     if (linked) {
       expect(insideFolder(work, 'link.txt')).toEqual({ error: expect.stringContaining('outside') });
       expect(insideFolder(work, 'link.txt', true)).toEqual({ error: expect.stringContaining('not a file') });
+    }
+    // Windows' own real path (`hiddenNatively()`, against `.git` short names) cannot be asked of a file not
+    // made yet: its folder's is. Before, every new file a download would write was refused there.
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      expect(insideFolder(work, 'sub/new.txt', true)).toBe(join(work, 'sub', 'new.txt'));
+      expect(insideFolder(work, 'new.txt', true)).toBe(join(work, 'new.txt'));
+      expect(insideFolder(work, 'app.py', true)).toBe(join(work, 'app.py'));
+      expect(insideFolder(work, '.git/new.txt', true)).toEqual({ error: expect.any(String) });
+    } finally {
+      Object.defineProperty(process, 'platform', platform);
     }
     expect(isGuestPath('/home/cua/x')).toBe(true);
     expect(isGuestPath('home/cua')).toBe(false);

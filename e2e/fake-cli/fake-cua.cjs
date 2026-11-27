@@ -19,8 +19,10 @@
  * - `--json images info linux`: the desktop image's catalog entry (its reference, what a pull downloads);
  * - `--json image pull <ref>` (Settings' download of the desktop image): with `CUA_LOG` asking for its
  *   Docker client's lines (`bollard::read=debug`), the engine's pull stream as cua logs it, three layers
- *   over about three seconds, then what was pulled; it fails while `$CUA_HOME/fake-cua-pull.json` says
- *   `{"fail":"…"}`, with those words, as cua does;
+ *   over about three seconds (`{"stepMs":…}` in `$CUA_HOME/fake-cua-pull.json` slows it), then what was
+ *   pulled; it fails while that file says `{"fail":"…"}`, with those words, as cua does;
+ * - `--json cache ls --category docker-images`: the desktop image once a pull or a create brought it, until
+ *   `cache prune` clears it;
  * - `mcp --sandbox <ref> --permissions computer:all`: an MCP server over stdio with the computer tools.
  *   Its screenshot is a real PNG, 1200 by 750, whose colour changes with each input, so a frame shows
  *   what was done; each tool call goes to the log.
@@ -70,6 +72,12 @@ const LAYERS = [
 ];
 const DESKTOP = 'ghcr.io/trycua/linux:24.04';
 const DIGEST = 'sha256:' + '3c'.repeat(32);
+/** Whether the desktop image is here (a pull or a create brought it), kept as a file in the Cua home. */
+const PULLED = () => path.join(HOME, 'fake-cua-image');
+const bringImage = () => {
+  fs.mkdirSync(HOME, { recursive: true });
+  fs.writeFileSync(PULLED(), DIGEST);
+};
 
 /** `cua image pull`: the engine's pull stream on stderr as cua logs it at debug (when asked), then the result. */
 function pull(ref) {
@@ -100,6 +108,7 @@ function pull(ref) {
   // The configuration, a blob that is not a layer.
   say({ status: 'Download complete', progressDetail: { hidecounts: true }, id: 'fd18d7b2aa35' });
   const steps = 15;
+  const stepMs = Number(steer.stepMs) || 200;
   let step = 0;
   const tick = () => {
     step++;
@@ -108,13 +117,14 @@ function pull(ref) {
       say({ status: 'Downloading', progressDetail: { current: done, total: size }, id });
       if (step === steps) say({ status: 'Download complete', progressDetail: { hidecounts: true }, id });
     }
-    if (step < steps) return void setTimeout(tick, 200);
+    if (step < steps) return void setTimeout(tick, stepMs);
     for (const [id] of LAYERS) say({ status: 'Pull complete', progressDetail: { hidecounts: true }, id });
     say({ status: `Digest: ${DIGEST}` });
     const reference = `${ref.replace(/:[^:/]+$/, '')}@${DIGEST}`;
+    bringImage();
     process.stdout.write(JSON.stringify({ kind: 'container', location: reference, reference, size_bytes: 1_000_000_000 }) + '\n');
   };
-  setTimeout(tick, 200);
+  setTimeout(tick, stepMs);
 }
 
 /** A PNG of one colour, `w` by `h`. */
@@ -234,7 +244,16 @@ function main() {
   if (cmd === 'runtime' && sub === 'doctor')
     return out({ backends: [{ backend: 'container', ready: true, detail: 'Fake container engine', missing: [], provisionable: false }] });
   if (cmd === 'mcp') return mcp(rest[rest.indexOf('--sandbox') + 1]);
-  if (cmd === 'cache' && sub === 'prune') return out({ gc: { freed: 0, removed: [] }, reaped: [] });
+  if (cmd === 'cache' && sub === 'prune') {
+    fs.rmSync(PULLED(), { force: true });
+    return out({ gc: { freed: 0, removed: [] }, reaped: [] });
+  }
+  if (cmd === 'cache' && sub === 'ls')
+    return out(
+      fs.existsSync(PULLED())
+        ? [{ name: `ghcr.io/trycua/linux@${DIGEST}`, category: 'docker-images', kind: 'pulled-image', orphan: false }]
+        : [],
+    );
   if (cmd === 'images' && sub === 'info' && more[0] === 'linux')
     return out({
       ref: DESKTOP,
@@ -257,6 +276,7 @@ function main() {
       return out(fs.readdirSync(STATE).map((f) => JSON.parse(fs.readFileSync(path.join(STATE, f), 'utf8'))));
     case 'create': {
       const created = rest[rest.indexOf('--name') + 1];
+      bringImage();
       return out(save(created, { ...running, image: 'ghcr.io/trycua/linux:24.04' }));
     }
     case 'suspend':

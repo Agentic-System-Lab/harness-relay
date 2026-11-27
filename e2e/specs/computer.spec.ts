@@ -158,7 +158,7 @@ test.describe('the chat’s computer', () => {
     await expect(reply.locator('.handover-done')).toContainText('Handed back (computer): Signed in');
   });
 
-  test('Settings downloads the desktop image with its progress, again after it failed, and says it is downloaded', async ({
+  test('Settings downloads the desktop image with its progress, again after it failed or was cancelled, and says it is downloaded', async ({
     page,
     relay,
     fakeBinDir,
@@ -177,8 +177,14 @@ test.describe('the chat’s computer', () => {
     await expect(image.getByRole('alert')).toContainText(
       'Could not download the desktop image: cua: provider not configured: a container engine is not available',
     );
+    // Slowly, then cancelled on the user's word: back to where it was.
+    writeFileSync(steer, JSON.stringify({ stepMs: 1000 }));
+    await image.getByRole('button', { name: 'Download again' }).click();
+    await expect(image.locator('progress')).toBeVisible();
+    await image.getByRole('button', { name: 'Cancel' }).click();
+    await expect(image).toContainText("Not downloaded yet: a computer's first start would download it");
     rmSync(steer);
-    await image.getByRole('button', { name: 'Retry installation' }).click();
+    await image.getByRole('button', { name: 'Download the desktop image' }).click();
     // Docker's progress, as cua logs it: how much of the image, with a bar; then downloaded.
     await expect(image).toContainText('Downloading the desktop image…');
     await expect(image).toContainText(/Downloading: \d+ of 324 MB \(\d+%\)/);
@@ -187,8 +193,8 @@ test.describe('the chat’s computer', () => {
       timeout: 15_000,
     });
     const pulls = cuaLog(relay).filter((e) => e.pull);
-    expect(pulls.map((e) => e.pull)).toEqual(['ghcr.io/trycua/linux:24.04', 'ghcr.io/trycua/linux:24.04']);
-    expect(pulls[1]!.cuaLog).toBe('info,bollard::read=debug');
+    expect(pulls.map((e) => e.pull)).toEqual(Array(3).fill('ghcr.io/trycua/linux:24.04'));
+    expect(pulls[2]!.cuaLog).toBe('info,bollard::read=debug');
     // Kept: a later visit says the same, with nothing to download.
     await page.reload();
     await row.locator('summary').first().click();

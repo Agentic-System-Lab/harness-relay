@@ -1,7 +1,19 @@
 // The chat's computer (a Cua desktop) in the page, without React: what a key becomes, what a pointer's
 // press and release are (a click, a double click, a drag), what the wheel scrolls, and what its stream
 // says. The panel is `components/ComputerPanel.tsx`.
-import { COMPUTER_LIMITS, type ComputerInput, type ComputerScreenEvent } from '../shared/types';
+import { COMPUTER_LIMITS, type ComputerInput, type ComputerScreenEvent, type ComputerView } from '../shared/types';
+
+/**
+ * What the panel says under "Starting…": the desktop image Settings is downloading, which the start waits for
+ * (how far it is, or that it is being prepared, before any byte is counted); the first start's own download
+ * when the image is not here; nothing once it is (`imageReady`).
+ */
+export function startingNote(
+  view: Pick<ComputerView, 'image' | 'imageReady'>,
+): { image: { done: number; total?: number } } | 'preparing' | 'first-time' | undefined {
+  if (view.image) return view.image.done || view.image.total ? { image: view.image } : 'preparing';
+  return view.imageReady ? undefined : 'first-time';
+}
 
 /** A key as the browser's keyboard event gives it. */
 export interface ComputerKeyLike {
