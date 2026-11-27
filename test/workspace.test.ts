@@ -1121,10 +1121,7 @@ describe("Harness Relay's own repository, and the working repository's .git it n
     // A git that reads its alternates as it starts (2.5x) waits on the pipe in every command run in the
     // repository, until its time limit: nothing Harness Relay can avoid there (a known limitation).
     const probe = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd: repo, timeout: 3000 });
-    if (probe.error || probe.status === null) {
-      closeSync(openSync(join(repo, '.git', 'objects', 'info', 'alternates'), constants.O_WRONLY | constants.O_NONBLOCK));
-      return;
-    }
+    if (probe.error || probe.status === null) return;
     const started = Date.now();
     await snapshot(repo);
     expect(await fileAt(repo, head, 'README.md')).toBeUndefined();
