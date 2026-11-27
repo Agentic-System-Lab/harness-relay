@@ -16,6 +16,7 @@ import {
 import { framePoint } from '../handover';
 import { useT } from '../i18n';
 import { isAppWindow } from '../update';
+import { DownloadProgress } from './AppDependencyInstall';
 import { PanelDivider } from './PanelDivider';
 import { useDialog } from './useDialog';
 
@@ -300,8 +301,15 @@ export function ComputerPanel({
             {status === 'off' && <p className="muted small computer-note">{c.off}</p>}
             {status === 'starting' && (
               <p className="muted small computer-note" role="status">
-                {view?.startedAt ? c.startingFor(Math.floor((Date.now() - view.startedAt) / 60_000)) : c.starting} {c.firstTime}
+                {view?.startedAt ? c.startingFor(Math.floor((Date.now() - view.startedAt) / 60_000)) : c.starting}
+                {view?.image || view?.imageReady ? '' : ' ' + c.firstTime}
               </p>
+            )}
+            {status === 'starting' && view?.image && (
+              <div className="computer-note">
+                <p className="muted small">{c.waitingImage}</p>
+                <DownloadProgress done={view.image.done} total={view.image.total} />
+              </div>
             )}
             {status === 'failed' && view?.error && (
               <p className="error-line computer-note" role="alert">

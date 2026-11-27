@@ -11578,8 +11578,24 @@ a.share-action {
   width: 100%;
 }
 
-.computer-list h5 {
+.computer-list h5,
+.computer-image h5 {
   margin: 12px 0 6px;
+}
+
+/* The desktop image: its download's progress, downloaded, or a button to download it. */
+.computer-image {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.computer-image p {
+  margin: 0;
+}
+
+.computer-image .download-progress {
+  width: 100%;
 }
 
 .computer-list li {

@@ -7,7 +7,19 @@ import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { ComputerScreenEvent, HandoverPart } from '../src/shared/types';
 import { Handovers } from '../src/server/browser/handover';
-import { cuaEnv, cuaFailure, cuaHome, lastJson, linuxRuntime, removeCuaRuntime } from '../src/server/computer/cua';
+import {
+  cuaEnv,
+  cuaFailure,
+  cuaHome,
+  cuaLogLine,
+  cuaRunner,
+  desktopImage,
+  lastJson,
+  linuxRuntime,
+  PULL_LOG,
+  PullProgress,
+  removeCuaRuntime,
+} from '../src/server/computer/cua';
 import { checkComputerInputs } from '../src/server/computer/input';
 import {
   atLeast,
@@ -98,6 +110,8 @@ function setup(
     before?: (args: string[]) => Promise<void> | undefined;
     /** Told of each `sb cp`, before the fake copies. */
     cp?: (args: string[]) => void;
+    /** Where the desktop image is recorded as downloaded (a file of this setup's own by default). */
+    imageRecord?: string;
   } = {},
 ) {
   const runs: string[][] = [];
@@ -136,6 +150,7 @@ function setup(
     },
     found: () => ({ bin: '/x/cua', version: CUA_VERSION, own: true }),
     dataDir: o.dataDir ?? root,
+    imageRecord: o.imageRecord ?? join(shots, 'cua-image.json'),
     protectedPaths: () => o.protectedPaths ?? [],
     handovers,
     // Every chat in `root` but `elsewhere`, in a folder of its own.
@@ -858,6 +873,8 @@ describe('the chat’s computer', () => {
     expect(view).toEqual({
       cua: { version: CUA_VERSION, own: true, path: '/x/cua' },
       installs: CUA_VERSION,
+      // Not downloaded yet, and no download asked for.
+      image: {},
       runtime: { ready: true, detail: 'Docker Engine' },
       computers: [{ name: NAME, folder: root, chats: ['Fix the app', 'Try it'], status: 'off' }],
     });
@@ -1048,6 +1065,367 @@ describe('the chat’s computer', () => {
     expect(() => service.turnOn('c1')).toThrow(/Cua/);
     expect(await service.settingsView(false, () => [])).toMatchObject({ computers: [] });
     await service.shutdown();
+  });
+});
+
+describe('the desktop image', () => {
+  // cua's log as it writes it (cua 0.31.2 with `CUA_LOG=info,bollard::read=debug`, Docker on Linux).
+  const at = '\x1b[2m2026-11-27T18:02:20.454764Z\x1b[0m';
+  const debug = (event: object) =>
+    `${at} \x1b[34mDEBUG\x1b[0m \x1b[2mbollard::read\x1b[0m\x1b[2m:\x1b[0m Decoding JSON line from stream: ${JSON.stringify(event)}\r`;
+  const DIGEST = 'sha256:' + '3c'.repeat(32);
+  const info = `${at} \x1b[32m INFO\x1b[0m \x1b[2mcua_vmm::container\x1b[0m\x1b[2m:\x1b[0m pulling image \x1b[3mimage\x1b[0m\x1b[2m=\x1b[0m"ghcr.io/trycua/linux@${DIGEST}"`;
+  const layer = (status: string, id: string, progressDetail: object = {}) => debug({ status, progressDetail, id });
+  const REF = 'ghcr.io/trycua/linux:24.04';
+  const CATALOG = {
+    ref: REF,
+    sizes: {
+      platforms: [
+        { arch: 'amd64', download: 1_400_706_377 },
+        { arch: 'arm64', download: 1_326_181_369 },
+      ],
+    },
+  };
+  const pulled = ok(JSON.stringify({ kind: 'container', reference: `ghcr.io/trycua/linux@${DIGEST}`, size_bytes: 4_952_372_379 }));
+
+  it('finds the desktop image’s reference in Cua’s catalog, with what a pull downloads for this processor', () => {
+    expect(desktopImage(CATALOG, 'x64')).toEqual({ ref: REF, download: 1_400_706_377 });
+    expect(desktopImage(CATALOG, 'arm64')).toEqual({ ref: REF, download: 1_326_181_369 });
+    expect(desktopImage({ ref: REF }, 'x64')).toEqual({ ref: REF });
+    expect(desktopImage({ ref: `ghcr.io/trycua/linux@${DIGEST}` }, 'x64')?.ref).toBe(`ghcr.io/trycua/linux@${DIGEST}`);
+    // Never an option of cua's, nor anything but a registry's reference.
+    for (const ref of ['--runtime=runc/x', '-x/y', 'linux', 'ghcr.io/trycua/linux:24.04 --force', ''])
+      expect(desktopImage({ ref }, 'x64')).toBeUndefined();
+    expect(desktopImage(undefined)).toBeUndefined();
+    expect(desktopImage([CATALOG])).toBeUndefined();
+  });
+
+  it('reads Docker’s pull progress from cua’s log: the layers to download, of the catalog’s size until each says its own', () => {
+    const p = new PullProgress(1000);
+    expect(p.line(info)).toBeUndefined();
+    expect(p.line('cua: provider not configured')).toBeUndefined();
+    // The image's own line, and its configuration's (a blob that is not a layer), count for nothing.
+    expect(p.line(debug({ status: 'Pulling from trycua/linux', id: `ghcr.io/trycua/linux@${DIGEST}` }))).toBeUndefined();
+    expect(p.line(layer('Pulling fs layer', '1e6e7ca511b9'))).toEqual({ done: 0, total: 1000 });
+    expect(p.line(layer('Waiting', 'db1d5603818e'))).toEqual({ done: 0, total: 1000 });
+    expect(p.line(layer('Already exists', '0db1ede1885b'))).toEqual({ done: 0, total: 1000 });
+    expect(p.line(layer('Download complete', 'fd18d7b2aa35', { hidecounts: true }))).toEqual({ done: 0, total: 1000 });
+    expect(p.line(layer('Downloading', '1e6e7ca511b9', { current: 100, total: 300 }))).toEqual({ done: 100, total: 1000 });
+    // Every layer has said its size: theirs, though the catalog said less.
+    expect(p.line(layer('Downloading', 'db1d5603818e', { current: 50, total: 900 }))).toEqual({ done: 150, total: 1200 });
+    expect(p.line(layer('Download complete', '1e6e7ca511b9', { hidecounts: true }))).toEqual({ done: 350, total: 1200 });
+    expect(p.line(layer('Extracting', '1e6e7ca511b9', { current: 1, units: 's' }))).toEqual({ done: 350, total: 1200 });
+    expect(p.line(layer('Pull complete', 'db1d5603818e', { hidecounts: true }))).toEqual({ done: 1200, total: 1200 });
+    // What is not a line of the stream, or not one it knows.
+    expect(p.line(debug({ status: 'Digest: ' + DIGEST }))).toBeUndefined();
+    expect(p.line(`${at} DEBUG bollard::read: Decoding JSON line from stream: {not json`)).toBeUndefined();
+    expect(
+      p.line(`${at} DEBUG other::module: Decoding JSON line from stream: {"status":"Downloading","id":"aaaaaaaaaaaa"}`),
+    ).toBeUndefined();
+  });
+
+  it('keeps the total while some layers have not said their size: the catalog’s, or the layers’ so far when more, else none', () => {
+    // A little larger than the catalog said (seen with cua 0.31.2): the layers' sum, never no total.
+    const larger = new PullProgress(100);
+    larger.line(layer('Pulling fs layer', 'aaaaaaaaaaaa'));
+    larger.line(layer('Pulling fs layer', 'bbbbbbbbbbbb'));
+    expect(larger.line(layer('Downloading', 'aaaaaaaaaaaa', { current: 60, total: 110 }))).toEqual({ done: 60, total: 110 });
+    expect(larger.line(layer('Downloading', 'bbbbbbbbbbbb', { current: 0, total: 5 }))).toEqual({ done: 60, total: 115 });
+    // Without the catalog's size: a total only once every layer has one (a small one that never said is done).
+    const none = new PullProgress();
+    none.line(layer('Pulling fs layer', 'aaaaaaaaaaaa'));
+    none.line(layer('Pulling fs layer', 'bbbbbbbbbbbb'));
+    none.line(layer('Pulling fs layer', 'cccccccccccc'));
+    expect(none.line(layer('Downloading', 'aaaaaaaaaaaa', { current: 10, total: 100 }))).toEqual({ done: 10 });
+    expect(none.line(layer('Download complete', 'cccccccccccc', { hidecounts: true }))).toEqual({ done: 10 });
+    expect(none.line(layer('Downloading', 'bbbbbbbbbbbb', { current: 5, total: 50 }))).toEqual({ done: 15, total: 150 });
+  });
+
+  it('keeps cua’s own words of its log for the job’s, without its colours, times or debug lines', () => {
+    expect(cuaLogLine(info)).toBe(`pulling image image="ghcr.io/trycua/linux@${DIGEST}"`);
+    expect(
+      cuaLogLine(`${at} \x1b[33m WARN\x1b[0m \x1b[2mcua_vmm::container\x1b[0m\x1b[2m:\x1b[0m gVisor (runsc) not available; using runc`),
+    ).toBe('gVisor (runsc) not available; using runc');
+    expect(cuaLogLine(layer('Downloading', 'aaaaaaaaaaaa', { current: 1, total: 2 }))).toBeUndefined();
+    expect(cuaLogLine('cua: provider not configured: a container engine is not available\r')).toBe(
+      'cua: provider not configured: a container engine is not available',
+    );
+    expect(cuaLogLine('  \r')).toBeUndefined();
+  });
+
+  it.skipIf(process.platform === 'win32')('runs cua with the log it asks for, its error output read line by line', async () => {
+    const dir = join(root, 'runner-' + Math.random().toString(36).slice(2));
+    mkdirSync(dir, { recursive: true });
+    const bin = join(dir, 'cua');
+    writeFileSync(bin, '#!/bin/sh\necho "log: $CUA_LOG" >&2\necho second >&2\necho done\n', { mode: 0o755 });
+    const lines: string[] = [];
+    const run = cuaRunner(
+      () => bin,
+      () => ({ PATH: process.env.PATH, CUA_HOME: join(dir, 'home') }),
+    );
+    const r = await run(['--json', 'image', 'pull', REF], { timeoutMs: 10_000, log: PULL_LOG, onStderrLine: (l) => lines.push(l) });
+    expect(r.stdout.trim()).toBe('done');
+    expect(lines).toEqual([`log: ${PULL_LOG}`, 'second']);
+    // Without asking, cua's own setting: none of the server's.
+    const quiet: string[] = [];
+    await run(['--version'], { timeoutMs: 10_000, onStderrLine: (l) => quiet.push(l) });
+    expect(quiet[0]).toBe('log: ');
+  });
+
+  /** A computer service whose cua answers the catalog and pulls as `pull` says; `record`: where the image is recorded. */
+  function imageService(
+    o: {
+      info?: () => SpawnResult;
+      pull?: (opts: { signal?: AbortSignal; onStderrLine?: (line: string) => void }) => Promise<SpawnResult>;
+      create?: () => Promise<void>;
+      version?: string;
+      record?: string;
+      runtime?: string;
+      available?: boolean;
+    } = {},
+  ) {
+    const runs: { args: string[]; log?: string }[] = [];
+    const record = o.record ?? join(root, 'image-' + Math.random().toString(36).slice(2), 'cua-image.json');
+    const made = new Set<string>();
+    const service = new ComputerService({
+      run: async (args, opts) => {
+        runs.push({ args, ...(opts.log ? { log: opts.log } : {}) });
+        if (args[1] === 'images') return o.info?.() ?? ok(JSON.stringify(CATALOG));
+        if (args[1] === 'image') return o.pull ? o.pull(opts) : pulled;
+        if (args.includes('info'))
+          return made.has(args.at(-1)!.replace(/^local:/, ''))
+            ? ok(JSON.stringify({ state: 'running', status: 'ready' }))
+            : fail('not found: sandbox');
+        if (args.includes('create')) {
+          await o.create?.();
+          made.add(args[args.indexOf('--name') + 1]!);
+          return ok('{"status":"ready"}');
+        }
+        if (args.includes('ls')) return ok('[]');
+        return ok('{}');
+      },
+      available: () => o.available ?? true,
+      found: () => (o.available === false ? undefined : { bin: '/x/cua', version: o.version ?? CUA_VERSION, own: true }),
+      runtime: () => o.runtime,
+      startMcp: async () => new FakeMcp(),
+      dataDir: root,
+      imageRecord: record,
+      arch: 'x64',
+      removalPollMs: 1,
+      handovers: new Handovers(),
+      folderOf: (id) => (id === 'elsewhere' ? ELSEWHERE : root),
+      shotsDir: () => join(dirname(record), 'shots'),
+    });
+    const pulls = () => runs.filter((r) => r.args[1] === 'image');
+    return { service, runs, record, pulls, settings: () => service.settingsView(false, () => []) };
+  }
+
+  /** A pull that says how far it is, then waits for `release()`; one that is stopped ends as cua does. */
+  function heldPull() {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const pull = async (opts: { signal?: AbortSignal; onStderrLine?: (line: string) => void }): Promise<SpawnResult> => {
+      for (const line of [
+        info,
+        layer('Pulling fs layer', '1e6e7ca511b9'),
+        layer('Pulling fs layer', 'db1d5603818e'),
+        layer('Downloading', '1e6e7ca511b9', { current: 200_000_000, total: 400_000_000 }),
+      ])
+        opts.onStderrLine?.(line);
+      const stopped = new Promise<'stopped'>((resolve) => opts.signal?.addEventListener('abort', () => resolve('stopped'), { once: true }));
+      if ((await Promise.race([gate.then(() => 'done' as const), stopped])) === 'stopped')
+        return { code: null, stdout: '', stderr: '', timedOut: false, aborted: true } as SpawnResult;
+      opts.onStderrLine?.(layer('Downloading', 'db1d5603818e', { current: 1_000_000_000, total: 1_000_000_000 }));
+      opts.onStderrLine?.(layer('Pull complete', '1e6e7ca511b9'));
+      opts.onStderrLine?.(layer('Pull complete', 'db1d5603818e'));
+      return pulled;
+    };
+    return { pull, release };
+  }
+
+  it('downloads it from Settings with Docker’s progress, once at a time, and records it for the cua found', async () => {
+    const { pull, release } = heldPull();
+    const { service, runs, record, pulls, settings } = imageService({ pull });
+    expect((await settings()).image).toEqual({});
+    withLang('en', () => service.startImage());
+    service.startImage();
+    await vi.waitFor(async () => expect((await settings()).image?.job?.progress).toEqual({ done: 200_000_000, total: 1_400_706_377 }));
+    expect(pulls()).toHaveLength(1);
+    expect(runs.map((r) => r.args).filter((a) => a[1] !== 'sb')).toEqual([
+      ['--json', 'images', 'info', 'linux'],
+      ['--json', 'image', 'pull', REF],
+    ]);
+    // Docker's progress, as cua logs it at debug for its Docker client.
+    expect(pulls()[0]!.log).toBe('info,bollard::read=debug');
+    expect((await settings()).image?.job?.state).toBe('running');
+    expect((await settings()).image?.downloadedAt).toBeUndefined();
+    expect(service.busy()).toBe(1);
+    release();
+    await vi.waitFor(async () => expect((await settings()).image?.job?.state).toBe('success'));
+    const { image } = await settings();
+    expect(image?.downloadedAt).toEqual(expect.any(Number));
+    expect(image?.job?.progress).toEqual({ done: 1_400_000_000, total: 1_400_000_000 });
+    // Its log: what ran and cua's own words, never the stream itself.
+    expect(image?.job?.log).toContain(`$ cua image pull ${REF}`);
+    expect(image?.job?.log).toContain('pulling image image=');
+    expect(image?.job?.log).not.toMatch(/Decoding JSON|bollard/);
+    expect(service.busy()).toBe(0);
+    expect(JSON.parse(readFileSync(record, 'utf8'))).toEqual({ at: image?.downloadedAt, cua: CUA_VERSION });
+    await service.shutdown();
+    // Another server on this data folder knows it; a cua of another version may make computers of another image.
+    const again = imageService({ record });
+    expect((await again.settings()).image?.downloadedAt).toBe(image?.downloadedAt);
+    await again.service.shutdown();
+    const other = imageService({ record, version: '0.32.0' });
+    expect((await other.settings()).image).toEqual({});
+    await other.service.shutdown();
+  });
+
+  it('says on macOS and Windows that Cua sets up its own Linux VM first', async () => {
+    const { service, settings } = imageService({ runtime: 'builtin' });
+    withLang('en', () => service.startImage());
+    await vi.waitFor(async () => expect((await settings()).image?.job?.state).toBe('success'));
+    expect((await settings()).image?.job?.log).toContain('Cua first sets up its own Linux virtual machine');
+    await service.shutdown();
+  });
+
+  it('says why it could not be downloaded, in cua’s words, and downloads it again on the user’s word', async () => {
+    let catalog = fail('cua: images: unknown command');
+    let pullsFail = true;
+    const { service, settings } = imageService({
+      info: () => catalog,
+      pull: async (opts) => {
+        if (!pullsFail) return pulled;
+        opts.onStderrLine?.(layer('Pulling fs layer', '1e6e7ca511b9'));
+        return {
+          code: 4,
+          stdout: '',
+          stderr: `${layer('Pulling fs layer', '1e6e7ca511b9')}\ncua: provider not configured: a container engine is not available: the built-in Linux runtime runs on macOS and Windows\n`,
+          timedOut: false,
+          aborted: false,
+        } as SpawnResult;
+      },
+    });
+    withLang('en', () => service.startImage());
+    await vi.waitFor(async () => expect((await settings()).image?.job?.state).toBe('failed'));
+    // Said in the language each request asks in.
+    expect((await withLang('en', () => settings())).image?.job?.error).toBe(
+      "Could not look up Cua's desktop image: cua: images: unknown command",
+    );
+    expect((await withLang('zh-TW', () => settings())).image?.job?.error).toMatch(/^無法查到 Cua 的桌面映像檔: cua: images/);
+    catalog = ok(JSON.stringify(CATALOG));
+    withLang('zh-TW', () => service.startImage());
+    await vi.waitFor(async () => expect((await settings()).image?.job?.state).toBe('failed'));
+    const { image } = await withLang('en', () => settings());
+    expect(image?.job?.error).toBe(
+      'Could not download the desktop image: cua: provider not configured: a container engine is not available: the built-in Linux runtime runs on macOS and Windows',
+    );
+    expect(image?.downloadedAt).toBeUndefined();
+    pullsFail = false;
+    service.startImage();
+    await vi.waitFor(async () => expect((await settings()).image?.downloadedAt).toEqual(expect.any(Number)));
+    await service.shutdown();
+  });
+
+  it('makes a computer started meanwhile wait for it, its panel told how far it is; the next one is said to start quickly', async () => {
+    const { pull, release } = heldPull();
+    let createGate: Promise<void> | undefined;
+    const { service, runs } = imageService({ pull, create: () => createGate ?? Promise.resolve() });
+    service.startImage();
+    await vi.waitFor(() => expect(runs.some((r) => r.args[1] === 'image')).toBe(true));
+    const states: ComputerScreenEvent[] = [];
+    const unwatch = service.watch('c1', (e) => states.push(e));
+    withLang('en', () => service.turnOn('c1'));
+    await vi.waitFor(() => expect(service.view('c1').image).toEqual({ done: 200_000_000, total: 1_400_706_377 }));
+    expect(service.view('c1').status).toBe('starting');
+    expect(withLang('en', () => service.view('c1')).recent.map((a) => a.what)).toContain(
+      'Waiting for the desktop image Settings is downloading, then making the computer',
+    );
+    expect(states.some((e) => e.type === 'state' && e.view.image)).toBe(true);
+    // Not made beside the download: Cua would download the image a second time.
+    expect(runs.some((r) => r.args.includes('create'))).toBe(false);
+    release();
+    await vi.waitFor(() => expect(service.view('c1').status).toBe('ready'));
+    const order = runs.map((r) => (r.args[1] === 'image' ? 'pull' : r.args.includes('create') ? 'create' : '')).filter(Boolean);
+    expect(order).toEqual(['pull', 'create']);
+    expect(service.view('c1').image).toBeUndefined();
+    unwatch();
+    // Another folder's computer: the image is here, so its panel does not say a first start downloads it.
+    let made!: () => void;
+    createGate = new Promise<void>((resolve) => {
+      made = resolve;
+    });
+    service.turnOn('elsewhere');
+    await vi.waitFor(() => expect(service.view('elsewhere')).toMatchObject({ status: 'starting', imageReady: true }));
+    made();
+    await vi.waitFor(() => expect(service.view('elsewhere').status).toBe('ready'));
+    expect(service.view('elsewhere').imageReady).toBeUndefined();
+    await service.shutdown();
+  });
+
+  it('a computer made without Settings’ download records the image too', async () => {
+    const { service, settings } = imageService();
+    expect((await settings()).image?.downloadedAt).toBeUndefined();
+    service.turnOn('c1');
+    await vi.waitFor(() => expect(service.view('c1').status).toBe('ready'));
+    expect((await settings()).image?.downloadedAt).toEqual(expect.any(Number));
+    await service.shutdown();
+  });
+
+  it('is stopped by Remove Cua, which forgets it; no download starts while Cua is being removed, nor without Cua', async () => {
+    const { pull } = heldPull();
+    const { service, record, settings } = imageService({ pull });
+    mkdirSync(dirname(record), { recursive: true });
+    writeFileSync(record, JSON.stringify({ at: 1, cua: CUA_VERSION }));
+    service.startImage();
+    await vi.waitFor(async () => expect((await settings()).image?.job?.progress).toBeDefined());
+    service.startRemoval();
+    await vi.waitFor(async () => expect((await settings()).removal?.state).toBe('success'));
+    const { image } = await settings();
+    expect(image?.job?.state).toBe('cancelled');
+    expect(image?.downloadedAt).toBeUndefined();
+    expect(existsSync(record)).toBe(false);
+    await service.shutdown();
+
+    // While Cua is being removed (its listing held): no download.
+    let listed!: () => void;
+    const held = new Promise<void>((resolve) => {
+      listed = resolve;
+    });
+    const removing = new ComputerService({
+      run: async (args) => {
+        if (args.includes('ls')) await held;
+        return args.includes('ls') ? ok('[]') : ok('{}');
+      },
+      available: () => true,
+      startMcp: async () => new FakeMcp(),
+      dataDir: root,
+      imageRecord: join(root, 'image-removing', 'cua-image.json'),
+      handovers: new Handovers(),
+      shotsDir: () => join(root, 'shots-image-removing'),
+    });
+    removing.startRemoval();
+    expect(() => withLang('en', () => removing.startImage())).toThrow('Cua is being removed');
+    listed();
+    await removing.shutdown();
+
+    const missing = imageService({ available: false });
+    expect(() => withLang('en', () => missing.service.startImage())).toThrow('Cua is not installed here');
+    expect((await missing.settings()).image).toBeUndefined();
+    await missing.service.shutdown();
+  });
+
+  it('stops a download under way at shutdown, and starts none after', async () => {
+    const { pull } = heldPull();
+    const { service, settings } = imageService({ pull });
+    service.startImage();
+    await vi.waitFor(async () => expect((await settings()).image?.job?.progress).toBeDefined());
+    await service.shutdown();
+    expect((await settings()).image?.job?.state).toBe('cancelled');
+    expect(service.busy()).toBe(0);
+    expect(() => service.startImage()).toThrow();
   });
 });
 

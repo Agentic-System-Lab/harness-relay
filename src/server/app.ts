@@ -420,6 +420,8 @@ export function createApp({
   },
 }: AppDeps): Hono {
   const app = new Hono();
+  // Cua installed from Settings: the desktop image its computers are made from is downloaded next.
+  appDependencies.onInstalled('cua', () => computer.startImage());
   const hostedApps = new HostedAppChecks(settings);
   const availableDraftApps = draftAvailability(settings, oauth, providers, teams, hostedApps);
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
@@ -3003,6 +3005,14 @@ export function createApp({
       default:
         throw new HttpError(400, t().invalidField('action'));
     }
+  });
+
+  // Settings' download of the desktop image computers are made from (and on macOS and Windows Cua's own
+  // Linux VM), in the background, so that a computer's first start takes seconds; GET /api/computer says how
+  // it goes. It also starts by itself once Settings installed Cua.
+  app.post('/api/computer/image', async (c) => {
+    computer.startImage();
+    return c.json(await computer.settingsView(false, () => store.folders()));
   });
 
   // Settings' Remove Cua, in the background: this server's computers, Cua's downloads (unless another

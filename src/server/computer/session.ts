@@ -9,6 +9,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readFileSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -37,7 +38,7 @@ import { fileKey, withheldFileKeys } from '../db';
 import { HttpError } from '../errors';
 import { hiddenNatively, isGit, within } from '../files';
 import { currentLang, t, withLang } from '../i18n';
-import { cuaFailure, lastJson, type CuaRunner } from './cua';
+import { cuaFailure, cuaLogLine, DESKTOP_IMAGE, desktopImage, lastJson, PULL_LOG, PullProgress, type CuaRunner } from './cua';
 import { CUA_VERSION, type findCua } from './install';
 import type { McpToolResult } from './mcp';
 
@@ -94,6 +95,12 @@ export interface ComputerDeps {
   removalPollMs?: number;
   /** How long a computer may take to be made (its image downloaded the first time). */
   createMs?: number;
+  /** How long Settings' download of the desktop image may take (and on macOS and Windows Cua's Linux VM set up). */
+  imageMs?: number;
+  /** The processor this computer has (`process.arch`): which build of the image Cua downloads. */
+  arch?: string;
+  /** Where the desktop image downloaded here is recorded (`<data folder>/cua-image.json`; tests: a file of their own). */
+  imageRecord?: string;
   /** How long an agent's call waits for a computer that is starting before it is told to look again (45 s). */
   readyMs?: number;
   /** How often the panel's frame is taken while someone watches. */
@@ -207,6 +214,8 @@ class Computer {
   handingOver = false;
   /** A suspend under way: a start waits for it. */
   suspending?: Promise<void>;
+  /** Its first start waits for the desktop image Settings is downloading (rather than downloading it too). */
+  waitingForImage = false;
   /** Deleted (Settings): a start still under way closes what it started. */
   gone = false;
   /** Stops its start when it is deleted. */
@@ -288,6 +297,10 @@ export class ComputerService {
         : {}),
       available: this.deps.available(),
       ...(folder ? { folder } : {}),
+      ...(c?.status === 'starting' && c.waitingForImage && this.imageJob?.state === 'running'
+        ? { image: this.imageJob.view().progress ?? { done: 0 } }
+        : {}),
+      ...(c?.status === 'starting' && this.imageDownloaded() ? { imageReady: true } : {}),
     };
   }
 
@@ -402,7 +415,9 @@ export class ComputerService {
       else if (state === 'stopped') await this.cua(['sb', 'restart', c.ref], () => t().computer.stepRestart, signal);
       else if (!state) {
         this.note(c, () => t().computer.making, 'relay');
+        await this.imageFirst(c, signal);
         await this.create(c, signal);
+        this.recordImage();
       }
       if (c.gone) throw new Error(t().computer.notOn);
       const mcp = await this.deps.startMcp(c.ref, (why) => {
@@ -445,6 +460,29 @@ export class ComputerService {
     const again = await this.deps.run(args(['--runtime', 'runc']), { signal, timeoutMs: ms });
     if (again.code !== 0) throw new ComputerError(() => cuaFailure(again, t().computer.stepCreate));
     this.note(c, () => t().computer.runc, 'relay');
+  }
+
+  /**
+   * Waits for the desktop image Settings is downloading, if it is: a computer made meanwhile would download
+   * it a second time beside it. Its failure leaves the computer's own start to download it.
+   */
+  private async imageFirst(c: Computer, signal?: AbortSignal): Promise<void> {
+    const job = this.imageJob;
+    if (job?.state !== 'running') return;
+    c.waitingForImage = true;
+    this.note(c, () => t().computer.image.waiting, 'relay');
+    let onAbort: (() => void) | undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        onAbort = () => reject(new Error(t().computer.notOn));
+        if (signal?.aborted) onAbort();
+        else signal?.addEventListener('abort', onAbort, { once: true });
+        void job.ended.then(resolve, resolve);
+      });
+    } finally {
+      if (onAbort) signal?.removeEventListener('abort', onAbort);
+      c.waitingForImage = false;
+    }
   }
 
   private async cua(args: string[], what: () => string, signal?: AbortSignal): Promise<void> {
@@ -869,6 +907,7 @@ export class ComputerService {
       ...(found && !found.tooOld ? { cua: { version: found.version, own: found.own, path: found.bin } } : {}),
       ...(found?.tooOld ? { tooOld: { path: found.bin, ...(found.version ? { version: found.version } : {}) } } : {}),
       installs: CUA_VERSION,
+      ...(found && !found.tooOld ? { image: this.imageView() } : {}),
       ...(this.runtime ? { runtime: this.runtime } : {}),
       ...(this.removal ? { removal: this.removal.view() } : {}),
       computers,
@@ -894,8 +933,153 @@ export class ComputerService {
     job.ended = this.runRemoval(job);
   }
 
+  // --- The desktop image ---------------------------------------------------------------------
+
+  /** Settings' download of the desktop image: its job, while it runs and after. */
+  private imageJob?: InstallJob;
+  /** The panels last told of its progress (a start waiting for it), at most once a second. */
+  private imageToldAt = 0;
+  /** What `imageRecordPath()` holds (read once): the desktop image downloaded here, and with which cua. */
+  private imageRecord?: { at: number; cua: string } | null;
+
+  /** Where this server records that the desktop image is downloaded (its data folder: Cua's home is Cua's). */
+  private imageRecordPath(): string {
+    return this.deps.imageRecord ?? join(this.deps.dataDir, 'cua-image.json');
+  }
+
+  private readImageRecord(): { at: number; cua: string } | undefined {
+    if (this.imageRecord === undefined) {
+      try {
+        const r = JSON.parse(readFileSync(this.imageRecordPath(), 'utf8')) as { at?: unknown; cua?: unknown };
+        this.imageRecord = typeof r.at === 'number' && typeof r.cua === 'string' ? { at: r.at, cua: r.cua } : null;
+      } catch {
+        this.imageRecord = null;
+      }
+    }
+    return this.imageRecord ?? undefined;
+  }
+
+  /**
+   * Records that the desktop image is here (Settings downloaded it, or a computer was made from it), for the
+   * `cua` found now: Settings then offers no download, and a computer's panel says its first start is quick.
+   */
+  private recordImage(): void {
+    const found = this.deps.found?.();
+    const cua = found && !found.tooOld ? found.version : CUA_VERSION;
+    const record = { at: this.now(), cua };
+    this.imageRecord = record;
+    try {
+      mkdirSync(dirname(this.imageRecordPath()), { recursive: true });
+      writeFileSync(this.imageRecordPath(), JSON.stringify(record) + '\n', { mode: 0o600 });
+    } catch {
+      // Kept in memory: Settings offers the download again after a restart.
+    }
+  }
+
+  private forgetImage(): void {
+    this.imageRecord = null;
+    try {
+      rmSync(this.imageRecordPath(), { force: true });
+    } catch {
+      // Forgotten in memory: only a restart could read it again.
+    }
+  }
+
+  /**
+   * When the desktop image was downloaded here, by the `cua` found now (another version may make computers
+   * from another image); undefined when it was not. Cua may still clear it from its cache to make room for
+   * others (its budget): a computer's first start then downloads it again, as it would without.
+   */
+  private imageDownloaded(): number | undefined {
+    const record = this.readImageRecord();
+    if (!record) return undefined;
+    const found = this.deps.found?.();
+    if (found && (found.tooOld || found.version !== record.cua)) return undefined;
+    return record.at;
+  }
+
+  private imageView(): NonNullable<ComputerSettingsView['image']> {
+    const at = this.imageDownloaded();
+    return {
+      ...(at && this.imageJob?.state !== 'running' ? { downloadedAt: at } : {}),
+      ...(this.imageJob ? { job: this.imageJob.view() } : {}),
+    };
+  }
+
+  /**
+   * Settings' download of the desktop image, in the background (and once Settings installed Cua): the Linux
+   * desktop that computers are made from, pulled where they run, with Cua's own Linux VM set up on the way on
+   * macOS and Windows, so that a computer's first start takes seconds. Its progress is Docker's, as cua logs
+   * it (`PullProgress`). One at a time, never while Cua is being removed; stopped at shutdown.
+   */
+  startImage(): void {
+    if (this.imageJob?.state === 'running') return;
+    if (this.stopping) throw new HttpError(503, t().shuttingDown);
+    if (this.removal?.state === 'running') throw new HttpError(409, t().computer.removal.busy);
+    if (!this.deps.available()) throw new HttpError(409, t().computer.notInstalled);
+    const job = new InstallJob();
+    this.imageJob = job;
+    job.ended = this.runImage(job);
+  }
+
+  private async runImage(job: InstallJob): Promise<void> {
+    const signal = AbortSignal.any([job.abort.signal, this.stopAll.signal]);
+    const im = t().computer.image;
+    try {
+      const info = await this.deps.run(['--json', 'images', 'info', DESKTOP_IMAGE], { signal, timeoutMs: 60_000 });
+      const image = info.code === 0 ? desktopImage(lastJson(info.stdout), this.deps.arch) : undefined;
+      if (!image) throw new ComputerError(() => cuaFailure(info, t().computer.image.stepInfo));
+      job.append(`$ cua image pull ${image.ref}\n`);
+      if (this.deps.runtime?.() === 'builtin') job.append(im.vmFirst + '\n');
+      const progress = new PullProgress(image.download);
+      const pulled = await this.deps.run(['--json', 'image', 'pull', image.ref], {
+        signal,
+        timeoutMs: this.deps.imageMs ?? 90 * 60_000,
+        log: PULL_LOG,
+        onStderrLine: (line) => {
+          const now = progress.line(line);
+          if (now) {
+            job.progress(now.done, now.total);
+            this.imageProgressed();
+            return;
+          }
+          const said = cuaLogLine(line);
+          if (said) job.append(said + '\n');
+        },
+      });
+      signal.throwIfAborted();
+      if (pulled.code !== 0) throw new ComputerError(() => cuaFailure(pulled, t().computer.image.stepPull));
+      const result = lastJson(pulled.stdout) as { reference?: unknown } | undefined;
+      if (typeof result?.reference === 'string') job.append(dataLine(result.reference) + '\n');
+      this.recordImage();
+      job.finish('success');
+    } catch (err) {
+      if (signal.aborted) job.finish('cancelled', () => t().cliInstallCancelled);
+      else job.finish('failed', err instanceof ComputerError ? err.render : () => (err as Error).message);
+    }
+    // The computers that waited for it start making themselves now: their panels say so.
+    for (const c of this.computers.values()) if (c.waitingForImage) this.changed(c);
+  }
+
+  /** Tells the panels of computers waiting for the image how far it is, at most once a second. */
+  private imageProgressed(): void {
+    const now = this.now();
+    if (now - this.imageToldAt < 1000) return;
+    this.imageToldAt = now;
+    for (const c of this.computers.values()) if (c.waitingForImage) this.changed(c);
+  }
+
+  /** Whether something of Cua's is being set up in the background (the desktop app's update waits for it). */
+  busy(): number {
+    return this.imageJob?.state === 'running' ? 1 : 0;
+  }
+
   private async runRemoval(job: InstallJob): Promise<void> {
     const r = t().computer.removal;
+    // A download of the desktop image stops first: its image goes with the others.
+    this.imageJob?.abort.abort();
+    await this.imageJob?.ended;
+    this.forgetImage();
     /** The steps that did not finish: the removal's error, Settings' only words besides "Removed". */
     const failed: string[] = [];
     const step = async (line: string, args: string[], ms: number) => {
@@ -1086,6 +1270,7 @@ export class ComputerService {
     this.stopping = true;
     this.stopAll.abort();
     this.removal?.abort.abort();
+    this.imageJob?.abort.abort();
     if (this.idleTimer) clearInterval(this.idleTimer);
     const on = [...this.computers.values()].filter((c) => c.status === 'ready' || c.starting);
     for (const c of this.computers.values()) {
@@ -1094,7 +1279,7 @@ export class ComputerService {
       c.mcp?.close();
       c.mcp = undefined;
     }
-    await Promise.allSettled(on.map((c) => this.deps.run(['sb', 'suspend', c.ref], { timeoutMs: 30_000 })));
+    await Promise.allSettled([...on.map((c) => this.deps.run(['sb', 'suspend', c.ref], { timeoutMs: 30_000 })), this.imageJob?.ended]);
   }
 }
 

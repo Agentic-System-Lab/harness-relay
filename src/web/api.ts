@@ -545,6 +545,7 @@ export const api = {
     request<ComputerView>('POST', `/api/conversations/${encodeURIComponent(id)}/computer`, { action, ...(note ? { note } : {}) }),
   /** Remove Cua: this server's computers, Cua's downloads (unless another sandbox uses them), and Harness Relay's own copy. */
   removeCua: () => request<ComputerSettingsView>('POST', '/api/computer/remove', {}),
+  downloadComputerImage: () => request<ComputerSettingsView>('POST', '/api/computer/image', {}),
   /** Delete one of this server's computers by its name (Settings' list). */
   deleteComputerNamed: (name: string) => request<{ ok: true }>('DELETE', `/api/computers/${encodeURIComponent(name)}`),
   /** The computer's panel, as the server streams it (SSE, read with fetch so that the key goes in its header). */

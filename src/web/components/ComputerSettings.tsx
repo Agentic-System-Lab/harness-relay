@@ -1,14 +1,17 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import type { ComputerSettingsView } from '../../shared/types';
 import { api } from '../api';
+import { logTail } from '../clis';
 import { useT } from '../i18n';
-import { AppDependencyInstall } from './AppDependencyInstall';
+import { AppDependencyInstall, DownloadProgress } from './AppDependencyInstall';
 import { AppRow } from './AppRow';
 
 /**
  * Settings → Common apps → Computer (Cua): installing Cua on its own (Harness Relay's copy, or the user's
- * own when new enough), whether this computer can run its Linux desktops (`cua runtime doctor`, on the
- * user's click: it takes seconds), the chats' computers to delete, and which CLIs' agents get the tools.
+ * own when new enough), then its desktop image (downloaded by itself once Cua is installed here, with its
+ * progress; a button for a Cua installed before, or a download that failed), whether this computer can run
+ * its Linux desktops (`cua runtime doctor`, on the user's click: it takes seconds), the chats' computers to
+ * delete, and which CLIs' agents get the tools.
  */
 export function ComputerSettings({ access }: { access: ReactNode }) {
   const t = useT();
@@ -37,13 +40,22 @@ export function ComputerSettings({ access }: { access: ReactNode }) {
     await load(true);
     setChecking(false);
   };
-  // While Cua is being removed, its steps as they go.
+  // While Cua is being removed, its steps as they go; while its desktop image downloads, how far it is.
   const uninstalling = view?.removal?.state === 'running';
+  const downloading = view?.image?.job?.state === 'running';
   useEffect(() => {
-    if (!uninstalling) return;
+    if (!uninstalling && !downloading) return;
     const timer = setInterval(() => void load(), 1500);
     return () => clearInterval(timer);
-  }, [uninstalling, load]);
+  }, [uninstalling, downloading, load]);
+  const downloadImage = async () => {
+    try {
+      setView(await api.downloadComputerImage());
+      setError('');
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
   const removeCua = async () => {
     if (!confirm(r.confirmRemoveCua(view?.computers.length ?? 0))) return;
     try {
@@ -81,6 +93,7 @@ export function ComputerSettings({ access }: { access: ReactNode }) {
         {[view && !view.cua ? r.installs(view.installs) : '', r.where].filter(Boolean).join(t.filesEdit.sentenceGap)}
       </p>
       {view && !view.cua && <AppDependencyInstall name="cua" onReady={() => load()} checkAgain={false} />}
+      {view?.cua && view.image && !uninstalling && <ComputerImage image={view.image} onDownload={() => void downloadImage()} />}
       {view?.cua && (
         <div className="computer-runtime">
           <button type="button" className="ghost small-button" disabled={checking} onClick={() => void check()}>
@@ -151,6 +164,56 @@ export function ComputerSettings({ access }: { access: ReactNode }) {
         </p>
       )}
     </AppRow>
+  );
+}
+
+/**
+ * The desktop image computers are made from: its download as it goes (bytes once Docker's pull says, else
+ * that it is being prepared), downloaded, or a button to download it (again, after a failure: why, and its log).
+ */
+function ComputerImage({ image, onDownload }: { image: NonNullable<ComputerSettingsView['image']>; onDownload: () => void }) {
+  const t = useT();
+  const r = t.apps.computerRow;
+  const job = image.job;
+  const failed = job?.state === 'failed';
+  return (
+    <div className="computer-image">
+      <h5>{r.image}</h5>
+      {job?.state === 'running' ? (
+        <>
+          <p className="small">{r.imageDownloading}</p>
+          {job.progress ? (
+            <DownloadProgress done={job.progress.done} total={job.progress.total} />
+          ) : (
+            <p className="small muted" role="status">
+              {r.imagePreparing}
+            </p>
+          )}
+        </>
+      ) : image.downloadedAt ? (
+        <p className="small muted" role="status">
+          {r.imageReady}
+        </p>
+      ) : (
+        <>
+          {failed && (
+            <p className="error-line" role="alert">
+              {r.imageFailed} {job.error ?? ''}
+            </p>
+          )}
+          {failed && job.log && (
+            <details className="sub">
+              <summary>{t.apps.installLog}</summary>
+              <pre className="cli-install-log">{logTail(job.log)}</pre>
+            </details>
+          )}
+          <p className="small muted">{r.imageMissing}</p>
+          <button type="button" className="ghost small-button" onClick={onDownload}>
+            {failed ? t.apps.retryInstall : r.imageDownload}
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 

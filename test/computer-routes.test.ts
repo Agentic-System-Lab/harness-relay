@@ -16,6 +16,7 @@ process.env.RELAY_DATA_DIR = join(root, 'data');
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const { Handovers } = await import('../src/server/browser/handover');
+const { AppDependencies } = await import('../src/server/appDependencies');
 const { ComputerService, computerName, folderKey } = await import('../src/server/computer/session');
 const { AuthStore, CODE_TTL_MS } = await import('../src/server/auth');
 const { createApp } = await import('../src/server/app');
@@ -49,7 +50,7 @@ describe('the computer over the HTTP API', () => {
     agentState: {},
     worktrees: {},
   };
-  const setup = async (available = true) => {
+  const setup = async (available = true, appDependencies?: InstanceType<typeof AppDependencies>) => {
     const db = openDatabase(':memory:');
     const settings = new SettingsStore(db);
     const store = new Store(db);
@@ -64,6 +65,16 @@ describe('the computer over the HTTP API', () => {
       run: async (args): Promise<SpawnResult> => {
         runs.push(args);
         if (args.includes('rm')) listed = false;
+        // The desktop image: Cua's catalog, then the pull.
+        if (args[1] === 'images')
+          return {
+            code: 0,
+            stdout: JSON.stringify({ ref: 'ghcr.io/trycua/linux:24.04', sizes: { platforms: [{ arch: 'amd64', download: 10 }] } }),
+            stderr: '',
+            timedOut: false,
+            aborted: false,
+          } as SpawnResult;
+        if (args[1] === 'image') return { code: 0, stdout: '{}', stderr: '', timedOut: false, aborted: false } as SpawnResult;
         if (args.includes('info')) return { code: 1, stdout: '', stderr: 'not found', timedOut: false, aborted: false } as SpawnResult;
         if (args.includes('view'))
           return {
@@ -98,6 +109,7 @@ describe('the computer over the HTTP API', () => {
       }),
       found: () => (available ? { bin: '/x/cua', version: '0.31.2', own: true } : undefined),
       dataDir: join(root, 'data'),
+      imageRecord: join(root, 'image-' + Math.random().toString(36).slice(2) + '.json'),
       handovers,
       folderOf: (id) => store.cwdOf(id),
       shotsDir: () => join(root, 'shots'),
@@ -112,6 +124,7 @@ describe('the computer over the HTTP API', () => {
       providers: new ProviderService(settings),
       handovers,
       computer,
+      ...(appDependencies ? { appDependencies } : {}),
     });
     store.create(structuredClone(conversation));
     const res = await app.request('/api/auth/login', {
@@ -220,6 +233,49 @@ describe('the computer over the HTTP API', () => {
     ).toEqual(expect.arrayContaining(['sb rm', 'cache prune']));
     // A plain form post (no JSON) is refused, as every write.
     expect((await app.request('/api/computer/remove', { method: 'POST', headers, body: 'x' })).status).toBe(415);
+    await computer.shutdown();
+  });
+
+  it('downloads the desktop image in the background, Settings told how it goes; by itself once Settings installed Cua', async () => {
+    const { app, computer, headers, post, runs } = await setup();
+    const settingsImage = async () =>
+      ((await (await app.request('/api/computer', { headers })).json()) as { image?: { downloadedAt?: number; job?: { state: string } } })
+        .image;
+    expect(await settingsImage()).toEqual({});
+    const started = await post('/api/computer/image', {});
+    expect(started.status).toBe(200);
+    expect(await started.json()).toMatchObject({ image: { job: { state: expect.stringMatching(/running|success/) } } });
+    await expect.poll(async () => (await settingsImage())?.downloadedAt).toEqual(expect.any(Number));
+    expect(runs.filter((r) => r[1] === 'image')).toEqual([['--json', 'image', 'pull', 'ghcr.io/trycua/linux:24.04']]);
+    expect((await app.request('/api/computer/image', { method: 'POST', headers, body: 'x' })).status).toBe(415);
+    await computer.shutdown();
+
+    // Cua installed from Settings: the download follows by itself.
+    let installed = false;
+    const off = { available: () => false, plan: () => ({}) };
+    const deps = new AppDependencies({
+      github: off,
+      browser: off,
+      cua: {
+        available: () => installed,
+        plan: () => ({
+          install: async () => {
+            installed = true;
+          },
+        }),
+      },
+    });
+    const second = await setup(true, deps);
+    expect((await second.post('/api/apps/cua/install', {})).status).toBe(200);
+    await expect.poll(() => second.runs.filter((r) => r[1] === 'image').length).toBe(1);
+    await second.computer.shutdown();
+  });
+
+  it('refuses to download the desktop image without Cua, in the request’s language', async () => {
+    const { computer, headers, post } = await setup(false);
+    const refused = await post('/api/computer/image', {}, { ...headers, 'x-relay-lang': 'en' });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ error: expect.stringMatching(/Cua is not installed/) });
     await computer.shutdown();
   });
 

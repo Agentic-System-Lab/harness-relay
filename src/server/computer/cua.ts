@@ -99,7 +99,17 @@ export function cuaFailure(r: Pick<SpawnResult, 'stdout' | 'stderr' | 'code' | '
   return what + (lines.length ? ': ' + tail(lines.slice(-4).join(' '), 600) : ` (exit code ${r.code ?? 'none'})`);
 }
 
-export type CuaRunner = (args: string[], o: { signal?: AbortSignal; timeoutMs: number }) => Promise<SpawnResult>;
+export type CuaRunner = (
+  args: string[],
+  o: {
+    signal?: AbortSignal;
+    timeoutMs: number;
+    /** What cua logs to its error output (`CUA_LOG`, a tracing filter): only its warnings without it. */
+    log?: string;
+    /** Each line of its error output, as it comes (its log). */
+    onStderrLine?: (line: string) => void;
+  },
+) => Promise<SpawnResult>;
 
 /** Runs `cua` (`bin`) with Harness Relay's environment, in its Cua home. */
 export function cuaRunner(bin: () => string | undefined, env: () => NodeJS.ProcessEnv = () => cuaEnv()): CuaRunner {
@@ -107,6 +117,7 @@ export function cuaRunner(bin: () => string | undefined, env: () => NodeJS.Proce
     const program = bin();
     if (!program) throw new CuaError('Cua is not installed', null);
     const e = env();
+    if (o.log) e.CUA_LOG = o.log;
     mkdirSync(e.CUA_HOME!, { recursive: true, mode: 0o700 });
     return runProcess({
       bin: program,
@@ -117,8 +128,119 @@ export function cuaRunner(bin: () => string | undefined, env: () => NodeJS.Proce
       timeoutMs: o.timeoutMs,
       maxCapture: 1 << 20,
       maxStderrCapture: 64 * 1024,
+      ...(o.onStderrLine ? { onStderrLine: o.onStderrLine } : {}),
     });
   };
+}
+
+/**
+ * A line of cua's error output as a job's log keeps it: its own words, without colours or the time; none for
+ * what it logs at debug or trace level (its Docker client's pull stream, which `PullProgress` reads).
+ */
+export function cuaLogLine(line: string): string | undefined {
+  // eslint-disable-next-line no-control-regex
+  const plain = line.replace(/\x1b\[[0-9;]*m/g, '').trim();
+  if (!plain) return undefined;
+  const logged = /^\S+Z\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(\S+):\s*(.*)$/.exec(plain);
+  if (!logged) return tail(plain, 600);
+  if (logged[1] === 'TRACE' || logged[1] === 'DEBUG') return undefined;
+  return tail(logged[3]!, 600) || undefined;
+}
+
+/** The alias of the image a computer is made from (`cua sb create linux`): Cua's Linux desktop. */
+export const DESKTOP_IMAGE = 'linux';
+
+/**
+ * What `cua --json images info linux` says of the desktop image: its reference (`ghcr.io/trycua/linux:24.04`),
+ * which `cua image pull` needs (it hands an alias to Docker as it is, which Docker does not know), and what
+ * a pull downloads for this processor (bytes), when the catalog says.
+ */
+export function desktopImage(info: unknown, arch: string = process.arch): { ref: string; download?: number } | undefined {
+  if (!info || typeof info !== 'object') return undefined;
+  const entry = info as { ref?: unknown; sizes?: { platforms?: unknown } };
+  // A registry's reference (never an option: it goes on cua's command line).
+  if (typeof entry.ref !== 'string' || !/^[a-z0-9][\w.-]*(?::\d+)?\/[\w./-]+(?::[\w.-]+)?(?:@sha256:[0-9a-f]{64})?$/i.test(entry.ref))
+    return undefined;
+  const cpu = arch === 'x64' ? 'amd64' : arch;
+  const platforms = Array.isArray(entry.sizes?.platforms) ? entry.sizes.platforms : [];
+  const size = platforms.find(
+    (p): p is { arch: string; download: number } =>
+      Boolean(p) && (p as { arch?: unknown }).arch === cpu && typeof (p as { download?: unknown }).download === 'number',
+  )?.download;
+  return { ref: entry.ref, ...(size && size > 0 ? { download: size } : {}) };
+}
+
+/** What cua logs for a pull's progress: its Docker client's lines of the engine's pull stream (`bollard::read`, at debug). */
+export const PULL_LOG = 'info,bollard::read=debug';
+
+/**
+ * A pull's progress, from cua's log (`PULL_LOG`): each line of the container engine's pull stream that
+ * cua's Docker client logs (`Decoding JSON line from stream: {"status":"Downloading","progressDetail":
+ * {"current":…,"total":…},"id":"<layer>"}`), as bytes downloaded of the layers to download. A layer is
+ * one announced (`Pulling fs layer`, `Waiting`) or downloading; one already there (`Already exists`) is not
+ * downloaded. The total is the layers' own once each has one; before that the catalog's size (`expected`),
+ * or what the layers say so far when that is more (the image pulled may be a little larger than the catalog's),
+ * and none without a catalog size. Nothing is logged when the image is already there.
+ */
+export class PullProgress {
+  private layers = new Map<string, { done: number; total?: number; finished: boolean }>();
+  constructor(private readonly expected?: number) {}
+
+  /** One line of cua's error output: the progress when it is a line of the pull stream, else undefined. */
+  line(text: string): { done: number; total?: number } | undefined {
+    // eslint-disable-next-line no-control-regex
+    const plain = text.replace(/\x1b\[[0-9;]*m/g, '');
+    const at = plain.indexOf('Decoding JSON line from stream: ');
+    if (at < 0 || !/\bbollard::read\b/.test(plain.slice(0, at))) return undefined;
+    let event: { status?: unknown; id?: unknown; progressDetail?: { current?: unknown; total?: unknown } };
+    try {
+      event = JSON.parse(plain.slice(at + 'Decoding JSON line from stream: '.length).trim()) as typeof event;
+    } catch {
+      return undefined;
+    }
+    if (!event || typeof event.status !== 'string' || typeof event.id !== 'string' || !/^[0-9a-f]{12,64}$/.test(event.id)) return undefined;
+    const id = event.id;
+    const layer = this.layers.get(id);
+    const current = event.progressDetail?.current;
+    const total = event.progressDetail?.total;
+    switch (event.status) {
+      case 'Pulling fs layer':
+      case 'Waiting':
+        if (!layer) this.layers.set(id, { done: 0, finished: false });
+        break;
+      case 'Downloading':
+        if (typeof current === 'number' && current >= 0 && typeof total === 'number' && total > 0)
+          this.layers.set(id, { done: Math.min(current, total), total, finished: false });
+        break;
+      case 'Verifying Checksum':
+      case 'Download complete':
+      case 'Extracting':
+      case 'Pull complete':
+        // A blob not announced as a layer (the image's configuration) is not counted.
+        if (layer) layer.finished = true;
+        break;
+      case 'Already exists':
+        this.layers.delete(id);
+        break;
+      default:
+        return undefined;
+    }
+    return this.now();
+  }
+
+  /** Bytes downloaded, of how many (undefined while neither the layers nor the catalog say). */
+  now(): { done: number; total?: number } {
+    let done = 0;
+    let known = 0;
+    let all = true;
+    for (const l of this.layers.values()) {
+      done += l.finished ? (l.total ?? l.done) : l.done;
+      known += l.total ?? 0;
+      if (l.total === undefined && !l.finished) all = false;
+    }
+    const total = all && known ? known : this.expected ? Math.max(this.expected, known) : undefined;
+    return { done: total ? Math.min(done, total) : done, ...(total ? { total } : {}) };
+  }
 }
 
 /**

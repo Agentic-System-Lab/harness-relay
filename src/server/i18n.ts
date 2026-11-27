@@ -1160,6 +1160,12 @@ const zhTW = {
     stepView: '無法取得 Cua 檢視器的連結',
     notOn: '電腦還沒開機',
     unknown: '這個 Harness Relay 沒有這台電腦',
+    image: {
+      stepInfo: '無法查到 Cua 的桌面映像檔',
+      stepPull: '無法下載桌面映像檔',
+      vmFirst: '在 macOS 和 Windows 上，Cua 會先準備自己的 Linux 虛擬機（第一次要下載），再下載映像檔。',
+      waiting: '等設定頁下載完桌面映像檔，再建立電腦',
+    },
     removal: {
       busy: '正在移除 Cua，現在不能開機。',
       computer: (name: string) => `刪除電腦 ${name}`,
@@ -2712,6 +2718,13 @@ const en: ServerMessages = {
     stepView: "Could not get a link to Cua's viewer",
     notOn: 'The computer is not on',
     unknown: 'This Harness Relay has no such computer',
+    image: {
+      stepInfo: "Could not look up Cua's desktop image",
+      stepPull: 'Could not download the desktop image',
+      vmFirst:
+        'On macOS and Windows, Cua first sets up its own Linux virtual machine (downloaded the first time), then downloads the image.',
+      waiting: 'Waiting for the desktop image Settings is downloading, then making the computer',
+    },
     removal: {
       busy: 'Cua is being removed: no computer starts now.',
       computer: (name) => `Deleting the computer ${name}`,

@@ -96,6 +96,22 @@ describe('runProcess', () => {
     expect(res.code).toBe(0);
   });
 
+  it('hands each line of stderr to onStderrLine as it comes, kept in the result too, apart from stdout', async () => {
+    const errors: string[] = [];
+    const lines: string[] = [];
+    const res = await runProcess({
+      bin: process.execPath,
+      args: ['-e', "process.stderr.write('first\\r\\nsecond\\n'); process.stdout.write('out\\n'); process.stderr.write('last')"],
+      env: process.env,
+      onLine: (l) => lines.push(l),
+      onStderrLine: (l) => errors.push(l),
+    });
+    expect(res.code).toBe(0);
+    expect(errors).toEqual(['first', 'second', 'last']);
+    expect(lines).toEqual(['out']);
+    expect(res.stderr).toBe('first\r\nsecond\nlast');
+  });
+
   it('hands each chunk of stdout to onStdout as it comes, raw, also a long one with no line break', async () => {
     const chunks: Buffer[] = [];
     const res = await runProcess({
