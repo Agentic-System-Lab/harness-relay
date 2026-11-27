@@ -54,6 +54,8 @@ export interface SpawnOptions {
   timeoutMs?: number;
   /** Called for every stdout line (without the trailing newline). A line is held whole until it ends: not for output that may have no line breaks. */
   onLine?: (line: string) => void;
+  /** Called for every stderr line, as `onLine` is for stdout's (a program's log, read as it goes). */
+  onStderrLine?: (line: string) => void;
   /** Called with each chunk of stdout as it comes, raw (nothing held: a line may be split across chunks, a character too). */
   onStdout?: (chunk: Buffer) => void;
   /** Max bytes of stdout kept in the result (the oldest output is dropped first, unless `keepStart`). */
@@ -472,19 +474,19 @@ function supervise(
       }
     });
     child.stderr!.on('data', (chunk: Buffer) => stderr.add(chunk));
-    if (o.onLine) {
-      const onLine = o.onLine;
-      // readline passes its input's errors on as its own: heard here, as stdout's are above.
-      createInterface({ input: child.stdout!, crlfDelay: Infinity })
+    // readline passes its input's errors on as its own: heard here, as the streams' are above.
+    const lines = (input: NodeJS.ReadableStream, handler: (line: string) => void) =>
+      createInterface({ input, crlfDelay: Infinity })
         .on('line', (line) => {
           try {
-            onLine(line);
+            handler(line);
           } catch (err) {
             console.error('[process] line handler failed:', err);
           }
         })
         .on('error', () => undefined);
-    }
+    if (o.onLine) lines(child.stdout!, o.onLine);
+    if (o.onStderrLine) lines(child.stderr!, o.onStderrLine);
 
     if (o.stdin !== undefined && !o.keepStdinOpen) {
       child.stdin!.on('error', () => {

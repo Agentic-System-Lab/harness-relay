@@ -20,6 +20,8 @@ interface Dependency {
 export class AppDependencies {
   private jobs = new Map<AppDependency | 'docker', InstallJob>();
   private stopping = false;
+  /** What follows a prerequisite's install once it succeeded (Cua's: its desktop image downloaded). */
+  private next = new Map<AppDependency, () => void>();
 
   constructor(
     private deps: Record<AppDependency, Dependency>,
@@ -55,6 +57,11 @@ export class AppDependencies {
     return this.dockerView();
   }
 
+  /** Runs `then` each time `name`'s install succeeds (one for each prerequisite: the last one given). */
+  onInstalled(name: AppDependency, then: () => void): void {
+    this.next.set(name, then);
+  }
+
   view(name: AppDependency): AppDependencyView {
     const job = this.jobs.get(name);
     const running = job?.state === 'running';
@@ -76,15 +83,23 @@ export class AppDependencies {
   private start(name: AppDependency | 'docker', dep: Dependency, install: Install) {
     const job = new InstallJob();
     this.jobs.set(name, job);
-    job.ended = this.run(job, dep, install);
+    job.ended = this.run(job, dep, install, name === 'docker' ? undefined : name);
   }
 
-  private async run(job: InstallJob, dep: Dependency, install: Install) {
+  private async run(job: InstallJob, dep: Dependency, install: Install, name?: AppDependency) {
     try {
       await install(job);
       job.abort.signal.throwIfAborted();
       if (!dep.available()) throw new InstallError(() => t().appInstallMissing);
       job.finish('success');
+      const then = name ? this.next.get(name) : undefined;
+      if (then && !this.stopping)
+        try {
+          then();
+        } catch (err) {
+          // The install stands: what follows says its own failure where it is shown.
+          console.error('[apps] after installing ' + name + ':', (err as Error).message);
+        }
     } catch (err) {
       if (job.abort.signal.aborted) job.finish('cancelled', () => t().cliInstallCancelled);
       else job.finish('failed', err instanceof InstallError ? err.render : () => (err as Error).message);

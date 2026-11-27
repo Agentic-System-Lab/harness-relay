@@ -29,7 +29,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { OPEN_PROVIDERS, PROVIDERS, type Provider } from '../../src/shared/types';
 import { FACTS } from './clis/all';
-import { fakeBin, notInstalledBut } from './fake-cli';
+import { fakeBin, fakeDockerIn, notInstalledBut } from './fake-cli';
 import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
 import { serverToStart } from './server-bundle';
 
@@ -163,6 +163,11 @@ export interface StartOptions {
   openBackend?: boolean;
   /** Whether OpenHands may use a terminal in Harness Relay's own sandbox (default true; macOS needs it below full access). Not in live runs. */
   sandboxTerminal?: boolean;
+  /**
+   * The fake Docker CLI first on the server's PATH (`fakeDockerIn()`, macOS and Linux), for a spec that
+   * removes Cua: its last step asks Docker to remove Cua's images, which must never be the host's. Not in live runs.
+   */
+  fakeDocker?: boolean;
 }
 
 const STARTUP_MS = 60_000;
@@ -305,6 +310,11 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   const pwshDir = join(root, 'bin');
   if (!o.live)
     symlinkSync(realpathSync.native(join(o.fakeBinDir, 'powershell')), pwshDir, process.platform === 'win32' ? 'junction' : 'dir');
+  // The same for the fake Docker CLI: Cua's runs omit node_modules from the PATH they find Docker on
+  // (`dockerSearchPath()`), so a folder in the cache would leave the host's Docker first.
+  const fakeDocker = !o.live && o.fakeDocker ? fakeDockerIn(o.fakeBinDir) : undefined;
+  const dockerDir = fakeDocker ? join(root, 'docker-bin') : undefined;
+  if (fakeDocker && dockerDir) symlinkSync(realpathSync.native(fakeDocker), dockerDir, 'dir');
   seedProject(workDir);
   const fake = await startFakeEndpoint(fakeLog);
 
@@ -371,7 +381,11 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     // Where a fake in Harness Relay's own sandbox sends its log lines (lib/log.cjs).
     E2E_FAKE_LOG_URL: fake.logUrl,
     // The fake CLIs first, found by name as the real ones are; this Node next, for the scripts.
-    PATH: [...(o.live ? [] : [o.fakeBinDir, pwshDir]), dirname(process.execPath), env.PATH ?? env.Path ?? ''].join(delimiter),
+    PATH: [
+      ...(o.live ? [] : [...(dockerDir ? [dockerDir] : []), o.fakeBinDir, pwshDir]),
+      dirname(process.execPath),
+      env.PATH ?? env.Path ?? '',
+    ].join(delimiter),
     NO_COLOR: '1',
     // A CLI whose default account runs on an API key only (`defaultKeyOnly`: Antigravity) gets one, as a
     // user's environment would give it, so that it is signed in as the fakes of the others are.

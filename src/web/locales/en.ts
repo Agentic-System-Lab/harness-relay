@@ -1464,6 +1464,8 @@ export const en: Messages = {
     keys: 'Keys',
     off: 'The computer is off. It starts the first time an agent uses it, or start it now.',
     firstTime: "The first start downloads Cua's virtual machine and image (about 2 GB, once): it can take a while.",
+    waitingImage: 'It starts once Settings has downloaded the desktop image:',
+    waitingPreparing: 'Preparing the download…',
     starting: 'Starting…',
     startingFor: (minutes) => (minutes ? `Starting (${minutes} minutes so far)…` : 'Starting…'),
     notInstalled: 'Cua is not installed here.',
@@ -2432,7 +2434,7 @@ export const en: Messages = {
       installs: (version) =>
         `Installs Cua ${version} (the official release, its checksum checked) into Harness Relay's own folder, apart from your other programs.`,
       where:
-        "Each working directory gets a Linux desktop, which the chats in it share: their files, the software installed and the accounts signed in to. On macOS and Windows it runs in Cua's own virtual machine, on Linux in this computer's Docker. The first start downloads the virtual machine and the image (about 2 GB), once: after that each computer starts in seconds. It is suspended after 30 idle minutes; deleting a chat leaves it: delete it here. Harness Relay turns Cua's usage statistics off when it starts it.",
+        "Each working directory gets a Linux desktop, which the chats in it share: their files, the software installed and the accounts signed in to. On macOS and Windows it runs in Cua's own virtual machine, on Linux in this computer's Docker. Installing Cua here downloads its desktop image next (about 1.4 GB; on macOS and Windows Cua's virtual machine is set up too), so that each computer starts in seconds, the first one too. It is suspended after 30 idle minutes; deleting a chat leaves it: delete it here. Harness Relay turns Cua's usage statistics off when it starts it.",
       check: 'Check whether this computer can run it',
       checking: 'Checking…',
       ready: (detail) => `Can run: ${detail}`,
@@ -2452,6 +2454,15 @@ export const en: Messages = {
       removing: 'Removing Cua…',
       removed: 'Removed Cua.',
       removalFailed: 'Cua was not removed completely:',
+      image: 'Desktop image',
+      imageReady: 'The desktop image is downloaded: computers start in seconds, the first one too.',
+      imageMissing:
+        "Not downloaded yet: a computer's first start would download it (about 1.4 GB; on macOS and Windows Cua's virtual machine too) and take minutes. You can download it now.",
+      imageDownload: 'Download the desktop image',
+      imageDownloading: 'Downloading the desktop image…',
+      imagePreparing: "Preparing… (on macOS and Windows this may first set up Cua's own virtual machine: a few minutes)",
+      imageFailed: 'The desktop image could not be downloaded.',
+      imageRetry: 'Download again',
     },
     checkAgain: 'Check again',
     vault: 'Choose vault',

@@ -16,6 +16,13 @@
  * - `--json sb view <ref> --no-open …`: a viewer link on a local port, view-only when asked;
  * - `sb cp <src> <dst>`: a copy into the sandbox is noted; one out of it writes `from the fake computer`;
  * - `--json cache prune --all` (Settings' Remove Cua): nothing to remove;
+ * - `--json images info linux`: the desktop image's catalog entry (its reference, what a pull downloads);
+ * - `--json image pull <ref>` (Settings' download of the desktop image): with `CUA_LOG` asking for its
+ *   Docker client's lines (`bollard::read=debug`), the engine's pull stream as cua logs it, three layers
+ *   over about three seconds (`{"stepMs":…}` in `$CUA_HOME/fake-cua-pull.json` slows it), then what was
+ *   pulled; it fails while that file says `{"fail":"…"}`, with those words, as cua does;
+ * - `--json cache ls --category docker-images`: the desktop image once a pull or a create brought it, until
+ *   `cache prune` clears it;
  * - `mcp --sandbox <ref> --permissions computer:all`: an MCP server over stdio with the computer tools.
  *   Its screenshot is a real PNG, 1200 by 750, whose colour changes with each input, so a frame shows
  *   what was done; each tool call goes to the log.
@@ -56,6 +63,69 @@ function save(name, state) {
   return s;
 }
 const running = { state: 'running', status: 'ready', endpoints: { env: 'http://127.0.0.1:41999' }, services: { env: 3211 } };
+
+/** The desktop image's layers in the fake pull, and their sizes (bytes). */
+const LAYERS = [
+  ['1e6e7ca511b9', 48_000_000],
+  ['db1d5603818e', 64_000_000],
+  ['0db1ede1885b', 212_000_000],
+];
+const DESKTOP = 'ghcr.io/trycua/linux:24.04';
+const DIGEST = 'sha256:' + '3c'.repeat(32);
+/** Whether the desktop image is here (a pull or a create brought it), kept as a file in the Cua home. */
+const PULLED = () => path.join(HOME, 'fake-cua-image');
+const bringImage = () => {
+  fs.mkdirSync(HOME, { recursive: true });
+  fs.writeFileSync(PULLED(), DIGEST);
+};
+
+/** `cua image pull`: the engine's pull stream on stderr as cua logs it at debug (when asked), then the result. */
+function pull(ref) {
+  let steer = {};
+  try {
+    steer = JSON.parse(fs.readFileSync(path.join(HOME, 'fake-cua-pull.json'), 'utf8'));
+  } catch {
+    // pulls as asked
+  }
+  if (steer.fail) {
+    process.stderr.write(`cua: provider not configured: ${steer.fail}\n`);
+    process.exit(4);
+  }
+  const debug = /bollard::read=debug/.test(process.env.CUA_LOG ?? '');
+  const at = () => new Date().toISOString();
+  const say = (event) => {
+    if (debug)
+      process.stderr.write(
+        `\x1b[2m${at()}\x1b[0m \x1b[34mDEBUG\x1b[0m \x1b[2mbollard::read\x1b[0m\x1b[2m:\x1b[0m Decoding JSON line from stream: ${JSON.stringify(event)}\r\n`,
+      );
+  };
+  if (/(^|,)info\b/.test(process.env.CUA_LOG ?? ''))
+    process.stderr.write(
+      `\x1b[2m${at()}\x1b[0m \x1b[32m INFO\x1b[0m \x1b[2mcua_vmm::container\x1b[0m\x1b[2m:\x1b[0m pulling image \x1b[3mimage\x1b[0m\x1b[2m=\x1b[0m"${ref.replace(/:[^:/]+$/, '')}@${DIGEST}"\n`,
+    );
+  say({ status: 'Pulling from trycua/linux', id: `${ref.replace(/:[^:/]+$/, '')}@${DIGEST}` });
+  for (const [id] of LAYERS) say({ status: 'Pulling fs layer', progressDetail: {}, id });
+  // The configuration, a blob that is not a layer.
+  say({ status: 'Download complete', progressDetail: { hidecounts: true }, id: 'fd18d7b2aa35' });
+  const steps = 15;
+  const stepMs = Number(steer.stepMs) || 200;
+  let step = 0;
+  const tick = () => {
+    step++;
+    for (const [id, size] of LAYERS) {
+      const done = Math.min(size, Math.round((size * step) / steps));
+      say({ status: 'Downloading', progressDetail: { current: done, total: size }, id });
+      if (step === steps) say({ status: 'Download complete', progressDetail: { hidecounts: true }, id });
+    }
+    if (step < steps) return void setTimeout(tick, stepMs);
+    for (const [id] of LAYERS) say({ status: 'Pull complete', progressDetail: { hidecounts: true }, id });
+    say({ status: `Digest: ${DIGEST}` });
+    const reference = `${ref.replace(/:[^:/]+$/, '')}@${DIGEST}`;
+    bringImage();
+    process.stdout.write(JSON.stringify({ kind: 'container', location: reference, reference, size_bytes: 1_000_000_000 }) + '\n');
+  };
+  setTimeout(tick, stepMs);
+}
 
 /** A PNG of one colour, `w` by `h`. */
 function png(w, h, [r, g, b]) {
@@ -174,7 +244,26 @@ function main() {
   if (cmd === 'runtime' && sub === 'doctor')
     return out({ backends: [{ backend: 'container', ready: true, detail: 'Fake container engine', missing: [], provisionable: false }] });
   if (cmd === 'mcp') return mcp(rest[rest.indexOf('--sandbox') + 1]);
-  if (cmd === 'cache' && sub === 'prune') return out({ gc: { freed: 0, removed: [] }, reaped: [] });
+  if (cmd === 'cache' && sub === 'prune') {
+    fs.rmSync(PULLED(), { force: true });
+    return out({ gc: { freed: 0, removed: [] }, reaped: [] });
+  }
+  if (cmd === 'cache' && sub === 'ls')
+    return out(
+      fs.existsSync(PULLED())
+        ? [{ name: `ghcr.io/trycua/linux@${DIGEST}`, category: 'docker-images', kind: 'pulled-image', orphan: false }]
+        : [],
+    );
+  if (cmd === 'images' && sub === 'info' && more[0] === 'linux')
+    return out({
+      ref: DESKTOP,
+      os: 'linux',
+      sizes: { platforms: ['amd64', 'arm64'].map((arch) => ({ arch, download: 324_000_000 })) },
+    });
+  if ((cmd === 'image' || cmd === 'img') && sub === 'pull') {
+    log({ pull: more[0], cuaLog: process.env.CUA_LOG ?? '' });
+    return pull(more[0]);
+  }
   if (cmd !== 'sb' && cmd !== 'sandbox') return fail(`not faked: ${args.join(' ')}`);
   const name = nameOf(more.find((a) => !a.startsWith('-')));
   switch (sub) {
@@ -187,6 +276,7 @@ function main() {
       return out(fs.readdirSync(STATE).map((f) => JSON.parse(fs.readFileSync(path.join(STATE, f), 'utf8'))));
     case 'create': {
       const created = rest[rest.indexOf('--name') + 1];
+      bringImage();
       return out(save(created, { ...running, image: 'ghcr.io/trycua/linux:24.04' }));
     }
     case 'suspend':

@@ -32,6 +32,39 @@ describe('common app prerequisites', () => {
     expect(install).toHaveBeenCalledTimes(1);
   });
 
+  it('runs what follows an install only once it succeeded (Cua: its desktop image), never after a failure', async () => {
+    let ready = false;
+    let attempt = 0;
+    const cua = {
+      available: () => ready,
+      plan: () => ({
+        install: async () => {
+          if (++attempt >= 2) ready = true;
+        },
+      }),
+    };
+    const off = { available: () => false, plan: () => ({}) };
+    const deps = new AppDependencies({ github: off, browser: off, cua });
+    const next = vi.fn();
+    deps.onInstalled('cua', next);
+    deps.install('cua');
+    await vi.waitFor(() => expect(deps.view('cua').job?.state).toBe('failed'));
+    expect(next).not.toHaveBeenCalled();
+    deps.install('cua');
+    await vi.waitFor(() => expect(deps.view('cua').available).toBe(true));
+    expect(next).toHaveBeenCalledTimes(1);
+    // Its own failure leaves the install as it is.
+    ready = false;
+    deps.onInstalled('cua', () => {
+      throw new Error('Cua is being removed');
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    deps.install('cua');
+    await vi.waitFor(() => expect(deps.view('cua').job?.state).toBe('success'));
+    expect(next).toHaveBeenCalledTimes(1);
+    vi.restoreAllMocks();
+  });
+
   it('retries failed installations and cancels in-flight work at shutdown', async () => {
     let attempt = 0;
     const dep = {

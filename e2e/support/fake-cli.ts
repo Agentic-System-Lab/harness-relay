@@ -61,7 +61,16 @@ import { createRequire } from 'node:module';
 import { basename, dirname, join, relative } from 'node:path';
 import { PROVIDERS, type Provider } from '../../src/shared/types';
 import { FACTS } from './clis/all';
-import { FAKE_CLI_DIR, FAKE_CUA_SCRIPT, FAKE_DIALOG_SCRIPT, FAKE_GH_SCRIPT, FAKE_NPM_SCRIPT, FAKE_PWSH_SCRIPT, ROOT } from './paths';
+import {
+  FAKE_CLI_DIR,
+  FAKE_CUA_SCRIPT,
+  FAKE_DIALOG_SCRIPT,
+  FAKE_DOCKER_SCRIPT,
+  FAKE_GH_SCRIPT,
+  FAKE_NPM_SCRIPT,
+  FAKE_PWSH_SCRIPT,
+  ROOT,
+} from './paths';
 
 /** The CLIs whose fake is written; the others' fakes say they are not and exit with code 2. */
 export const IMPLEMENTED_FAKES: readonly Provider[] = PROVIDERS.filter((p) => FACTS[p].implemented);
@@ -117,6 +126,7 @@ const STANDALONE = new Set([
   basename(FAKE_GH_SCRIPT),
   basename(FAKE_NPM_SCRIPT),
   basename(FAKE_CUA_SCRIPT),
+  basename(FAKE_DOCKER_SCRIPT),
 ]);
 
 /** The fake CLIs' modules: every `.cjs` under e2e/fake-cli/ but the standalone ones, by their path there without `.cjs` (`lib/rpc`). */
@@ -183,6 +193,15 @@ export function fakeCuaIn(folder: string): string {
   return join(folder, 'cua-fake', `cua${exe}`);
 }
 
+/**
+ * The folder of the fake Docker CLI (`e2e/fake-cli/fake-docker.cjs`), off the PATH: a spec's server puts it
+ * first on its own (`startRelay`'s `fakeDocker`), so that Remove Cua never reaches the host's Docker. macOS
+ * and Linux only (none on Windows, where Remove Cua asks Docker nothing): undefined there.
+ */
+export function fakeDockerIn(folder: string): string | undefined {
+  return process.platform === 'win32' ? undefined : join(folder, 'docker-fake');
+}
+
 /** Builds (or finds) the fake CLIs and returns their folder. */
 export async function installFakeClis(): Promise<string> {
   const script = bundleFakeCli();
@@ -191,6 +210,7 @@ export async function installFakeClis(): Promise<string> {
   const npmScript = readFileSync(FAKE_NPM_SCRIPT, 'utf8');
   const pwshScript = readFileSync(FAKE_PWSH_SCRIPT, 'utf8');
   const cuaScript = readFileSync(FAKE_CUA_SCRIPT, 'utf8');
+  const dockerScript = process.platform === 'win32' ? '' : readFileSync(FAKE_DOCKER_SCRIPT, 'utf8');
   const key = createHash('sha256')
     .update(LAYOUT)
     .update(PROVIDERS.map((p) => FACTS[p].bin).join(','))
@@ -200,6 +220,7 @@ export async function installFakeClis(): Promise<string> {
     .update(npmScript)
     .update(pwshScript)
     .update(cuaScript)
+    .update(dockerScript)
     .update(process.version)
     .update(process.execPath)
     .update(`${process.platform}-${process.arch}-${sea ? 'sea' : 'script'}`)
@@ -213,8 +234,10 @@ export async function installFakeClis(): Promise<string> {
   const npm = join(folder, `npm${exe}`);
   const pwsh = join(folder, 'powershell', `pwsh${exe}`);
   const cua = fakeCuaIn(folder);
+  const dockerDir = fakeDockerIn(folder);
+  const docker = dockerScript && dockerDir ? join(dockerDir, 'docker') : undefined;
   const litellm = sea ? [] : [join(folder, OPENHANDS_VENV.models)];
-  if ([...bins, ...(dialog ? [dialog] : []), gh, npm, pwsh, cua, ...litellm].every((b) => existsSync(b))) {
+  if ([...bins, ...(dialog ? [dialog] : []), ...(docker ? [docker] : []), gh, npm, pwsh, cua, ...litellm].every((b) => existsSync(b))) {
     // Marked as in use, so that another run, of a changed module, leaves it to this one.
     const now = new Date();
     utimesSync(folder, now, now);
@@ -254,6 +277,10 @@ export async function installFakeClis(): Promise<string> {
     writeScript(cua, cuaScript);
   }
   if (dialog) writeScript(dialog, dialogScript);
+  if (docker) {
+    mkdirSync(dirname(docker), { recursive: true });
+    writeScript(docker, dockerScript);
+  }
   return folder;
 }
 

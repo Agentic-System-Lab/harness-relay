@@ -122,7 +122,7 @@ export function AppDependencyInstall({
 }
 
 /** A download under way: how much of it, and a bar when its size is known; then that it is being checked. */
-function DownloadProgress({ done, total }: { done: number; total?: number }) {
+export function DownloadProgress({ done, total }: { done: number; total?: number }) {
   const t = useT();
   const mb = (n: number) => (n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0);
   if (total && done >= total) return <p role="status">{t.apps.unpacking}</p>;

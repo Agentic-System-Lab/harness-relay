@@ -15,6 +15,8 @@ export const FAKE_GH_SCRIPT = join(FAKE_CLI_DIR, 'fake-gh.cjs');
 export const FAKE_NPM_SCRIPT = join(FAKE_CLI_DIR, 'fake-npm.cjs');
 /** The fake Cua CLI (`cua`), which starts the chats' computers; off the PATH, linked into a server's own Cua folder by the specs that want it. */
 export const FAKE_CUA_SCRIPT = join(FAKE_CLI_DIR, 'fake-cua.cjs');
+/** The fake Docker CLI (`docker`) for Remove Cua's last step; off the PATH, first on a server's PATH for the specs that ask (`fakeDocker`). */
+export const FAKE_DOCKER_SCRIPT = join(FAKE_CLI_DIR, 'fake-docker.cjs');
 /** The PowerShell stand-in for Microsoft Graph device sign-in and Teams messages. */
 export const FAKE_PWSH_SCRIPT = join(FAKE_CLI_DIR, 'fake-pwsh.cjs');
 /** The built UI the servers under test serve (`npm run build`). */
