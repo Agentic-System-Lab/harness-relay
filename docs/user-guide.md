@@ -912,7 +912,7 @@ When the preview starts, Relay copies the current files, including edits the age
 
 ![An interactive app in the preview panel beside the conversation](media/app-preview-en.png)
 
-On a phone, the page inside the preview gets the width of the panel. Its own layout determines how the content fits. Relay asks agents building web pages and HTML slide decks to make the content readable and the controls usable on phones, and to check both phone and desktop widths when browser tools are available.
+On a phone, the page inside the preview gets the width of the panel. Its own layout determines how the content fits. Relay asks agents building web pages and HTML slide decks to make the content readable and the controls usable on phones, and to check both phone and desktop widths when their browser tools can resize the viewport.
 
 ![A slide deck in the preview on a 320-pixel-wide phone](media/app-preview-phone-en.png)
 
