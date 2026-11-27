@@ -51,8 +51,10 @@ import {
   setRepoStore,
   setTidyLimits,
   snapshot,
+  trackingReady,
   treePaths,
   unignoredFiles,
+  warmUp,
   worktreeChanged,
   worktreeCwd,
   worktreeHead,
@@ -979,6 +981,18 @@ describe("Harness Relay's own repository, and the working repository's .git it n
     expect(existsSync(ran)).toBe(false);
   });
 
+  it("drops a conversation deleted as its repository's first use after a start, while the copy that would bring it back runs", async () => {
+    await committed();
+    const head = git(repo, 'rev-parse', 'HEAD');
+    git(repo, 'update-ref', `refs/harness-relay/conv-old/${head}`, head);
+    git(repo, 'update-ref', `refs/harness-relay/conv-kept/${head}`, head);
+    // The first use of its repository: the copy starts, and the deletion does not wait for it.
+    await dropKeptCommits(repo, 'conv-old');
+    // Once the copy is done (a read of a commit it brings waits for it), the deleted one is not there.
+    expect(await fileAt(repo, head, 'README.md')).toBe('hello\n');
+    expect(store('for-each-ref', '--format=%(refname)', 'refs/harness-relay/')).toBe(`refs/harness-relay/conv-kept/${head}`);
+  });
+
   it('drops a conversation deleted right after a start for good, waiting for the copy that would bring it back', async () => {
     await committed();
     const head = git(repo, 'rev-parse', 'HEAD');
@@ -1023,7 +1037,8 @@ describe("Harness Relay's own repository, and the working repository's .git it n
       writeFileSync(join(repo, 'git-remote-', 'x'), `#!/bin/sh\necho ran >> "${ran}"\nexit 1\n`, { mode: 0o755 });
       git(repo, 'config', 'core.repositoryformatversion', '1');
       git(repo, 'config', 'extensions.partialClone', 'origin');
-      git(repo, 'config', 'remote.origin.url', 'x::y');
+      // A URL that names no helper of its own: git takes `remote.origin.vcs`'s.
+      git(repo, 'config', 'remote.origin.url', 'y');
       git(repo, 'config', 'remote.origin.vcs', '/x');
       git(repo, 'config', 'remote.origin.promisor', 'true');
       git(repo, 'config', 'protocol./x.allow', 'always');
@@ -1102,6 +1117,26 @@ describe("Harness Relay's own repository, and the working repository's .git it n
     await snapshot(repo);
     expect(await fileAt(repo, head, 'README.md')).toBeUndefined();
     expect(Date.now() - started).toBeLessThan(slow(10_000));
+  });
+
+  it('prepares change tracking ahead of a turn: its first snapshot taken once, a snapshot meanwhile waiting for it', async () => {
+    await committed();
+    expect(trackingReady(repo)).toBe(false);
+    const warm = warmUp(repo);
+    // A snapshot asked for meanwhile waits for it, then hashes only what changed since.
+    const snap = snapshot(repo);
+    expect(warmUp(repo)).toBe(warm);
+    await warm;
+    expect(trackingReady(repo)).toBe(true);
+    expect(
+      store('ls-tree', '-r', '--name-only', (await snap).commit)
+        .split('\n')
+        .sort(),
+    ).toEqual(['README.md', 'src/app.ts']);
+    // Another set of folders left out has an index of its own.
+    expect(trackingReady(repo, [join(repo, 'src')])).toBe(false);
+    // One it cannot take fails nothing.
+    await warmUp(join(dir, 'missing'));
   });
 
   it('takes a turn in a worktree in six git processes', async () => {

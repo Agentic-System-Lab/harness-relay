@@ -3683,10 +3683,12 @@ export type ServerEvent =
       activeAgentIds: string[];
       commandRunning?: boolean;
       folderHeld?: boolean;
+      /** One of its working directories is being prepared for change tracking (its first snapshot, `warmTracking()`). */
+      preparing?: boolean;
     }
   | { type: 'message'; message: ChatMessage }
   | { type: 'delta'; messageId: string; partIndex: number; text: string }
-  | { type: 'status'; running: boolean; activeAgentIds: string[]; commandRunning?: boolean; folderHeld?: boolean }
+  | { type: 'status'; running: boolean; activeAgentIds: string[]; commandRunning?: boolean; folderHeld?: boolean; preparing?: boolean }
   | { type: 'queue'; queue: ChatMessage[] }
   | {
       type: 'conversation';

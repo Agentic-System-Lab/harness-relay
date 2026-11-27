@@ -72,9 +72,12 @@ const CONFIG = [
   'core.autocrlf=false',
   '-c',
   'protocol.allow=never',
-  // No signature checked (`git log` would run the `gpg.program` a repository's config names).
+  // No signature checked (`git log` would run the `gpg.program` a repository's config names), nor a
+  // mailmap read (`git log` would read the file a repository names).
   '-c',
   'log.showSignature=false',
+  '-c',
+  'log.mailmap=false',
   // Nothing git does by itself: reuse a recorded resolution (rerere), or clean up after itself (gc, maintenance).
   '-c',
   'rerere.enabled=false',
@@ -405,6 +408,8 @@ async function makeStore(root: string, store: string): Promise<string> {
   const caches = join(store, 'relay-index');
   for (const name of existsSync(caches) ? readdirSync(caches) : []) if (name.includes('.')) rmSync(join(caches, name), { force: true });
   for (const name of readdirSync(store)) if (name.startsWith('relay-copy-')) rmSync(join(store, name), { recursive: true, force: true });
+  const packs = join(store, 'objects', 'pack');
+  for (const name of existsSync(packs) ? readdirSync(packs) : []) if (name.startsWith('tmp_')) rmSync(join(packs, name), { force: true });
   copied.delete(store);
   legacy.set(
     store,
@@ -439,17 +444,22 @@ const LEGACY_TRIES = 3;
  * `LEGACY_TRIES` starts at most (`relay-import-tries`, counted as each begins). True when it copied any.
  */
 async function importLegacy(root: string, store: string): Promise<boolean> {
-  // Their names and commits alone (`%(objecttype)` would read the objects there).
+  // None through an alternates file that is not a regular file (a pipe would hold even `for-each-ref`,
+  // which looks whether each ref's object is there): what it copies would be read through it too.
+  if (!(await readingTheirs(root, store))) return false;
+  // Their names and commits alone (`%(objecttype)` would read the objects there), in a minute at most.
   const listed = await git(root, ['for-each-ref', '--format=%(objectname) %(refname)', ...LEGACY_REFS], {
     allowFail: true,
     maxCapture: MAX_OUTPUT_BYTES,
+    timeoutMs: 60_000,
   });
   const theirs = (listed.code === 0 ? listed.stdout.split('\n') : [])
     .map((l) => l.split(' '))
     .filter((p): p is [string, string] => p.length === 2 && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(p[0]))
     .map(([sha, ref]) => ({ sha, ref }));
   if (!theirs.length) return false;
-  const fresh = theirs.filter((r) => !isRecorded(store, r.ref));
+  const known = readRecord(store);
+  const fresh = theirs.filter((r) => !known(r.ref));
   if (!fresh.length) return false;
   const tries = join(store, 'relay-import-tries');
   const tried = Number(smallFile(tries) ?? 0) || 0;
@@ -461,10 +471,16 @@ async function importLegacy(root: string, store: string): Promise<boolean> {
   const want = fresh.filter((r) => !have.has(r.ref));
   const whole = want.length ? await copyCommits(root, store, [...new Set(want.map((r) => r.sha))]) : new Set<string>();
   if (whole === undefined) return false;
-  // Not one deleted while it copied.
-  const made = want.filter((r) => whole.has(r.sha) && !isRecorded(store, r.ref));
-  if (made.length)
+  // Not one deleted while it copied; one deleted while they were made, deleted again.
+  const deletedMeanwhile = readRecord(store);
+  const made = want.filter((r) => whole.has(r.sha) && !deletedMeanwhile(r.ref));
+  if (made.length) {
     await git(store, ['update-ref', '--stdin'], { gitDir: store, stdin: made.map((r) => `create ${r.ref} ${r.sha}\n`).join('') });
+    const late = readRecord(store);
+    const undo = made.filter((r) => late(r.ref));
+    if (undo.length)
+      await git(store, ['update-ref', '--stdin'], { gitDir: store, stdin: undo.map((r) => `delete ${r.ref}\n`).join(''), allowFail: true });
+  }
   record(
     store,
     fresh.map((r) => r.ref),
@@ -473,13 +489,15 @@ async function importLegacy(root: string, store: string): Promise<boolean> {
   return made.length > 0;
 }
 
-/** `relay-imported`'s lines: a ref's name, or a folder of refs (ending in `/`), not to copy in. */
-function recorded(store: string): string[] {
-  return (regularFile(join(store, 'relay-imported'), MAX_OUTPUT_BYTES)?.toString('utf8') ?? '').split('\n').filter(Boolean);
-}
-
-function isRecorded(store: string, ref: string): boolean {
-  return recorded(store).some((line) => (line.endsWith('/') ? ref.startsWith(line) : ref === line));
+/**
+ * `relay-imported`, read once: whether a ref is in it, by its name or a folder of refs (a line ending in
+ * `/`), not to copy in.
+ */
+function readRecord(store: string): (ref: string) => boolean {
+  const lines = (regularFile(join(store, 'relay-imported'), MAX_OUTPUT_BYTES)?.toString('utf8') ?? '').split('\n').filter(Boolean);
+  const names = new Set(lines.filter((l) => !l.endsWith('/')));
+  const folders = lines.filter((l) => l.endsWith('/'));
+  return (ref) => names.has(ref) || folders.some((f) => ref.startsWith(f));
 }
 
 function record(store: string, lines: string[]): void {
@@ -528,7 +546,8 @@ async function copyCommits(root: string, store: string, commits: string[], quick
       .map((l) => l.split(' ')[0]!);
     const work = mkdtempSync(join(store, 'relay-copy-'));
     try {
-      const packed = await git(store, ['pack-objects', '-q', join(work, 'copy')], {
+      // One pack, whatever the user's own config limits a pack's size to.
+      const packed = await git(store, ['-c', 'pack.packSizeLimit=0', 'pack-objects', '-q', join(work, 'copy')], {
         gitDir: store,
         env,
         stdin: ids.map((id) => `${id}\n`).join(''),
@@ -546,8 +565,11 @@ async function copyCommits(root: string, store: string, commits: string[], quick
       if (indexed.code !== 0) return 'not';
       const into = join(store, 'objects', 'pack');
       mkdirSync(into, { recursive: true });
-      renameSync(join(work, `copy-${name}.idx`), join(into, `pack-${name}.idx`));
-      renameSync(pack, join(into, `pack-${name}.pack`));
+      // (The same pack there already: the same objects. Its pack first, as git puts one in place.)
+      if (!existsSync(join(into, `pack-${name}.pack`))) {
+        renameSync(pack, join(into, `pack-${name}.pack`));
+        renameSync(join(work, `copy-${name}.idx`), join(into, `pack-${name}.idx`));
+      }
     } finally {
       rmSync(work, { recursive: true, force: true });
     }
@@ -562,7 +584,10 @@ async function copyCommits(root: string, store: string, commits: string[], quick
     return whole.code === 0 ? 'whole' : 'not';
   };
   const whole = new Set<string>();
+  // At most this many copies (each a few git processes): the rest is left out, as if it could not be.
+  let left = 64;
   const halves = async (batch: string[]): Promise<boolean> => {
+    if (left-- <= 0) return true;
     const r = await copy(batch);
     if (r === 'failed') return false;
     if (r === 'whole') for (const c of batch) whole.add(c);
@@ -764,8 +789,9 @@ async function stageOnce(
       allowFail: true,
     });
   // Again in halves when git refuses the lot, so that one it will not take keeps no other out.
+  let tries = 32;
   const halves = async (paths: string[]): Promise<void> => {
-    if ((await addForced(paths)).code === 0 || paths.length === 1) return;
+    if (tries-- <= 0 || (await addForced(paths)).code === 0 || paths.length === 1) return;
     const mid = Math.ceil(paths.length / 2);
     await halves(paths.slice(0, mid));
     await halves(paths.slice(mid));
@@ -906,6 +932,9 @@ async function markShallow(store: string): Promise<void> {
   renameSync(tmp, file);
 }
 
+/** The one protocol `git()` allows: a name no transport or remote helper has (one made at each start). */
+const NO_PROTOCOL = `none-${randomBytes(8).toString('hex')}`;
+
 /** Whether `git()` sets `GIT_NO_LAZY_FETCH` (always but in tests, which see what a git before 2.44 would do without it). */
 let lazyFetchGuard = true;
 
@@ -946,7 +975,7 @@ async function git(cwd: string, args: string[], o: GitOptions = {}) {
   // Nor reach any remote at all, whatever a repository's config allows (`protocol.<name>.allow`, a remote
   // helper's name included): this wins over all of it, on every git since 2.12, which a lazy fetch of
   // a git older than 2.44 would otherwise use.
-  env.GIT_ALLOW_PROTOCOL = 'none';
+  env.GIT_ALLOW_PROTOCOL = NO_PROTOCOL;
   // Nor rewrite an index it only reads (`git status` refreshes one when it can), nor read a commit as
   // another one its replace refs name.
   env.GIT_OPTIONAL_LOCKS = '0';
@@ -1092,8 +1121,56 @@ function mtimeOf(path: string): number {
  * nothing there is taken as written: neither its index (an agent could make it name any content for a
  * file it changed) nor its objects. Its parent is the working repository's HEAD.
  * `exclude`: folders never taken in, such as the CLIs' own homes (their sign-ins and transcripts).
+ * A first snapshot under way ahead of a turn (`warmUp()`) is waited for: this one then hashes only what
+ * changed since.
  */
 export async function snapshot(root: string, exclude: string[] = []): Promise<{ commit: string; tree: string }> {
+  await warming.get(repoStore(root));
+  return takeSnapshot(root, exclude);
+}
+
+/** Each working repository's first snapshot under way ahead of a turn (`warmUp()`), by Harness Relay's repository. */
+const warming = new Map<string, Promise<void>>();
+
+/** The key of Harness Relay's own index of `root` for these folders left out (`snapshot()`). */
+function leftOutKey(root: string, exclude: string[]): string {
+  return createHash('sha256').update(excludedFolders(root, exclude).join('\0')).digest('hex').slice(0, 12);
+}
+
+/**
+ * Whether Harness Relay already has its own index of `root`'s files for these folders left out (else
+ * the next snapshot hashes and writes every file of the folder: `warmUp()`).
+ */
+export function trackingReady(root: string, exclude: string[] = []): boolean {
+  const prefix = `work-${leftOutKey(root, exclude)}-`;
+  try {
+    return readdirSync(join(repoStore(root), 'relay-index')).some((n) => n.startsWith(prefix) && !n.includes('.'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Takes `root`'s first snapshot ahead of a turn, its result not kept: every file hashed and written into
+ * Harness Relay's repository once, so that the turn's own snapshot hashes only what changed since. One
+ * at a time for each repository; a snapshot meanwhile waits for it (`snapshot()`). Never fails.
+ */
+export function warmUp(root: string, exclude: string[] = []): Promise<void> {
+  const store = repoStore(root);
+  let ready = warming.get(store);
+  if (!ready) {
+    ready = takeSnapshot(root, exclude)
+      .then(
+        () => undefined,
+        (err: unknown) => console.warn(`[workspace] could not prepare change tracking in ${root}:`, (err as Error).message),
+      )
+      .finally(() => warming.delete(store));
+    warming.set(store, ready);
+  }
+  return ready;
+}
+
+async function takeSnapshot(root: string, exclude: string[]): Promise<{ commit: string; tree: string }> {
   const store = await storeOf(root);
   // What it reads of the working repository, in one git command (on Windows a git process costs about
   // half a second): its common git folder (its `info/exclude`), its index's path and the commit HEAD
@@ -1122,7 +1199,7 @@ export async function snapshot(root: string, exclude: string[] = []): Promise<{ 
   // change: what an index holds stays in it while the file is there, so a file ignored or no longer
   // tracked since is dropped then (a rule changed in a `.gitignore` deeper in is seen at the next of
   // those), and the files the repository tracks that an ignore rule matches are taken in.
-  const leftOut = createHash('sha256').update(folders.join('\0')).digest('hex').slice(0, 12);
+  const leftOut = leftOutKey(root, exclude);
   const rules = createHash('sha256')
     .update(excludes)
     .update('\0')
@@ -1282,7 +1359,9 @@ export async function commitsSince(
     ...(before.length ? ['--not', ...before] : []),
     '--',
   ];
-  const r = env && !shallow ? await git(store, args, { gitDir: store, env }) : await git(root, args);
+  if (!env && !shallow)
+    throw new GitError(t().gitFailed('log', "the working repository's objects cannot be read (its alternates file is not a regular file)"));
+  const r = shallow ? await git(root, args) : await git(store, args, { gitDir: store, env });
   const commits = r.stdout
     .split('\n')
     .filter(Boolean)

@@ -257,6 +257,8 @@ import {
   forgetCommits,
   keepCommits,
   repoRoot,
+  trackingReady,
+  warmUp,
   removeWorktree,
   snapshot,
   worktreeChanged,
@@ -1084,6 +1086,8 @@ export class Orchestrator {
    * runs once pinned.
    */
   private folderHolds = new Map<string, number>();
+  /** For each conversation, how many of its working directories are being prepared for change tracking (`warmTracking()`). */
+  private preparingTracking = new Map<string, number>();
   /**
    * Each folder a conversation holds (`holdFolder()`): how many holds it has, and whether the
    * conversation had a lock on it before (left to it once they end). Each folder is let go when its own
@@ -4235,6 +4239,46 @@ export class Orchestrator {
   }
 
   /**
+   * Prepares change tracking ahead of the first turn, in the background: each working directory agents
+   * may write (not in read-only mode, nor Harness Relay's own folder in edit mode) that is a repository
+   * and that Harness Relay has no index of its own of yet gets its first snapshot (`warmUp()`, which
+   * hashes and writes every file once), so that the turns' own snapshots hash only what changed. The
+   * chat says so meanwhile (`preparing` in its status). A folder that is not a repository yet is made one
+   * by its first run, which then takes that snapshot itself (saying so too). Called when the chat is
+   * opened and when its folders change.
+   */
+  warmTracking(conv: Conversation): void {
+    if (this.closing || conv.settings.permission === 'read-only') return;
+    if (relayFolderRefusal(conv.settings, agentFolderOptions(this.settings))) return;
+    const exclude = this.snapshotExcludes();
+    void (async () => {
+      for (const cwd of cwdsOf(conv.settings)) {
+        const root = await repoRoot(cwd).catch(() => null);
+        if (root && !trackingReady(root, exclude)) await this.preparing(conv.id, () => warmUp(root, exclude));
+      }
+    })().catch(() => undefined);
+  }
+
+  /** Runs `work` with the conversation saying it prepares change tracking (`isPreparing()`). */
+  private async preparing<T>(convId: string, work: () => Promise<T>): Promise<T> {
+    this.preparingTracking.set(convId, (this.preparingTracking.get(convId) ?? 0) + 1);
+    this.emitStatus(convId);
+    try {
+      return await work();
+    } finally {
+      const left = (this.preparingTracking.get(convId) ?? 1) - 1;
+      if (left > 0) this.preparingTracking.set(convId, left);
+      else this.preparingTracking.delete(convId);
+      this.emitStatus(convId);
+    }
+  }
+
+  /** Whether one of the conversation's working directories is being prepared for change tracking (its first snapshot). */
+  isPreparing(convId: string): boolean {
+    return this.preparingTracking.has(convId);
+  }
+
+  /**
    * Lock directories for this conversation's writes, all of them or none. Another conversation's lock
    * on one of them, or on one inside or around it (nested repositories), conflicts.
    */
@@ -6803,7 +6847,14 @@ export class Orchestrator {
         // Each repository on its own: one that cannot be snapshotted keeps the others' changes recorded.
         for (const root of roots) {
           try {
-            before.set(root, await snapshot(root, this.snapshotExcludes()));
+            // A first one (no warm-up came before it) hashes and writes every file: the chat says so.
+            const first = !trackingReady(root, this.snapshotExcludes());
+            before.set(
+              root,
+              first
+                ? await this.preparing(conv.id, () => snapshot(root, this.snapshotExcludes()))
+                : await snapshot(root, this.snapshotExcludes()),
+            );
           } catch (err) {
             unrecorded(root, err);
           }
@@ -7580,6 +7631,7 @@ export class Orchestrator {
       activeAgentIds: this.activeAgentIds(id),
       commandRunning: this.commandRunning(id),
       folderHeld: this.folderHeld(id),
+      preparing: this.isPreparing(id),
     });
   }
 }

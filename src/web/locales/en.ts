@@ -440,6 +440,7 @@ export const en: Messages = {
     placeholderBusy: 'Add to the discussion… (delivered before the next turn)',
     placeholderCommand: 'Send once the fixed command ends, or Stop it',
     placeholderHeld: "Send once the command or Files change in this chat's folder ends",
+    preparingTracking: 'Preparing change tracking for this folder (first time only); turns after it start sooner.',
     placeholderSteer: 'Add to the discussion… (goes into the running turn when it can)',
     placeholderAnswer: (names) => `Answer ${names}…`,
     asking: (names) => `Waiting for your answer: ${names}`,

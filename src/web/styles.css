@@ -4295,6 +4295,13 @@ video.chat-media {
   margin: 0 auto 8px;
 }
 
+.composer-dock > .preparing-line {
+  max-width: 840px;
+  margin: 0 auto 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .follow-up-route {
   display: flex;
   align-items: center;

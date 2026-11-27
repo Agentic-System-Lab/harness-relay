@@ -109,6 +109,8 @@ interface State {
   command: boolean;
   /** Something holds the chat's folder while no run goes (a fixed or interactive command, Files deleting): nothing can be sent. */
   held: boolean;
+  /** One of its folders is being prepared for change tracking (its first snapshot): the chat says so. */
+  preparing: boolean;
 }
 
 function upsert(messages: ChatMessage[], m: ChatMessage): ChatMessage[] {
@@ -127,9 +129,17 @@ function reducer(s: State, e: ServerEvent): State {
       active: e.activeAgentIds,
       command: Boolean(e.commandRunning),
       held: Boolean(e.folderHeld),
+      preparing: Boolean(e.preparing),
     };
   if (e.type === 'status')
-    return { ...s, running: e.running, active: e.activeAgentIds, command: Boolean(e.commandRunning), held: Boolean(e.folderHeld) };
+    return {
+      ...s,
+      running: e.running,
+      active: e.activeAgentIds,
+      command: Boolean(e.commandRunning),
+      held: Boolean(e.folderHeld),
+      preparing: Boolean(e.preparing),
+    };
   if (!s.conv) return s;
   switch (e.type) {
     case 'message':
@@ -180,7 +190,7 @@ interface Props {
 
 export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, conversations, pins, onPin, onChanged }: Props) {
   const { t, lang } = useI18n();
-  const [state, dispatch] = useReducer(reducer, { conv: null, running: false, active: [], command: false, held: false });
+  const [state, dispatch] = useReducer(reducer, { conv: null, running: false, active: [], command: false, held: false, preparing: false });
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(false);
   /** The conversation is gone (deleted): stop reconnecting. */
@@ -1204,6 +1214,11 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
               ×
             </button>
           </div>
+        )}
+        {state.preparing && (
+          <p className="preparing-line" role="status">
+            {t.chat.preparingTracking}
+          </p>
         )}
         <QueueTray
           queue={conv.queue ?? []}
