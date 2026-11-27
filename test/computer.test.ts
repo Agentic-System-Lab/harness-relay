@@ -314,7 +314,11 @@ describe('removing Cua’s own Linux runtime', () => {
     const run = async (bin: string, args: string[]) => {
       calls.push([bin, ...args].join(' '));
       if (args[0] === 'ps') return ok(containers);
-      if (args[0] === 'images') return ok('ghcr.io/trycua/linux:24.04\ncua-vmm/helper:1\nubuntu:24.04\n');
+      // Cua pulls its desktop image by digest (no tag); its helper has one.
+      if (args[0] === 'images')
+        return ok(
+          'ghcr.io/trycua/linux\t<none>\tsha256:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c\ncua-vmm/helper\t1\t<none>\nubuntu\t24.04\tsha256:abababababababababababababababababababababababababababababababab\n',
+        );
       return ok();
     };
     expect(await removeCuaRuntime({ home, platform: 'linux', run })).toBe('removed');
@@ -322,7 +326,7 @@ describe('removing Cua’s own Linux runtime', () => {
       expect.stringMatching(/^docker ps -a --filter label=ai\.cua\.managed=true/),
       'docker rm --force cua-runsc-helper',
       expect.stringMatching(/^docker images/),
-      'docker rmi ghcr.io/trycua/linux:24.04',
+      'docker rmi ghcr.io/trycua/linux@sha256:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c',
       'docker rmi cua-vmm/helper:1',
     ]);
     // A sandbox of Cua's still there (another Cua home's): nothing goes.
@@ -333,7 +337,11 @@ describe('removing Cua’s own Linux runtime', () => {
     // An image a container still uses: Docker refuses it, and that is said.
     containers = '';
     const inUse = async (bin: string, args: string[]) =>
-      args[0] === 'images' ? ok('ghcr.io/trycua/linux:24.04\n') : args[0] === 'rmi' ? fail('image is being used by container x') : ok('');
+      args[0] === 'images'
+        ? ok('ghcr.io/trycua/linux\t24.04\t<none>\n')
+        : args[0] === 'rmi'
+          ? fail('image is being used by container x')
+          : ok('');
     await expect(removeCuaRuntime({ home, platform: 'linux', run: inUse })).rejects.toThrow(/being used/);
     // Without Docker (Podman): nothing.
     expect(

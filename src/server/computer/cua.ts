@@ -178,8 +178,9 @@ export async function removeCuaRuntime(
 /**
  * What Cua left in the user's Docker on Linux, once none of Cua's sandboxes is there (of any Cua home: Cua
  * labels its containers `ai.cua.managed`): its helper containers (`ai.cua.kind=helper`, which set up gVisor),
- * then its images (`ghcr.io/trycua/…`, `cua-vmm/helper`), each with a plain `docker rmi`, which Docker refuses
- * for an image a container still uses. Without Docker (Podman), nothing.
+ * then its images (`ghcr.io/trycua/…`, `cua-vmm/helper`; by tag, or by digest where Cua pulled one without a tag),
+ * each with a plain `docker rmi`, which Docker refuses for an image a container still uses. Without Docker
+ * (Podman), nothing.
  */
 async function removeCuaFromDocker(
   run: (bin: string, args: string[], env: NodeJS.ProcessEnv) => Promise<SpawnResult>,
@@ -204,10 +205,14 @@ async function removeCuaFromDocker(
   if (containers.some(([, kind]) => kind !== 'helper')) return 'kept-docker';
   let removed = false;
   for (const [name] of containers) if ((await run('docker', ['rm', '--force', name!], env)).code === 0) removed = true;
-  const images = await run('docker', ['images', '--format', '{{.Repository}}:{{.Tag}}'], env);
+  const images = await run('docker', ['images', '--digests', '--format', '{{.Repository}}\t{{.Tag}}\t{{.Digest}}'], env);
   if (images.code === 0)
-    for (const ref of images.stdout.split('\n').map((l) => l.trim())) {
-      if (!/^(ghcr\.io\/trycua\/[\w./-]+|cua-vmm\/helper):[\w.-]+$/.test(ref)) continue;
+    for (const line of images.stdout.split('\n')) {
+      const [repo = '', tag = '', digest = ''] = line.trim().split('\t');
+      if (!/^(ghcr\.io\/trycua\/[\w./-]+|cua-vmm\/helper)$/.test(repo)) continue;
+      const ref =
+        /^[\w.-]+$/.test(tag) && tag !== '<none>' ? `${repo}:${tag}` : /^sha256:[0-9a-f]{64}$/.test(digest) ? `${repo}@${digest}` : '';
+      if (!ref) continue;
       const r = await run('docker', ['rmi', ref], env);
       if (r.code === 0) removed = true;
       else throw new Error(`Cua's image ${ref} stays in Docker: ${tail(r.stderr || r.stdout, 300)}`);
