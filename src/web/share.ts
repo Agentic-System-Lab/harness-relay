@@ -68,15 +68,12 @@ export const SHARE_DROP = [
   '.head-branch',
 ];
 
-/** What the chat shows between its messages that is no message: a branch's "Continued from" line. */
-export const BETWEEN_MESSAGES = 'branch-divider';
+/** MessageItem's roots. Plans, reviews and checks are system messages rendered as plan cards. */
+const MESSAGE_CLASSES = ['msg-user', 'msg-agent', 'msg-system', 'plan-card'];
 
-/**
- * The chat's message elements, in order (each MessageItem is one element), without what sits between
- * them (`BETWEEN_MESSAGES`): what a shared page takes, one element per message.
- */
+/** Only the messages, in order, even when ChatView puts a preview card or other controls alongside them. */
 export function messageElements<T extends { classList: { contains(name: string): boolean } }>(children: T[]): T[] {
-  return children.filter((el) => !el.classList.contains(BETWEEN_MESSAGES) && !el.classList.contains('question-usage'));
+  return children.filter((el) => MESSAGE_CLASSES.some((name) => el.classList.contains(name)));
 }
 
 /**

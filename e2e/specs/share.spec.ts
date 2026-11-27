@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
-import { devices, type Download, type Page } from '@playwright/test';
+import { devices, type Download, type Locator, type Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import { chooseChatAction, acceptNextDialog, composer, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
 import type { RelayServer } from '../support/relay';
@@ -141,6 +141,43 @@ test.describe('copying a message on iOS', () => {
 });
 
 test.describe('sharing as a secret gist', () => {
+  test('a chat with an app preview card shares the whole conversation or up to an earlier reply', async ({ page, relay }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
+    await send(page, 'Outline the slides');
+    await finishedReply(page, 'Claude');
+    await settled(relay, id);
+    await send(page, 'Build the deck.\n[Slides](slides.html) e2e:write=slides.html');
+    const card = page.getByRole('region', { name: 'The app is ready to preview' });
+    await expect(card).toContainText('slides.html');
+
+    const sharedBody = async (dialog: Locator) => {
+      await dialog.getByRole('button', { name: 'Create link' }).click();
+      const link = dialog.getByRole('textbox', { name: 'Public link' });
+      await expect(link).toHaveValue(VIEWER_LINK);
+      const gist = fakeGist(relay, gistOfLink(await link.inputValue()));
+      const html = readFileSync(join(gist.dir, 'index.html'), 'utf8');
+      return html.slice(html.indexOf('<body'));
+    };
+    const whole = await shareChat(page);
+    const slides = whole.getByRole('checkbox', { name: /slides\.html/ });
+    await expect(slides).toBeChecked();
+    await slides.uncheck();
+    const body = await sharedBody(whole);
+    expect(body).toContain('Outline the slides');
+    expect(body).toContain('Build the deck');
+    expect(body).not.toContain('preview-ready');
+    await whole.getByRole('button', { name: 'Close' }).click();
+
+    const first = replies(page, 'Claude').first();
+    await first.hover();
+    await first.getByRole('button', { name: 'Share', exact: true }).click();
+    const earlier = page.getByRole('dialog', { name: "Share up to @Claude's reply" });
+    const prefix = await sharedBody(earlier);
+    await expect(earlier.getByRole('region', { name: 'Files the replies link to' })).toHaveCount(0);
+    expect(prefix).toContain('Hello from Claude (Claude Code). You said: “Outline the slides”.');
+    expect(prefix).not.toContain('Build the deck');
+  });
+
   test("a shared chat is a secret gist of the page the browser made, opened on Harness Relay's website, listed in Settings until removed", async ({
     page,
     relay,

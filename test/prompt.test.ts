@@ -422,6 +422,10 @@ describe('buildBriefing', () => {
     expect(briefing).toContain('[Preview app](api/Dockerfile)');
     expect(briefing).toContain('[Preview app](compose.yaml)');
     expect(briefing).toContain('[Preview site](site/index.html)');
+    expect(briefing).toContain('web pages and HTML slide decks');
+    expect(briefing).toContain('a browser tool that can resize the viewport');
+    expect(briefing).toContain('320 CSS pixels');
+    expect(briefing).toContain('touch navigation');
     expect(briefing).toContain("Do not start the app's server on the user's computer");
     expect(briefing).toContain('When team checks say the app cannot be previewed, fix that first.');
     expect(briefing).toContain('<preview_console>');

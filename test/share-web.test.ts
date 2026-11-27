@@ -25,7 +25,6 @@ import {
   linkedFileRefs,
   looksSecret,
   nextFileSelection,
-  BETWEEN_MESSAGES,
   messageElements,
   SHARE_CSP,
   SHARE_DROP,
@@ -70,11 +69,20 @@ describe('what a shared page holds', () => {
     expect(messagesUpTo([msg('a'), msg('b')], 'retried')).toBeUndefined();
   });
 
-  it("takes one element per message, without a branch's line between them", () => {
+  it('takes only message elements in conversation order, including system cards', () => {
     const el = (cls: string) => ({ cls, classList: { contains: (name: string) => cls.split(' ').includes(name) } });
-    const items = [el('msg-user'), el('question-usage'), el('msg-agent'), el(BETWEEN_MESSAGES), el('msg-user')];
-    expect(messageElements(items).map((x) => x.cls)).toEqual(['msg-user', 'msg-agent', 'msg-user']);
-    expect(SHARE_DROP).toContain(`.${BETWEEN_MESSAGES}`);
+    const messages = [
+      'msg-user',
+      'msg-system with-card',
+      'plan-card',
+      'msg-agent passed',
+      'plan-card review-card',
+      'plan-card checks-card',
+    ];
+    for (const preview of ['preview-ready', 'preview-ready not-ready']) {
+      const items = [messages[0]!, 'question-usage', ...messages.slice(1, 3), 'branch-divider', ...messages.slice(3), preview];
+      expect(messageElements(items.map(el)).map((x) => x.cls)).toEqual(messages);
+    }
   });
 
   it('waits for a reply still being written', () => {
