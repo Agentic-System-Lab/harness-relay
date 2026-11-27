@@ -33,11 +33,12 @@ export type System = (typeof SYSTEMS)[number];
 
 /**
  * Minutes of test time the whole suite may take on each system, in Chromium (both halves). Set from
- * the runs around the pull request that added this check (2026-11-27): Linux 39.3 to 44.8 before it
- * and 39.6 and 40.2 with it (run 46016782311), macOS 46.7 to 57.1 and 56.0, Windows 94.3 to 126.2 and
- * 81.2; with room for a runner's day (Linux's, the one enforced, about a quarter over its time now).
+ * the runs around the pull request that added this check (2026-11-27): Linux 39.3 to 44.8 before it,
+ * and 39.3 to 44.5 with it (runs 46016782311, 46023478808, 46028020230), macOS 46.7 to 57.1 and 48.8
+ * to 56.0, Windows 81.2 to 126.2; with room for a runner's day (Linux's, the one enforced, about a
+ * quarter over the slowest of those runs).
  */
-export const BUDGET_MINUTES: Record<System, number> = { Linux: 50, macOS: 70, Windows: 130 };
+export const BUDGET_MINUTES: Record<System, number> = { Linux: 56, macOS: 70, Windows: 130 };
 
 /** The systems whose budget fails the check; the others' is reported. */
 export const ENFORCED: readonly System[] = ['Linux'];
@@ -323,15 +324,25 @@ function main(args: string[]): number {
       console.error(USAGE);
       return 2;
     }
-    const names = readdirSync(runs);
-    const jobs = latestJobs(names).flatMap((job) => {
-      const file = join(runs, job.name, RESULTS_FILE);
-      if (!existsSync(file)) return [];
-      return [{ job, ran: testsOf(JSON.parse(readFileSync(file, 'utf8')) as Report) }];
-    });
-    const list = verdicts(jobs, parts);
-    output(budgetAnnotations(list, unknownReports(names)), budgetSummary(list));
-    return fails(list) ? 1 : 0;
+    // Never a stack trace: what went wrong, as the check's own error.
+    try {
+      const names = readdirSync(runs);
+      const missing: string[] = [];
+      const jobs = latestJobs(names).flatMap((job) => {
+        const file = join(runs, job.name, RESULTS_FILE);
+        if (!existsSync(file)) {
+          missing.push(`::warning::${data(`No results in ${job.name} (${RESULTS_FILE}): its half is not counted`)}`);
+          return [];
+        }
+        return [{ job, ran: testsOf(JSON.parse(readFileSync(file, 'utf8')) as Report) }];
+      });
+      const list = verdicts(jobs, parts);
+      output([...missing, ...budgetAnnotations(list, unknownReports(names))], budgetSummary(list));
+      return fails(list) ? 1 : 0;
+    } catch (err) {
+      console.log(`::error::${data(`Could not check the end-to-end tests' time: ${err instanceof Error ? err.message : String(err)}`)}`);
+      return 1;
+    }
   }
   const file = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--system');
   const system = (flag('--system') ?? process.env.RUNNER_OS) as System | undefined;

@@ -1,5 +1,6 @@
 /**
- * One Harness Relay server for one test: `src/server/index.ts` with the built UI, on a free port,
+ * One Harness Relay server for one test: the server bundled before the tests (or its source,
+ * `serverToStart()` in `server-bundle.ts`) with the built UI, on a free port,
  * with everything it keeps in a temporary folder of its own (data, the CLIs' homes, a home folder,
  * the default working directory), the fake CLIs first on its PATH and the OS credential store off.
  * Beside it runs the test's fake model endpoint (`FakeEndpoint`), which is set up as a model backend,

@@ -57,10 +57,12 @@ describe('the server bundled for the end-to-end tests', () => {
         ).toContain(f);
       expect(inputs.some((f) => f.includes('node_modules'))).toBe(false);
       expect(serverBundleCurrent(entry)).toBe(true);
-      // Built again with nothing changed: not written again, only marked as built now.
-      const before = statSync(entry).mtimeMs;
+      // Built again with nothing changed: not written again, only marked as built now (else a file
+      // changed since its last real write would leave it stale for good).
+      const long = new Date(Date.UTC(2020, 0, 1));
+      utimesSync(entry, long, long);
       await buildServerBundle();
-      expect(statSync(entry).mtimeMs).toBeGreaterThanOrEqual(before);
+      expect(statSync(entry).mtimeMs).toBeGreaterThan(long.getTime());
       expect(serverBundleCurrent(entry)).toBe(true);
       // The keyring and sandbox-runtime stay packages, found in the repository's node_modules.
       const server = readFileSync(entry, 'utf8');

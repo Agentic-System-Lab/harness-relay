@@ -304,6 +304,32 @@ describe('the whole suite against its budget', () => {
       expect(unread.stdout).toMatch(/^::warning::Could not read the tests' results/m);
       // Without how many halves there are: refused.
       expect(run('--runs', dir).status).toBe(2);
+      // A half whose report holds no results: said, and not counted (Linux's then fails the check).
+      rmSync(join(dir, 'e2e-report-ubuntu-latest-node24-part1-attempt1', RESULTS_FILE));
+      const missing = run('--runs', dir, '--parts', '2');
+      expect(missing.status).toBe(1);
+      expect(missing.stdout).toMatch(/^::warning::No results in e2e-report-ubuntu-latest-node24-part1-attempt1/m);
+      // A folder it cannot read: the check's own error, not a stack trace.
+      const nowhere = run('--runs', join(dir, 'nowhere'), '--parts', '2');
+      expect(nowhere.status).toBe(1);
+      expect(nowhere.stdout).toMatch(/^::error::Could not check the end-to-end tests' time: /m);
+      // As the workflow runs it: plain node, which strips the types itself (erasable TypeScript only).
+      const plain = spawnSync(
+        process.execPath,
+        [
+          '--experimental-strip-types',
+          'scripts/e2e-budget.ts',
+          join(dir, 'e2e-report-ubuntu-latest-node24-part2-attempt1', RESULTS_FILE),
+          '--system',
+          'Linux',
+        ],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, GITHUB_STEP_SUMMARY: '' },
+        },
+      );
+      expect(plain.status, plain.stderr).toBe(0);
+      expect(plain.stdout).toContain("End-to-end tests' time (Linux, this half)");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
