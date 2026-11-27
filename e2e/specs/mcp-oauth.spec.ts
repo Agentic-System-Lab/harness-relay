@@ -12,7 +12,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { expect, test as base } from '../fixtures';
 import { finishedReply, openTeamChat, openToolCategory, send } from '../support/app';
-import { logged } from '../support/clis';
+import { logged, withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /*
  * A tool library MCP server's own sign-in (MCP's authorization), against a stand-in MCP server and its

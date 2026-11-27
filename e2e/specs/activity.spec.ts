@@ -1,6 +1,9 @@
 import { expect, test } from '../fixtures';
 import { finishedReply, openTeamChat, replies, send } from '../support/app';
-import { basePermission, chatWith, CLIS, eachCli, listToolAt, needsBelowFull, showsTodo } from '../support/clis';
+import { basePermission, chatWith, CLIS, eachCli, listToolAt, needsBelowFull, showsTodo, withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 test.describe('what an agent does on its way to a reply', () => {
   // Each CLI's own tool for the listing (`listTool`), which runs without asking in a read-only chat.

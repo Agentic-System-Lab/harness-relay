@@ -14,6 +14,10 @@ import {
   startChat,
   confirmTeam,
 } from '../support/app';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 test.describe("changing a chat's team", () => {
   test('the lead agent changes the team when asked, and the new member answers once it is saved', async ({ page, relay }) => {

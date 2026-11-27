@@ -24,3 +24,10 @@ export const WEB_DIR = join(ROOT, 'dist', 'web');
 export const DEV_WEB_DIR = join(ROOT, 'dist', 'web-dev');
 /** The server's entry point. */
 export const SERVER_ENTRY = join(ROOT, 'src', 'server', 'index.ts');
+/**
+ * The server bundled for the tests (`support/server-bundle.ts`), two folders below the repository as
+ * `src/server` is, so that it finds the repository (`RELAY_ROOT`) where its source does.
+ */
+export const SERVER_BUNDLE_DIR = join(ROOT, 'dist', 'e2e-server');
+/** The bundled server's entry point, which `global-setup.ts` builds and names in E2E_SERVER_BUNDLE. */
+export const SERVER_BUNDLE_ENTRY = join(SERVER_BUNDLE_DIR, 'server.mjs');

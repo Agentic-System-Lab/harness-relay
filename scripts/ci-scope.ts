@@ -137,8 +137,8 @@ export const IGNORES: Record<Scope, readonly string[]> = {
   ],
   // The end-to-end tests are the server and the UI (src/), the specs and the fake CLIs (e2e/), the
   // website's viewer of shared conversations, which they open shares on (site/share/,
-  // site/assets/share.js), and the check of Harness Relay's own sandbox the workflow runs first
-  // (scripts/sandbox-check.ts).
+  // site/assets/share.js), the check of Harness Relay's own sandbox the workflow runs first
+  // (scripts/sandbox-check.ts), and the check of the tests' time it runs after them (scripts/e2e-budget.ts).
   e2e: [
     ...PROSE,
     'LICENSE',
@@ -163,6 +163,7 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     'vitest.config.ts',
     'scripts/**',
     '!scripts/sandbox-check.ts',
+    '!scripts/e2e-budget.ts',
     '!scripts/oauth-guides.ts',
     '.github/contributors.json',
     '.github/workflows/ci.yml',

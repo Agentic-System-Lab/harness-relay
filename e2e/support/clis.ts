@@ -73,9 +73,9 @@ export function needsSystem(c: CliFacts): void {
 }
 
 /**
- * Installs these CLIs in the test servers of the `test.describe` it is called in, besides Claude Code,
- * Codex and Grok (`DEFAULT_CLIS`): the others are not installed, so the server asks fewer CLIs for their
- * status and models as each page opens.
+ * Installs these CLIs in the test servers of the `test.describe` it is called in (or of the spec, at its
+ * top), besides Claude Code (`DEFAULT_CLIS`): the others are not installed, so the server asks fewer
+ * CLIs for their status and models as each page opens.
  */
 export function withClis(...providers: Provider[]): void {
   test.use({ missingClis: notInstalledBut(providers) });

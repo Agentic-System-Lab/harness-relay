@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   applyPatch,
@@ -25,6 +25,7 @@ import {
   ensureRepo,
   excludePathspecs,
   keepCommits,
+  needsDriverGuards,
   parseDiffFiles,
   removeWorktree,
   repoDriverGuards,
@@ -33,6 +34,7 @@ import {
   unignoredFiles,
   worktreeCwd,
 } from '../src/server/workspace';
+import { recordSpawns } from '../src/server/process';
 import { slow } from './timeouts';
 
 let dir: string;
@@ -331,6 +333,108 @@ describe('diffFiles', () => {
     const files = await diffFiles(repo, base, head);
     expect(files.map((f) => f.path).sort()).toEqual([...names].sort());
     expect(files.every((f) => f.added === 1)).toBe(true);
+  });
+});
+
+describe('the git processes a turn costs', () => {
+  /**
+   * The git processes `run` starts, by their command: the first argument that is not a `-c` setting.
+   * (On a Mac whose git is Apple's, each git command also asks `xcode-select` first: not counted.)
+   */
+  async function gitCommands(run: () => Promise<unknown>): Promise<string[]> {
+    const started: string[] = [];
+    recordSpawns({
+      start: ({ bin, args }) => {
+        if (!/^git(\.exe)?$/i.test(basename(bin))) return undefined;
+        const i = args.findIndex((a, n) => a !== '-c' && args[n - 1] !== '-c');
+        started.push(args[i] ?? '');
+        return undefined;
+      },
+    });
+    try {
+      await run();
+    } finally {
+      recordSpawns(undefined);
+    }
+    return started;
+  }
+
+  // A turn takes a snapshot before and after it and keeps both commits (the orchestrator's
+  // `changesIn`): on Windows each git process costs about half a second, seconds on a busy computer,
+  // so a command more here makes every turn slower. Raise these only for a reason worth it.
+  it('takes a snapshot in seven git processes, the guards read for `git add` and `git write-tree` alone, and keeps its commits in one', async () => {
+    await ensureRepo(repo);
+    expect(await gitCommands(() => snapshot(repo))).toEqual([
+      'rev-parse',
+      'config',
+      'ls-files',
+      'add',
+      'config',
+      'write-tree',
+      'commit-tree',
+    ]);
+    const snap = (await snapshot(repo)).commit;
+    expect(await gitCommands(() => keepCommits(repo, 'conv-1', [snap]))).toEqual(['update-ref']);
+  });
+
+  it('reads the guards for every command but plumbing over objects and refs', () => {
+    for (const args of [
+      ['commit-tree', 'abc', '-p', 'def', '-m', 'x'],
+      ['mktree'],
+      ['update-ref', '--stdin'],
+      ['for-each-ref', '--format=delete %(refname)', 'refs/harness-relay/c/'],
+      ['show-ref', '--head', '--heads'],
+      ['ls-tree', '-r', '-z', '--name-only', '--full-tree', 'abc'],
+      ['rev-parse', '--git-path', 'index', '--verify', '-q', 'HEAD'],
+      ['rev-parse', 'abc^{tree}'],
+      ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'],
+      ['rev-parse', '--git-common-dir'],
+    ])
+      expect(needsDriverGuards(args), args.join(' ')).toBe(false);
+    for (const args of [
+      [],
+      ['add', '-A'],
+      ['diff', 'a', 'b'],
+      ['show', 'abc:README.md'],
+      ['hash-object', '-w', 'README.md'],
+      ['ls-files', '-z'],
+      ['status', '--porcelain'],
+      ['apply', '-'],
+      ['worktree', 'add', 'x'],
+      ['commit', '-m', 'x'],
+      ['init', '-q'],
+      ['config', '--list'],
+      // It hashes a racily clean index entry again, through its path's clean filter.
+      ['write-tree'],
+      // `:<path>` reads the index, `<rev>:<path>` a tree's file.
+      ['rev-parse', ':README.md'],
+      ['rev-parse', '--verify', 'HEAD:README.md'],
+      // `core.worktree` names it: what the guards check is the repository's own folder.
+      ['rev-parse', '--show-toplevel'],
+      ['rev-parse', '--git-path', 'index', '--show-toplevel'],
+      ['rev-parse', '--absolute-git-dir', '--show-toplevel'],
+    ])
+      expect(needsDriverGuards(args), args.join(' ')).toBe(true);
+  });
+
+  it('still refuses a core.worktree elsewhere before git add, and runs no driver in the plumbing that skips the guards', async () => {
+    await ensureRepo(repo);
+    const first = await snapshot(repo);
+    const ran = join(dir, 'ran.txt').replaceAll('\\', '/');
+    const sh = (what: string) => `sh -c 'echo ${what} >> "${ran}"; cat'`;
+    git(repo, 'config', 'filter.evil.clean', sh('clean'));
+    git(repo, 'config', 'filter.evil.smudge', sh('smudge'));
+    git(repo, 'config', 'merge.evil.driver', sh('merge'));
+    writeFileSync(join(repo, '.gitattributes'), '* filter=evil merge=evil\n');
+    writeFileSync(join(repo, 'README.md'), 'changed\n');
+    const second = await snapshot(repo);
+    await keepCommits(repo, 'conv-1', [first.commit, second.commit]);
+    await dropKeptCommits(repo, 'conv-1');
+    expect(existsSync(join(dir, 'ran.txt'))).toBe(false);
+    const outside = join(dir, 'outside');
+    mkdirSync(outside);
+    git(repo, 'config', 'core.worktree', outside);
+    await expect(snapshot(repo)).rejects.toThrow(/core\.worktree/);
   });
 });
 

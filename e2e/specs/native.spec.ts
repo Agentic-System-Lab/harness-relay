@@ -6,6 +6,10 @@ import type { Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, awaitingPlan, finishedReply, openTeamChat, replies, send, settled, startChat } from '../support/app';
 import type { RelayServer } from '../support/relay';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /** A skill the CLI finds by itself: `<dir>/<name>/SKILL.md`, as the real CLIs keep theirs. */
 function writeSkill(dir: string, name: string, description: string): string {

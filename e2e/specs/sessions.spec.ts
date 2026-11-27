@@ -12,6 +12,9 @@ import { chatOf, defaultHome, eachHalf, logged, needsFake, sessionFile, teamOf, 
 import { ROOT } from '../support/paths';
 import type { RelayServer } from '../support/relay';
 
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
+
 /*
  * Settings → Agent sessions. The fakes keep their sessions in their homes (`e2e-sessions/`; an open
  * agent's in its state folder there, `private/<key>/…`), so where a session lands tells which home
@@ -306,7 +309,8 @@ test.describe('AgentsView', () => {
   });
 
   test.describe(() => {
-    withClis('cursor');
+    // Beside Claude Code and Codex (VIEWED[1]), which this file's other tests have too.
+    withClis('cursor', 'codex');
 
     test("a Cursor member's session is the one Harness Relay recorded, sent after the thread and filed under it", async ({
       page,

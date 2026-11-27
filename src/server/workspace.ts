@@ -185,6 +185,35 @@ interface GitOptions {
   keepStart?: boolean;
 }
 
+/**
+ * Plumbing that reads and writes only objects and refs: it never reads the working tree (so never
+ * `core.worktree`) nor the index, and runs no filter, diff or merge driver, the commands
+ * `repoDriverGuards` empties. What else a repository's config could have git run is off for every
+ * command (`CONFIG`: hooks, the reference-transaction hook included, fsmonitor, signing;
+ * `GIT_NO_LAZY_FETCH`: a promisor's fetch). Each guard is a git process of its own, about half a
+ * second on Windows (seconds on a busy one), and a turn takes two snapshots and keeps their commits:
+ * so these skip it. Not `write-tree`: it hashes an index entry that is racily clean again, through
+ * the path's clean filter; nor `hash-object`, which runs it too.
+ */
+const OBJECTS_AND_REFS_ONLY = new Set(['commit-tree', 'mktree', 'update-ref', 'for-each-ref', 'show-ref', 'ls-tree']);
+
+/**
+ * `rev-parse`'s options that name objects, refs or the repository's own files, never the working
+ * tree (`--show-toplevel` reads `core.worktree`, which the guards check is the repository's own folder).
+ */
+const REV_PARSE_PLUMBING = new Set(['--git-path', '--verify', '-q', '--quiet', '--git-common-dir']);
+
+/** Whether a git command needs the repository's drivers emptied first (`repoDriverGuards`): all but the plumbing above. */
+export function needsDriverGuards(args: readonly string[]): boolean {
+  const [command, ...rest] = args;
+  if (command === undefined) return true;
+  if (OBJECTS_AND_REFS_ONLY.has(command)) return false;
+  // `rev-parse --git-path index --verify -q HEAD`: its options from the list, the rest revisions or a
+  // path's name, none with a `:` (`:<path>` reads the index, `<rev>:<path>` a tree's file).
+  if (command === 'rev-parse') return rest.some((a) => (a.startsWith('-') && !REV_PARSE_PLUMBING.has(a)) || a.includes(':'));
+  return true;
+}
+
 async function git(cwd: string, args: string[], o: GitOptions = {}) {
   const env: NodeJS.ProcessEnv = { ...process.env, ...IDENTITY, ...o.env };
   delete env.GIT_DIR; // never inherit a repository from the server's own environment
@@ -194,9 +223,9 @@ async function git(cwd: string, args: string[], o: GitOptions = {}) {
   // names, would be reached through a command it names too (`core.sshCommand`, say).
   env.GIT_NO_LAZY_FETCH = '1';
   // What the repository's own config would have git run is off (`repoDriverGuards`); a diff runs
-  // no external diff or textconv either.
+  // no external diff or textconv either. A command that reads only objects and refs needs no guards.
   const bin = await gitCommand(env);
-  const guards = existsSync(cwd) ? await repoDriverGuards(cwd, env, args[0] === 'add', 0, bin) : [];
+  const guards = existsSync(cwd) && needsDriverGuards(args) ? await repoDriverGuards(cwd, env, args[0] === 'add', 0, bin) : [];
   const safe = args[0] === 'diff' ? ['diff', '--no-ext-diff', '--no-textconv', ...args.slice(1)] : args;
   const r = await captureGit(
     [...CONFIG, ...guards, ...safe],
@@ -303,9 +332,10 @@ export async function snapshot(root: string, exclude: string[] = []): Promise<{ 
   const dir = mkdtempSync(join(tmpdir(), 'relay-index-'));
   const index = join(dir, 'index');
   try {
-    // The index's path and the commit HEAD names, in one git command (each one also reads the
-    // repository's config first, `repoDriverGuards`: on Windows a git process costs about half a
-    // second). A new repository has no commit yet: the path alone, exit code 1.
+    // The index's path and the commit HEAD names, in one git command (on Windows a git process costs
+    // about half a second). `add` and `write-tree` read the repository's config first, for their guards
+    // (`needsDriverGuards`), and `add` its index's submodules: seven processes in all, which
+    // test/workspace.test.ts counts. A new repository has no commit yet: the path alone, exit code 1.
     const where = await git(root, ['rev-parse', '--git-path', 'index', '--verify', '-q', 'HEAD'], { allowFail: true });
     const [indexPath, head] = where.stdout.split('\n').map((line) => line.trim());
     if (!indexPath) throw new GitError(t().gitFailed('rev-parse', tail(where.stderr || where.stdout, 500)));

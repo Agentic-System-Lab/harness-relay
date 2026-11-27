@@ -16,6 +16,10 @@ import {
 } from '../support/app';
 import type { RelayServer } from '../support/relay';
 import { REPO, REPO_URL } from '../../src/web/star';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /** The star's yellow (`--star` in styles.css). */
 const YELLOW = 'rgb(250, 204, 21)';

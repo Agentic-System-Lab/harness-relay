@@ -110,6 +110,8 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 - 把假的 keyring 傳給 `SettingsStore`；
 - 端對端測試（`e2e/`）用 `e2e/fake-cli/` 裡的假 CLI，由訊息中的 `e2e:` 指令操控（見[端對端測試](docs/developer-guide.zh-TW.md#端對端測試)）；情境的每個改變也要寫進 [`e2e/README.zh-TW.md`](e2e/README.zh-TW.md)，兩種語言都要。
 
+端對端測試要保持快，因為每個測試都會啟動自己的伺服器、瀏覽器與 agent：測試的伺服器只裝了 Claude Code，所以只為用到其他 CLI 的測試安裝它（`withClis()`），需要更多時間的測試給它自己的上限（`test.setTimeout()`）。CI 上每個端對端 job 跑完後，`scripts/e2e-budget.ts` 會檢查它們花的時間：超過預算時，Linux 上的 job 會失敗，用掉自己上限 70% 以上的測試也會列為警告。只在說明原因的 commit 裡提高預算（見[它們花的時間](e2e/README.zh-TW.md#它們花的時間)）。
+
 測試在 Windows 上也要通過，CI 也會在那裡跑：用 `join()` 與 `resolve()` 組路徑，不要直接寫成以 `/` 分隔的文字；只有 macOS 或 Linux 才有的東西用 `skipIf(process.platform === 'win32')` 跳過；時間限制取自 `test/timeouts.ts`。詳見[開發者指南](docs/developer-guide.zh-TW.md#測試)。
 
 ## 開 pull request 之前

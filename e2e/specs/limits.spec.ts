@@ -1,5 +1,9 @@
 import { expect, test } from '../fixtures';
 import { chooseChatAction, awaitingPlan, openNewChat, openTeamChat, replies, settled, startChat } from '../support/app';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 test.describe('limits the environment sets', () => {
   test.use({ serverEnv: { RELAY_MAX_TEAM_AGENTS: '2', RELAY_MAX_ACCOUNTS: '2', RELAY_TURN_TIMEOUT_MIN: '90' } });

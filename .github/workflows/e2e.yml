@@ -169,6 +169,12 @@ jobs:
           # all twelve on Linux; on macOS and Windows those Harness Relay runs differently there.
           E2E_SYSTEM_CLIS: ${{ !inputs.every_cli && '1' || '' }}
 
+      # The tests that passed but used most of their own time limit, which a slower runner would see time
+      # out, as warnings, and the slowest (scripts/e2e-budget.ts). It never fails the job: the whole
+      # suite's time is checked against its budget in the last check, once both halves ran.
+      - name: Report the tests' time
+        run: node scripts/e2e-budget.ts test-results/e2e-results.json
+
       # The HTML report, and for a failed test its trace, screenshot, video, server log and the fake
       # CLIs' log: `npx playwright show-report <folder>` or `npx playwright show-trace <trace.zip>`.
       - name: Upload the report
@@ -203,3 +209,24 @@ jobs:
               *) echo "::error::A job of this workflow ended in $result."; exit 1 ;;
             esac
           done
+
+      # The whole suite's time against its budget, for each system and Node.js (both halves, from their
+      # reports): over it, this check fails on Linux, whose runners take about the same time each run,
+      # and it is reported on macOS and Windows (scripts/e2e-budget.ts). Only once the tests ran and passed.
+      - uses: actions/checkout@v7
+        if: needs.e2e.result == 'success'
+
+      - uses: actions/setup-node@v7
+        if: needs.e2e.result == 'success'
+        with:
+          node-version: 24
+
+      - uses: actions/download-artifact@v8
+        if: needs.e2e.result == 'success'
+        with:
+          pattern: e2e-report-*
+          path: ${{ runner.temp }}/e2e-reports
+
+      - name: The tests' time against their budget
+        if: needs.e2e.result == 'success'
+        run: node scripts/e2e-budget.ts --runs "$RUNNER_TEMP/e2e-reports" --parts 2

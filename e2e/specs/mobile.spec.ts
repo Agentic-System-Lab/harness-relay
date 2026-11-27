@@ -6,7 +6,10 @@ import { en } from '../../src/web/locales/en';
 import { zhTW } from '../../src/web/locales/zh-TW';
 import { expect, test } from '../fixtures';
 import { composer, finishedReply, homePage, openTeamChat } from '../support/app';
-import { logged } from '../support/clis';
+import { logged, withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 // A phone's screen, the way the chat is used over Tailscale (docs/remote-access.md).
 const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices['Pixel 7'];

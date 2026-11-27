@@ -7,6 +7,10 @@ import type { Conversation, VoiceStatus } from '../../src/shared/types';
 import { en } from '../../src/web/locales/en';
 import { chooseChatAction, confirmTeam, finishedReply, openTeamChat, send } from '../support/app';
 import { syntheticMicrophone } from '../support/voice';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 test.describe('schedules', () => {
   test("a chat's schedule is saved, and running it once sends its message to the team", async ({ page, relay }) => {

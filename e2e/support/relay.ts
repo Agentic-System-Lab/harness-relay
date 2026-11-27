@@ -150,7 +150,7 @@ export interface StartOptions {
   live?: boolean;
   /**
    * The CLIs not installed in this server: their executable is set to a path that does not exist.
-   * By default all but Claude Code, Codex and Grok (`DEFAULT_CLIS`), and those whose fake is not
+   * By default all but Claude Code (`DEFAULT_CLIS`), and those whose fake is not
    * written yet (`notInstalledBut()`): each CLI installed is asked for its status, models and what it
    * loads by itself whenever a page opens. Not in live runs.
    */
@@ -378,7 +378,12 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   if (process.platform === 'win32') delete env.Path;
 
   let output = '';
-  const child: ChildProcess = spawn(process.execPath, ['--import', 'tsx', SERVER_ENTRY], {
+  // The server bundled before the tests (global-setup.ts, `support/server-bundle.ts`), which starts far
+  // sooner than its source through tsx. From its source when nothing bundled it, and for a test that
+  // preloads a hook into it (`NODE_OPTIONS=--import=…`): a hook may change one of the server's own
+  // modules (`support/catalog-mcp.mjs`, `teams-download-loader.mjs`), which a bundle holds a copy of.
+  const bundled = /--import\b/.test(env.NODE_OPTIONS ?? '') ? undefined : process.env.E2E_SERVER_BUNDLE;
+  const child: ChildProcess = spawn(process.execPath, bundled ? [bundled] : ['--import', 'tsx', SERVER_ENTRY], {
     cwd: ROOT,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],

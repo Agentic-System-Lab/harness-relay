@@ -110,6 +110,8 @@ Add or update tests with every change in behaviour. Tests stay offline: no real 
 - a fake keyring passed to `SettingsStore`;
 - for the end-to-end tests (`e2e/`), the fake CLIs in `e2e/fake-cli/`, which a message steers with `e2e:` directives (see [End-to-end tests](docs/developer-guide.md#end-to-end-tests)); each change to their scenarios also goes into [`e2e/README.md`](e2e/README.md), in both languages.
 
+Keep the end-to-end tests fast, as every test starts a server, a browser and agents of its own: a test server has Claude Code alone installed, so install another CLI only for the tests that use it (`withClis()`), and give a test that needs more time its own limit (`test.setTimeout()`). After each end-to-end job on CI, `scripts/e2e-budget.ts` checks their time: over the budget the job fails on Linux, and tests past 70% of their limit are warned about. Raise the budget only in a commit that says why (see [Their time](e2e/README.md#their-time)).
+
 Tests also have to pass on Windows, where CI runs them too: build paths with `join()` and `resolve()` rather than writing them with `/`, skip what only macOS or Linux have with `skipIf(process.platform === 'win32')`, and take time limits from `test/timeouts.ts`. The [developer guide](docs/developer-guide.md#testing) says more.
 
 ## Before you open a pull request

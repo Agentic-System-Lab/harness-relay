@@ -6,6 +6,10 @@ import { createServer as createTcpServer, type Server as TcpServer } from 'node:
 import type { Locator, Page } from '@playwright/test';
 import type { ConnectorsView, OAuthCalendar, OAuthSignInView, OAuthView } from '../../src/shared/types';
 import { expect, test as base } from '../fixtures';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /*
  * Accounts that sign in with OAuth (Common apps → Mail or Calendar), against a
