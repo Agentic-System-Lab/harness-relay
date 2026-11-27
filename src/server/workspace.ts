@@ -52,9 +52,10 @@ import { DATA_DIR } from './settings';
  * is its files.
  */
 
-// `protocol.allow=never`: these commands never need a remote, so none (ssh, ext::, a lazy fetch of a
-// partial clone's objects) can run a command that a repository's config names, also on a git older
-// than 2.44, which does not know `GIT_NO_LAZY_FETCH`.
+// `protocol.allow=never`, and each protocol by its own name (a repository's own `protocol.file.allow`
+// would win over `protocol.allow`): these commands never need a remote, so none (ssh, ext::, a lazy
+// fetch of a partial clone's objects through a command its config names) can run one, also on a git
+// older than 2.44, which does not know `GIT_NO_LAZY_FETCH`.
 // `core.autocrlf=false`: snapshots, worktrees, diffs and applying keep a file's bytes as they are.
 // Git for Windows turns it on by default (in its system config): a file an agent wrote with LF would
 // come back to the user's folder with CRLF, and the diff viewer would not show a CRLF file's CRs.
@@ -71,6 +72,7 @@ const CONFIG = [
   'core.autocrlf=false',
   '-c',
   'protocol.allow=never',
+  ...['file', 'git', 'ssh', 'http', 'https', 'ftp', 'ftps', 'ext'].flatMap((name) => ['-c', `protocol.${name}.allow=never`]),
   // No signature checked (`git log` would run the `gpg.program` a repository's config names).
   '-c',
   'log.showSignature=false',
@@ -428,20 +430,21 @@ const LEGACY_TRIES = 3;
 /**
  * Copies into Harness Relay's repository, once, the refs an older version kept in the working repository
  * (`LEGACY_REFS`), so that old messages' diffs and the worktrees it made still read: their commits alone
- * (`copyCommits()`, every object named from what it holds). Those it copied are listed in
- * `relay-imported`, so that one dropped since (its conversation deleted) is not copied again; a copy that
- * failed is tried again at the next start, at most `LEGACY_TRIES` times (`relay-import-tries`). True when
- * it copied any.
+ * (`copyCommits()`, every object named from what it holds). Those it copied, or found it cannot, are
+ * listed in `relay-imported`, so that one dropped since (its conversation deleted) is not copied again; a
+ * copy that failed or ran out of time is tried again at the next start, at most `LEGACY_TRIES` times
+ * (`relay-import-tries`). True when it copied any.
  */
 async function importLegacy(root: string, store: string): Promise<boolean> {
-  const listed = await git(root, ['for-each-ref', '--format=%(objecttype) %(objectname) %(refname)', ...LEGACY_REFS], {
+  // Their names and commits alone (`%(objecttype)` would read the objects there).
+  const listed = await git(root, ['for-each-ref', '--format=%(objectname) %(refname)', ...LEGACY_REFS], {
     allowFail: true,
     maxCapture: MAX_OUTPUT_BYTES,
   });
   const theirs = (listed.code === 0 ? listed.stdout.split('\n') : [])
     .map((l) => l.split(' '))
-    .filter((p): p is [string, string, string] => p.length === 3 && p[0] === 'commit')
-    .map(([, sha, ref]) => ({ sha, ref }));
+    .filter((p): p is [string, string] => p.length === 2 && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(p[0]))
+    .map(([sha, ref]) => ({ sha, ref }));
   if (!theirs.length) return false;
   const record = join(store, 'relay-imported');
   const done = new Set((regularFile(record, MAX_OUTPUT_BYTES)?.toString('utf8') ?? '').split('\n'));
@@ -450,66 +453,85 @@ async function importLegacy(root: string, store: string): Promise<boolean> {
   const tries = join(store, 'relay-import-tries');
   const tried = Number(smallFile(tries) ?? 0) || 0;
   if (tried >= LEGACY_TRIES) return false;
-  writeFileSync(tries, String(tried + 1));
   const ours = await git(store, ['for-each-ref', '--format=%(refname)', ...LEGACY_REFS], { gitDir: store, maxCapture: MAX_OUTPUT_BYTES });
   const have = new Set(ours.stdout.split('\n'));
   // A ref of the same name made here since (a worktree's branch carried on) is left as it is.
   const want = fresh.filter((r) => !have.has(r.ref));
-  if (want.length) {
-    if (!(await copyCommits(root, store, [...new Set(want.map((r) => r.sha))]))) return false;
-    await git(store, ['update-ref', '--stdin'], { gitDir: store, stdin: want.map((r) => `create ${r.ref} ${r.sha}\n`).join('') });
+  const whole = want.length ? await copyCommits(root, store, [...new Set(want.map((r) => r.sha))]) : new Set<string>();
+  if (whole === undefined) {
+    writeFileSync(tries, String(tried + 1));
+    return false;
   }
+  const made = want.filter((r) => whole.has(r.sha));
+  if (made.length)
+    await git(store, ['update-ref', '--stdin'], { gitDir: store, stdin: made.map((r) => `create ${r.ref} ${r.sha}\n`).join('') });
   appendFileSync(record, fresh.map((r) => `${r.ref}\n`).join(''));
   rmSync(tries, { force: true });
-  return want.length > 0;
+  return made.length > 0;
 }
+
+/** The largest pack Harness Relay copies the working repository's commits in (held in memory on its way). */
+const COPY_MAX = 1024 * 1024 * 1024;
 
 /**
  * Copies `commits` of the working repository into Harness Relay's, with their trees and files but not
- * the history behind them, by git commands of its own there (`rev-list`, `pack-objects`, with `CONFIG`:
- * never git's `upload-pack`, which would run without it), and `index-pack` here, which works out every
- * object's name from what it holds: one an agent put there under another's name does not come in under
- * that name. Its commits' parents it does not hold (`tidyStore()` marks them shallow). False when it could not.
+ * the history behind them; the set of those now whole here (their parents it does not hold:
+ * `tidyStore()` marks them shallow), or undefined when the copy could not run (out of time, too large).
+ * Every command runs in Harness Relay's repository, reading the working repository's objects as an
+ * alternate (`readingTheirs()`: its config is not read): `rev-list` and `pack-objects --stdout` there,
+ * into `index-pack --stdin`, which names every object from what it holds, so one an agent put there under
+ * another's name does not come in under that name. Nothing is written in the working repository. A batch
+ * that cannot be copied whole is copied a commit at a time, so that one bad commit keeps no other out.
  */
-async function copyCommits(root: string, store: string, commits: string[]): Promise<boolean> {
-  const work = mkdtempSync(join(store, 'relay-copy-'));
-  try {
-    const listed = await git(root, ['rev-list', '--objects', '--no-walk', '--stdin'], {
-      stdin: commits.map((c) => `${c}\n`).join(''),
+async function copyCommits(root: string, store: string, commits: string[]): Promise<Set<string> | undefined> {
+  const env = await readingTheirs(root, store);
+  if (!env) return undefined;
+  const copy = async (batch: string[]): Promise<'whole' | 'not' | 'failed'> => {
+    const stdin = batch.map((c) => `${c}\n`).join('');
+    const listed = await git(store, ['rev-list', '--objects', '--no-walk', '--stdin'], {
+      gitDir: store,
+      env,
+      stdin,
       allowFail: true,
       maxCapture: MAX_OUTPUT_BYTES,
     });
-    if (listed.code !== 0 || listed.stdoutTruncated) return false;
+    if (listed.timedOut || listed.stdoutTruncated) return 'failed';
+    if (listed.code !== 0) return 'not';
     const ids = listed.stdout
       .split('\n')
       .filter(Boolean)
       .map((l) => l.split(' ')[0]!);
-    const packed = await git(root, ['pack-objects', '-q', join(work, 'copy')], {
+    const packed = await git(store, ['pack-objects', '--stdout', '-q'], {
+      gitDir: store,
+      env,
       stdin: ids.map((id) => `${id}\n`).join(''),
       allowFail: true,
+      maxCapture: COPY_MAX,
     });
-    const name = packed.code === 0 ? linesOf(packed.stdout, 1)?.[0] : undefined;
-    if (!name || !/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(name)) return false;
-    // Its index is the working repository's: made again here, from the pack's objects.
-    const pack = join(work, `copy-${name}.pack`);
-    rmSync(join(work, `copy-${name}.idx`), { force: true });
-    const indexed = await git(store, ['index-pack', pack], { gitDir: store, allowFail: true });
-    if (indexed.code !== 0) return false;
-    const into = join(store, 'objects', 'pack');
-    mkdirSync(into, { recursive: true });
-    renameSync(join(work, `copy-${name}.idx`), join(into, `pack-${name}.idx`));
-    renameSync(pack, join(into, `pack-${name}.pack`));
-    // Whole here, each object under its own name: else none of them is taken (nothing refers to them).
+    if (packed.timedOut || packed.stdoutTruncated) return 'failed';
+    if (packed.code !== 0) return 'not';
+    const indexed = await git(store, ['index-pack', '--stdin'], { gitDir: store, stdin: packed.stdoutBytes, allowFail: true });
+    if (indexed.timedOut) return 'failed';
+    // Whole here, each object under its own name.
     const whole = await git(store, ['rev-list', '--objects', '--no-walk', '--stdin'], {
       gitDir: store,
-      stdin: commits.map((c) => `${c}\n`).join(''),
+      stdin,
       allowFail: true,
       maxCapture: MAX_OUTPUT_BYTES,
     });
-    return whole.code === 0;
-  } finally {
-    rmSync(work, { recursive: true, force: true });
+    return whole.code === 0 ? 'whole' : 'not';
+  };
+  const first = await copy(commits);
+  if (first === 'failed') return undefined;
+  if (first === 'whole') return new Set(commits);
+  const each = new Set<string>();
+  if (commits.length === 1) return each;
+  for (const c of commits.slice(0, 500)) {
+    const one = await copy([c]);
+    if (one === 'failed') return undefined;
+    if (one === 'whole') each.add(c);
   }
+  return each;
 }
 
 /** The working repository's objects folder, for each of Harness Relay's repositories (`noteObjects()`): a checkout's own repository reads its history there. */
@@ -520,9 +542,29 @@ function noteObjects(store: string, root: string, common: string): void {
   workObjects.set(store, realOr(join(resolve(root, common), 'objects')));
 }
 
-/** A folder as a line of git's alternates file: quoted as C quotes when it has to be. */
-function alternateEntry(dir: string): string {
-  return /^"|[\n\r]/.test(dir) ? `"${dir.replace(/[\\"]/g, '\\$&').replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"` : dir;
+/**
+ * A folder as an entry of git's alternates: a line of its file (`sep` a line break), or of
+ * `GIT_ALTERNATE_OBJECT_DIRECTORIES` (`sep` the path separator), quoted as C quotes when it has to be.
+ */
+function alternateEntry(dir: string, sep = '\n'): string {
+  return dir.includes(sep) || /^"|[\n\r]/.test(dir)
+    ? `"${dir.replace(/[\\"]/g, '\\$&').replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"`
+    : dir;
+}
+
+/**
+ * The environment of a command of Harness Relay's repository that reads the working repository's
+ * objects too (never one that writes one, which would only touch an object it found there): the
+ * working repository's config is not read at all then, nor anything run that it names.
+ */
+async function readingTheirs(root: string, store: string): Promise<NodeJS.ProcessEnv | undefined> {
+  if (!workObjects.has(store)) {
+    const r = await git(root, ['rev-parse', '--git-common-dir'], { allowFail: true });
+    const common = r.code === 0 ? linesOf(r.stdout, 1)?.[0] : undefined;
+    if (common) noteObjects(store, root, common);
+  }
+  const theirs = workObjects.get(store);
+  return theirs ? { GIT_ALTERNATE_OBJECT_DIRECTORIES: alternateEntry(theirs, process.platform === 'win32' ? ';' : ':') } : undefined;
 }
 
 /**
@@ -649,15 +691,20 @@ async function stageOnce(
   if (drop.size)
     await git(workTree, ['update-index', '-z', '--force-remove', '--stdin'], { ...at, stdin: [...drop].map((p) => `${p}\0`).join('') });
   const kept = entries.filter((e) => !drop.has(e.path));
-  // (One git will not take changes nothing but that file's place in the snapshots.)
-  if (force.length)
-    await git(workTree, ['add', '-f', '--ignore-errors', '--pathspec-from-file=-', '--pathspec-file-nul'], {
+  // Never one in a submodule's folder (git refuses the whole command for it); one git will not take
+  // all the same leaves the others in, added a file at a time then.
+  const modules = kept.filter((e) => e.mode === '160000').map((e) => e.path);
+  const forced = force.filter((p) => !modules.some((m) => p.startsWith(`${m}/`)));
+  const addForced = (paths: string[]) =>
+    git(workTree, ['add', '-f', '--pathspec-from-file=-', '--pathspec-file-nul'], {
       ...at,
       env: { ...at.env, GIT_LITERAL_PATHSPECS: '1' },
-      stdin: force.map((p) => `${p}\0`).join(''),
+      stdin: paths.map((p) => `${p}\0`).join(''),
       entries: kept,
       allowFail: true,
     });
+  if (forced.length && (await addForced(forced)).code !== 0 && forced.length > 1)
+    for (const p of forced.slice(0, 200)) await addForced([p]);
   await git(workTree, s.add, { ...at, entries: kept });
   return out(await git(workTree, ['write-tree'], at));
 }
@@ -793,6 +840,14 @@ async function markShallow(store: string): Promise<void> {
   renameSync(tmp, file);
 }
 
+/** Whether `git()` sets `GIT_NO_LAZY_FETCH` (always but in tests, which see what a git before 2.44 would do without it). */
+let lazyFetchGuard = true;
+
+/** For tests: run without `GIT_NO_LAZY_FETCH`, as a git older than 2.44 does (none: with it again). */
+export function setLazyFetchGuard(on = true): void {
+  lazyFetchGuard = on;
+}
+
 /** The git command `args` run: the first argument that is not a `-c` setting. */
 function commandOf(args: string[]): string {
   let i = 0;
@@ -801,7 +856,7 @@ function commandOf(args: string[]): string {
 }
 
 /** Commands that may take long on a large folder (hashing every file, the first time). */
-const LONG_COMMANDS = new Set(['add', 'read-tree', 'write-tree', 'update-index', 'fetch', 'gc']);
+const LONG_COMMANDS = new Set(['add', 'read-tree', 'write-tree', 'update-index', 'rev-list', 'pack-objects', 'index-pack', 'gc']);
 
 async function git(cwd: string, args: string[], o: GitOptions = {}) {
   // Never a repository from the server's own environment: the one named here, or the one found from `cwd`.
@@ -821,7 +876,7 @@ async function git(cwd: string, args: string[], o: GitOptions = {}) {
   if (o.workTree) env.GIT_WORK_TREE = o.workTree;
   // Never fetch an object that is missing: a partial clone's remote, which the repository's config
   // names, would be reached through a command it names too (`core.sshCommand`, say).
-  env.GIT_NO_LAZY_FETCH = '1';
+  if (lazyFetchGuard) env.GIT_NO_LAZY_FETCH = '1';
   // Nor rewrite an index it only reads (`git status` refreshes one when it can), nor read a commit as
   // another one its replace refs name.
   env.GIT_OPTIONAL_LOCKS = '0';
@@ -1065,6 +1120,8 @@ export async function forgetCommits(root: string, convId: string, commits: strin
   const unique = [...new Set(commits)];
   if (!unique.length || !existsSync(root)) return;
   const store = await storeOf(root);
+  // After the copy of what an older version kept, which would bring them back.
+  await legacy.get(store);
   const stdin = unique.map((c) => `delete ${refDir(convId)}/${c}\n`).join('');
   await inStore(root, ['update-ref', '--stdin'], { stdin, allowFail: true });
 }
@@ -1073,6 +1130,8 @@ export async function forgetCommits(root: string, convId: string, commits: strin
 export async function dropKeptCommits(root: string, convId: string): Promise<void> {
   if (!existsSync(root)) return;
   const store = await storeOf(root);
+  // After the copy of what an older version kept, which would bring them back.
+  await legacy.get(store);
   const r = await git(store, ['for-each-ref', '--format=delete %(refname)', `${refDir(convId)}/`], {
     gitDir: store,
     allowFail: true,
@@ -1129,16 +1188,24 @@ export async function commitsSince(
 ): Promise<{ commits: MadeCommit[]; more: boolean }> {
   const now = await branchTips(root);
   if (!now.length) return { commits: [], more: false };
-  const r = await git(root, [
-    'log',
-    '--no-merges',
-    '--format=%H%x00%ct%x00%s',
-    `--since=${Math.floor(since / 1000)}`,
-    `--max-count=${limit + 1}`,
-    ...now,
-    ...(before.length ? ['--not', ...before] : []),
-    '--',
-  ]);
+  // Read in Harness Relay's repository, the working repository's objects as an alternate: its config,
+  // which an agent can write, is not read (`readingTheirs()`).
+  const store = await storeOf(root);
+  const env = await readingTheirs(root, store);
+  const r = await git(
+    store,
+    [
+      'log',
+      '--no-merges',
+      '--format=%H%x00%ct%x00%s',
+      `--since=${Math.floor(since / 1000)}`,
+      `--max-count=${limit + 1}`,
+      ...now,
+      ...(before.length ? ['--not', ...before] : []),
+      '--',
+    ],
+    { gitDir: store, env },
+  );
   const commits = r.stdout
     .split('\n')
     .filter(Boolean)
@@ -1311,11 +1378,12 @@ export async function repoGitState(
  */
 export async function committedBase(root: string): Promise<string> {
   const store = await storeOf(root);
-  const head = await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], { allowFail: true });
+  // The commit HEAD names (`^{commit}` would read it there).
+  const head = await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD'], { allowFail: true });
   const sha = head.code === 0 ? out(head) : '';
-  if (sha && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha)) {
-    const there = async () => (await git(store, ['cat-file', '-e', `${sha}^{commit}`], { gitDir: store, allowFail: true })).code === 0;
-    if ((await there()) || ((await copyCommits(root, store, [sha])) && (await there()))) return sha;
+  if (/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha)) {
+    const there = async () => (await git(store, ['cat-file', '-t', sha], { gitDir: store, allowFail: true })).stdout.trim() === 'commit';
+    if ((await there()) || ((await copyCommits(root, store, [sha]))?.has(sha) && (await there()))) return sha;
   }
   return out(await git(store, ['mktree'], { gitDir: store, stdin: '' }));
 }
@@ -1410,6 +1478,8 @@ export async function removeWorktree(root: string, path: string, branch?: string
     rmSync(index, { force: true });
     // (Deleting one that is not there, a check tree's, is fine; a packed one is deleted too.)
     const gone = [...(branch ? [`refs/heads/${branch}`] : []), `refs/relay/index/${basename(index)}`];
+    // After the copy of what an older version kept, which would bring its branch back.
+    if (existsSync(join(repoStore(root), 'HEAD'))) await legacy.get(await storeOf(root));
     if (existsSync(join(repoStore(root), 'HEAD')))
       await inStore(root, ['update-ref', '--stdin'], { stdin: gone.map((ref) => `delete ${ref}\n`).join(''), allowFail: true });
   } finally {
