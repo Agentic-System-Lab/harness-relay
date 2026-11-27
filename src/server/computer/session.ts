@@ -41,6 +41,7 @@ import { currentLang, t, withLang } from '../i18n';
 import { cuaFailure, cuaLogLine, DESKTOP_IMAGE, desktopImage, lastJson, PULL_LOG, PullProgress, type CuaRunner } from './cua';
 import { CUA_VERSION, type findCua } from './install';
 import type { McpToolResult } from './mcp';
+import { cuaViewerTicket, ViewerProxy, type CuaViewerTicket } from './viewer';
 
 /*
  * The chats' computers: a Cua sandbox (a Linux desktop in a container or Cua's own VM) for each working
@@ -55,7 +56,8 @@ import type { McpToolResult } from './mcp';
  * until they hand it back. An agent that has not looked since the user had it is refused input until it takes
  * a screenshot, which shows it what changed. An agent may ask the user to take over (`computer_hand_over`):
  * its call waits on a hand-over ticket of the browser's kind (`Handovers`), whose card the user takes control
- * from, and hears only how it ended.
+ * from, and hears only how it ended. Cua's own viewer of it opens through a proxy of Harness Relay's (`viewer.ts`),
+ * which takes input only while the user has control.
  */
 
 /** What a computer's calls go through: `cua mcp`'s tools (a stand-in in the tests). */
@@ -222,6 +224,8 @@ class Computer {
   gone = false;
   /** Stops its start when it is deleted. */
   abort = new AbortController();
+  /** Cua's viewer of it, through Harness Relay's proxy, while it is on (`viewerLink()`). */
+  viewer?: ViewerProxy;
   constructor(
     /** Its working directory's key (`folderKey()`), or a conversation's own when it has none. */
     readonly key: string,
@@ -315,8 +319,9 @@ export class ComputerService {
     for (const w of c.watchers.keys()) w(e);
   }
 
-  /** Tells each panel watching it its state, in that panel's language. */
+  /** Tells each panel watching it its state, in that panel's language, and its viewer who has control. */
   private changed(c: Computer): void {
+    this.followViewer(c);
     for (const [w, lang] of c.watchers) w({ type: 'state', view: withLang(lang, () => this.viewOf(c)) });
   }
 
@@ -863,23 +868,58 @@ export class ComputerService {
   }
 
   /**
-   * A link to Cua's own viewer of the computer (for a browser on this computer: its address is a local
-   * port), good for 30 minutes, to watch only: Cua cannot take a link back, so one with input would go on
-   * typing into the computer after the user handed it back. The user's input goes through the panel.
+   * A link to Cua's own viewer of the computer, for a browser on this computer (its address is a local port):
+   * through Harness Relay's proxy (`ViewerProxy`), one for each computer while it is on, which holds Cua's
+   * tickets and gives the page the powers of who has control (input while the user has it, else watch only),
+   * changing them with it; Cua cannot take a ticket back, so the page never gets one.
    */
-  async viewerLink(convId: string): Promise<{ url: string; viewOnly: boolean; expiresAt?: number }> {
+  async viewerLink(convId: string): Promise<{ url: string; viewOnly: boolean }> {
     const c = this.find(convId);
     if (!c || c.status !== 'ready') throw new HttpError(409, t().computer.notOn);
-    const viewOnly = true;
-    const r = await this.deps.run(['--json', 'sb', 'view', c.ref, '--no-open', '--ttl', '30m', '--files', 'none', '--view-only'], {
-      timeoutMs: 60_000,
-    });
+    const made = !c.viewer;
+    const viewer = (c.viewer ??= new ViewerProxy({
+      mint: (input) => this.viewerTicket(c, input),
+      input: () => c.control === 'user' && c.status === 'ready',
+      used: () => {
+        c.lastUsed = this.now();
+      },
+      now: this.now,
+    }));
+    let url: string;
+    try {
+      url = await viewer.ready();
+    } catch (err) {
+      if (made && c.viewer === viewer) {
+        viewer.close();
+        c.viewer = undefined;
+      }
+      throw err;
+    }
+    // The computer stopped meanwhile: its viewer is closed.
+    if (viewer.closed) throw new HttpError(409, t().computer.notOn);
+    return { url, viewOnly: c.control !== 'user' };
+  }
+
+  /** A ticket of Cua's viewer, for the proxy only: with input or to watch, good 30 minutes, no files. */
+  private async viewerTicket(c: Computer, input: boolean): Promise<CuaViewerTicket> {
+    const r = await this.deps.run(
+      ['--json', 'sb', 'view', c.ref, '--no-open', '--ttl', '30m', '--files', 'none', ...(input ? [] : ['--view-only'])],
+      { timeoutMs: 60_000 },
+    );
     const link = lastJson(r.stdout) as { url?: unknown; expires_at_unix?: unknown } | undefined;
-    const url = typeof link?.url === 'string' ? link.url : '';
     // Only a page of the computer's own, on this computer.
-    if (r.code !== 0 || !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d+\/viewer\//.test(url))
-      throw new HttpError(502, cuaFailure(r, t().computer.stepView));
-    return { url, viewOnly, ...(typeof link?.expires_at_unix === 'number' ? { expiresAt: link.expires_at_unix * 1000 } : {}) };
+    const ticket = r.code === 0 ? cuaViewerTicket(link?.url, link?.expires_at_unix) : undefined;
+    if (!ticket) throw new HttpError(502, cuaFailure(r, t().computer.stepView));
+    return ticket;
+  }
+
+  /** The viewer of a computer that stopped is closed; one of a computer on takes who has control now. */
+  private followViewer(c: Computer): void {
+    if (!c.viewer) return;
+    if (c.status !== 'ready' || c.gone) {
+      c.viewer.close();
+      c.viewer = undefined;
+    } else c.viewer.sync();
   }
 
   /**
@@ -1178,6 +1218,8 @@ export class ComputerService {
         c.handover?.ticket.wake({ action: 'turn' });
         c.mcp?.close();
         c.mcp = undefined;
+        c.viewer?.close();
+        c.viewer = undefined;
         if (c.frameTimer) clearTimeout(c.frameTimer);
       }
       if (this.deps.available()) {
@@ -1359,6 +1401,8 @@ export class ComputerService {
       c.handover?.ticket.wake({ action: 'turn' });
       c.mcp?.close();
       c.mcp = undefined;
+      c.viewer?.close();
+      c.viewer = undefined;
     }
     await Promise.allSettled([...on.map((c) => this.deps.run(['sb', 'suspend', c.ref], { timeoutMs: 30_000 })), this.imageJob?.ended]);
   }

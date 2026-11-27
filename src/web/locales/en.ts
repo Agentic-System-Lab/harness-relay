@@ -1455,7 +1455,7 @@ export const en: Messages = {
     notePlaceholder: 'A note for the agent (optional)',
     viewer: "Open in Cua's viewer",
     viewerHint:
-      "Opens Cua's own viewer in a new tab, with smoother video; only on the computer Harness Relay runs on. Watch only, unless you have control.",
+      "Opens Cua's own viewer in a new tab, with smoother video; only on the computer Harness Relay runs on. It follows who has control: once you take control you can use it there, and once you hand it back it is watch-only again (the tab reloads by itself).",
     screen: "The computer's screen",
     screenControl: "The computer's screen: your clicks, drags, scrolling and keys go to it",
     typeHere: 'Type here to send it to the computer',

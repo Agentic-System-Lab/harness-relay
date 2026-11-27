@@ -50,10 +50,12 @@ import {
   type ComputerMcp,
 } from '../src/server/computer/session';
 import { computerTools, keysOf } from '../src/server/computer/tools';
+import { mediaPaths } from '../src/server/computer/viewer';
 import type { GatewayContext } from '../src/server/gateway';
 import { withLang } from '../src/server/i18n';
 import type { SpawnResult } from '../src/server/process';
 import { cuaHomeDir } from '../src/server/protect';
+import { FakeCua, frame, openStream, send } from './fake-cua-viewer';
 import { slow } from './timeouts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-computer-')));
@@ -110,6 +112,8 @@ function setup(
     before?: (args: string[]) => Promise<void> | undefined;
     /** Told of each `sb cp`, before the fake copies. */
     cp?: (args: string[]) => void;
+    /** The origin of Cua's viewer its links name (a stand-in's: `test/fake-cua-viewer.ts`). */
+    viewer?: string;
     /** Where the desktop image is recorded as downloaded (a file of this setup's own by default). */
     imageRecord?: string;
   } = {},
@@ -137,7 +141,13 @@ function setup(
         );
       // A copy out of the computer writes the local file, as cua does.
       if (args[1] === 'cp' && args[2]!.startsWith('local:')) writeFileSync(args[3]!, 'from the computer');
-      if (args.includes('view')) return ok(JSON.stringify({ url: 'http://127.0.0.1:41234/viewer/#ticket=abc', expires_at_unix: 2000 }));
+      if (args.includes('view'))
+        return ok(
+          JSON.stringify({
+            url: `${o.viewer ?? 'http://127.0.0.1:41234'}/viewer/#ticket=cua-${args.includes('--view-only') ? 'watch' : 'input'}-1`,
+            expires_at_unix: now / 1000 + 1800,
+          }),
+        );
       if (args.includes('doctor'))
         return ok(JSON.stringify({ backends: [{ backend: 'container', ready: true, detail: 'Docker Engine', missing: [] }] }));
       return ok();
@@ -1041,21 +1051,73 @@ describe('the chat’s computer', () => {
     await service.shutdown();
   });
 
-  it('gives a link to Cua’s viewer of a computer that is on, to watch only: even while the user has control', async () => {
+  it('gives a link to Cua’s viewer through its proxy, whose powers follow control, closed when the computer stops', async () => {
     const { service, runs } = setup();
     await expect(service.viewerLink('c1')).rejects.toThrow();
     await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
-    expect(await service.viewerLink('c1')).toMatchObject({
-      url: 'http://127.0.0.1:41234/viewer/#ticket=abc',
-      viewOnly: true,
-      expiresAt: 2_000_000,
-    });
-    expect(runs.at(-1)).toContain('--view-only');
-    // Cua cannot take a link back: one with input would go on after the user handed the computer back.
+    const views = () => runs.filter((r) => r.includes('view'));
+    const watching = await service.viewerLink('c1');
+    // The proxy's page and token, never Cua's ticket (`cua-watch-1`).
+    expect(watching).toEqual({ url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/viewer\/#ticket=[\w-]{40,}$/), viewOnly: true });
+    expect(watching.url).not.toContain('cua-');
+    expect(views()).toEqual([['--json', 'sb', 'view', `local:${NAME}`, '--no-open', '--ttl', '30m', '--files', 'none', '--view-only']]);
+    const state = async (url: string) => (await fetch(new URL('/viewer/relay-state', url))).json();
+    expect(await state(watching.url)).toEqual({ mode: 'watch' });
+
+    // The user takes control: the same proxy, now with input (Cua's ticket with input made for it).
     service.takeControl('c1');
-    expect(await service.viewerLink('c1')).toMatchObject({ viewOnly: true });
-    expect(runs.at(-1)).toContain('--view-only');
+    expect(await state(watching.url)).toEqual({ mode: 'input' });
+    const using = await service.viewerLink('c1');
+    expect(using).toEqual({ url: watching.url, viewOnly: false });
+    expect(views().at(-1)).not.toContain('--view-only');
+    service.handBack('c1');
+    expect(await state(watching.url)).toEqual({ mode: 'watch' });
+
+    // Turned off: the proxy closes with it, and the next link is another's.
+    await service.turnOff('c1');
+    await expect(fetch(new URL('/viewer/relay-state', watching.url))).rejects.toThrow();
+    await expect(service.viewerLink('c1')).rejects.toThrow();
+    await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
+    const again = await service.viewerLink('c1');
+    expect(again.url).not.toBe(watching.url);
     await service.shutdown();
+    await expect(fetch(new URL('/viewer/relay-state', again.url))).rejects.toThrow();
+  });
+
+  it('counts a viewer with input as using the computer, never one that watches', async () => {
+    const cua = await FakeCua.start();
+    const { service, advance } = setup({ viewer: cua.origin });
+    try {
+      await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
+      service.takeControl('c1');
+      const { url } = await service.viewerLink('c1');
+      const origin = new URL(url).origin;
+      const token = new URLSearchParams(new URL(url).hash.slice(1)).get('ticket')!;
+      const media = await send(origin, 'POST', '/cua.env.v1.StreamService/OpenMedia', {
+        origin,
+        'x-cua-env-authorization': `Bearer ${token}`,
+      });
+      const path = mediaPaths(media.body)[0]!;
+      expect(path).toMatch(/input/);
+      const stream = await openStream(origin, path);
+      // The user types in the viewer (nothing in the panel): the computer is in use, past its idle time.
+      advance(50_000);
+      stream.socket!.write(frame('typing'));
+      await vi.waitFor(() => expect(cua.received).toContainEqual({ path, text: 'typing' }));
+      advance(50_000);
+      await service.suspendIdle();
+      expect(service.view('c1').status).toBe('ready');
+      // Handed back: the stream ends, and a viewer left watching keeps nothing awake; suspended, its proxy closes.
+      service.handBack('c1');
+      await stream.ended;
+      advance(61_000);
+      await service.suspendIdle();
+      expect(service.view('c1').status).toBe('off');
+      await expect(fetch(new URL('/viewer/relay-state', url))).rejects.toThrow();
+    } finally {
+      await service.shutdown();
+      cua.close();
+    }
   });
 
   it('refuses to start when Cua is not installed', async () => {
