@@ -10,7 +10,8 @@ import type { RelayServer } from '../support/relay';
  * The chat's computer (Cua): Settings' Computer row, an agent's screenshot of it (Claude Code's fake,
  * `e2e:mcp`), its panel beside the chat (the screen, taking control, the user's clicks and keys, handing it
  * back), an agent refused while the user has it, the agent's hand-over through its card, and deleting it;
- * Settings' download of the desktop image, with its progress.
+ * Settings' download of the desktop image, with its progress; Cua's own viewer through Harness Relay's proxy,
+ * its powers following control.
  * The fake Cua CLI (`e2e/fake-cli/fake-cua.cjs`) stands in for cua and its computer: it is linked into the
  * server's own Cua folder, as Settings' install puts it there; each of its starts and tool calls is in the
  * fake log. Installing Cua itself downloads from GitHub, which these tests never do: test/computer.test.ts
@@ -223,6 +224,87 @@ test.describe('the chat’s computer', () => {
     await row.locator('summary').first().click();
     await expect(image).toContainText('The desktop image is downloaded');
     await expect(image.getByRole('button')).toHaveCount(0);
+  });
+
+  test('Cua’s viewer opens through Harness Relay’s proxy, and takes input only while the user has control', async ({
+    page,
+    relay,
+    fakeBinDir,
+  }) => {
+    installFakeCua(relay, fakeBinDir);
+    await relay.api('/api/tools', { method: 'PUT', body: { relayTools: { computer: ['claude'] } } });
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'full' }, 'Viewer');
+    await send(page, 'Look at the computer {} e2e:mcp=computer_screenshot');
+    await finishedReply(page, 'Claude', 60_000);
+    const panel = await openComputer(page);
+    await expect(panel.locator('.computer-status')).toHaveText('On');
+
+    // What reached the fake computer's viewer: each call with the kind of Cua ticket it came with, each key
+    // with its stream's.
+    const viewerLog = () =>
+      relay.fakeLog().filter((e) => (e as { cli?: string }).cli === 'cua' && 'viewer' in e) as unknown as {
+        viewer: 'page' | 'call' | 'input';
+        call?: string;
+        text?: string;
+        ticket?: string;
+        cookie?: boolean;
+      }[];
+    const keys = () =>
+      viewerLog()
+        .filter((e) => e.viewer === 'input')
+        .map((e) => `${e.text} (${e.ticket})`);
+
+    // Another app's cookie on 127.0.0.1 (cookies are per host, not per port): the browser sends it to the proxy.
+    await page.context().addCookies([{ name: 'elsewhere', value: 'x', domain: '127.0.0.1', path: '/' }]);
+    const opened = page.waitForEvent('popup');
+    await panel.getByRole('button', { name: "Open in Cua's viewer", exact: true }).click();
+    const viewer = await opened;
+    // Harness Relay's proxy on a port of its own: the page holds its token, never one of Cua's tickets.
+    expect(new URL(viewer.url()).hostname).toBe('127.0.0.1');
+    expect(new URL(viewer.url()).port).not.toBe(new URL(relay.base).port);
+    await expect(viewer.locator('#status')).toHaveText('streaming watch');
+    expect(viewer.url()).not.toContain('e2e-');
+    expect(JSON.stringify(await viewer.evaluate(() => ({ ...sessionStorage })))).not.toContain('e2e-');
+    // Watching, the clipboard off; a key goes only on a stream whose ticket watches (Cua drops it).
+    await expect(viewer).toHaveTitle('Cua viewer, clipboard 0');
+    await viewer.keyboard.press('a');
+    await expect.poll(keys).toEqual(['key:a (watch)']);
+
+    // The user takes control in the panel: the viewer reloads by itself, with input and the clipboard.
+    await panel.getByRole('button', { name: 'Take control', exact: true }).click();
+    await expect(viewer.locator('#status')).toHaveText('streaming input', { timeout: 15_000 });
+    await expect(viewer).toHaveTitle('Cua viewer, clipboard view');
+    await viewer.keyboard.press('b');
+    await expect.poll(keys).toEqual(['key:a (watch)', 'key:b (input)']);
+
+    // Handed back: watching again; nothing goes on a stream with input any more.
+    await panel.getByRole('button', { name: 'Hand back to the agents', exact: true }).click();
+    await expect(viewer.locator('#status')).toHaveText('streaming watch', { timeout: 15_000 });
+    // Reloaded by itself (its title is set as it loads): the clipboard off again.
+    await expect(viewer).toHaveTitle('Cua viewer, clipboard 0', { timeout: 15_000 });
+    await viewer.keyboard.press('c');
+    await expect.poll(keys).toEqual(['key:a (watch)', 'key:b (input)', 'key:c (watch)']);
+
+    // Every call came with one of Cua's tickets (the proxy's, never the page's token), and the browser's cookie
+    // went no further than the proxy.
+    const calls = viewerLog().filter((e) => e.viewer !== 'input');
+    expect(calls.filter((e) => e.viewer === 'call').every((e) => e.ticket === 'watch' || e.ticket === 'input')).toBe(true);
+    // The page loaded three times (opened, then reloaded twice), each without the cookie.
+    await expect.poll(() => viewerLog().filter((e) => e.viewer === 'page').length).toBeGreaterThanOrEqual(3);
+    expect(viewerLog().some((e) => e.cookie)).toBe(false);
+
+    // Turned off: the viewer's address answers nothing more.
+    const address = viewer.url();
+    await panel.getByRole('button', { name: 'Turn off', exact: true }).click();
+    await expect(panel.locator('.computer-status')).toHaveText('Off');
+    await expect
+      .poll(() =>
+        fetch(address).then(
+          () => 'answered',
+          () => 'closed',
+        ),
+      )
+      .toBe('closed');
   });
 
   test('without Cua, Settings offers to install it and the panel says it is missing', async ({ page, relay }) => {

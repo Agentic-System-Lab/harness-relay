@@ -3089,7 +3089,7 @@ export function createApp({
   });
 
   // A link to Cua's own viewer of the computer (smoother video, the clipboard), for a browser on this
-  // computer: to watch only, unless the user has control.
+  // computer, through Harness Relay's proxy: it takes input only while the user has control.
   app.post('/api/conversations/:id/computer/viewer', async (c) => {
     const conv = getConv(c.req.param('id'));
     return c.json(await computer.viewerLink(conv.id));

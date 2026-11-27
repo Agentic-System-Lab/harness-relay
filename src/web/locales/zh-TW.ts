@@ -1472,7 +1472,8 @@ export const zhTW = {
     handBack: '交還給 agent',
     notePlaceholder: '給 agent 的話（選填）',
     viewer: '用 Cua 檢視器開啟',
-    viewerHint: '在新分頁開啟 Cua 自己的檢視器，畫面更流暢，只能在執行 Harness Relay 的這台電腦上開。你沒接手時只能看。',
+    viewerHint:
+      '在新分頁開啟 Cua 自己的檢視器，畫面更流暢，只能在執行 Harness Relay 的這台電腦上開。它跟著誰在操作：你接手後可以直接在裡面操作，交還給 agent 後又只能看（分頁會自己重新載入）。',
     screen: '電腦畫面',
     screenControl: '電腦畫面：點擊、拖曳、捲動或打字都會傳給它',
     typeHere: '在這裡打字，送到電腦',

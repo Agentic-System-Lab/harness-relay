@@ -13,7 +13,8 @@
  *   `$CUA_HOME/fake-cua/<name>.json`; `info` of one it does not have fails, as cua does;
  * - `--json sb create linux --name <name> --wait desktop [--runtime runc]`: makes one, running;
  * - `sb suspend|resume|restart|rm <ref> [--force]`: changes or deletes it;
- * - `--json sb view <ref> --no-open …`: a viewer link on a local port, view-only when asked;
+ * - `--json sb view <ref> --no-open …`: a link to its viewer (below), its ticket with input or, with
+ *   `--view-only`, to watch only;
  * - `sb cp <src> <dst>`: a copy into the sandbox is noted; one out of it writes `from the fake computer`;
  * - `--json cache prune --all` (Settings' Remove Cua): nothing to remove;
  * - `--json images info linux`: the desktop image's catalog entry (its reference, what a pull downloads);
@@ -25,7 +26,8 @@
  *   `cache prune` clears it;
  * - `mcp --sandbox <ref> --permissions computer:all`: an MCP server over stdio with the computer tools.
  *   Its screenshot is a real PNG, 1200 by 750, whose colour changes with each input, so a frame shows
- *   what was done; each tool call goes to the log.
+ *   what was done; each tool call goes to the log. Beside it, as cua-spacesd serves one, the computer's
+ *   viewer on a loopback port of its own (`viewer()`), which `sb view` links to.
  * Each start and each tool call goes to the test's fake log (`cli: 'cua'`), for the tests to read.
  */
 const fs = require('node:fs');
@@ -41,6 +43,8 @@ const HOME = process.env.CUA_HOME;
 // `--version` (Harness Relay's check that it is cua) runs without it: nothing is kept then.
 const LOG = process.env.E2E_FAKE_LOG || (HOME ? path.join(HOME, '..', '..', 'fake-cli.jsonl') : undefined);
 const STATE = HOME ? path.join(HOME, 'fake-cua') : undefined;
+/** Where each computer's viewer says its port (`<name>.port`): apart from its sandboxes, which `sb ls` reads. */
+const VIEWERS = HOME ? path.join(HOME, 'fake-cua-viewers') : undefined;
 const args = process.argv.slice(2);
 
 function log(entry) {
@@ -169,9 +173,117 @@ const COLOURS = [
   [110, 40, 120],
 ];
 
-/** `cua mcp`: newline-delimited JSON-RPC on stdio, the computer tools. */
+/*
+ * The computer's viewer, as cua-spacesd serves Cua's: its page (whose policy runs only its own origin's
+ * scripts), which keeps the link's ticket in its storage and takes it out of the address, its gRPC-web calls
+ * with the ticket in `x-cua-env-authorization`, OpenMedia's answer with the stream's address as a protobuf
+ * string, and the stream (`rcdp.v2`), whose first message says whether its ticket takes input. The page sends
+ * each key pressed on its stream, whatever its ticket (Cua would drop a watcher's); the viewer logs each call
+ * with the kind of ticket it came with, and each key with its stream's: the tests see what reached it.
+ */
+const VIEWER_PAGE =
+  '<!doctype html>\n<html lang="en">\n<head>\n<title>Cua viewer</title>\n<script type="module" src="./viewer.js"></script>\n</head>\n<body><p id="status">connecting</p></body>\n</html>\n';
+const VIEWER_SCRIPT = `const key = 'cua.viewer.ticket:' + location.origin + '/';
+const hash = new URLSearchParams(location.hash.slice(1));
+let ticket = hash.get('ticket');
+if (ticket) {
+  sessionStorage.setItem(key, ticket);
+  hash.delete('ticket');
+  history.replaceState(null, '', location.pathname + '#' + hash);
+} else ticket = sessionStorage.getItem(key);
+document.title = 'Cua viewer, clipboard ' + hash.get('clipboard');
+const status = document.getElementById('status');
+const call = (name) =>
+  fetch('/cua.env.v1.' + name, {
+    method: 'POST',
+    headers: { 'content-type': 'application/grpc-web+proto', 'x-cua-env-authorization': 'Bearer ' + ticket },
+    credentials: 'omit',
+    body: new Uint8Array(5),
+  });
+let socket;
+addEventListener('keydown', (e) => socket?.readyState === 1 && socket.send('key:' + e.key));
+const open = async () => {
+  const answer = await call('StreamService/OpenMedia');
+  if (!answer.ok) return void (status.textContent = 'refused ' + answer.status);
+  const text = new TextDecoder('latin1').decode(await answer.arrayBuffer());
+  const where = /\\/media\\?ticket=[A-Za-z0-9._~-]+/.exec(text)[0];
+  socket = new WebSocket(new URL(where, location.href).href.replace(/^http/, 'ws'), ['rcdp.v2']);
+  socket.onmessage = (e) => (status.textContent = 'streaming ' + e.data);
+  socket.onclose = (e) => {
+    status.textContent = 'closed ' + e.code;
+    if (e.code === 4401 || e.code === 1006) setTimeout(open, 300);
+  };
+};
+call('SystemService/GetCapabilities').then(open);
+`;
+
+function viewer(name) {
+  const http = require('node:http');
+  const crypto = require('node:crypto');
+  const policy = {
+    'content-security-policy': "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'",
+    'access-control-allow-origin': '*',
+  };
+  let streams = 0;
+  const server = http.createServer((req, res) => {
+    req.resume();
+    if (req.method === 'GET' && req.url === '/viewer/') {
+      log({ viewer: 'page', cookie: Boolean(req.headers.cookie), sandbox: name });
+      return res.writeHead(200, { ...policy, 'content-type': 'text/html; charset=utf-8' }).end(VIEWER_PAGE);
+    }
+    if (req.method === 'GET' && req.url === '/viewer/viewer.js')
+      return res.writeHead(200, { ...policy, 'content-type': 'text/javascript; charset=utf-8' }).end(VIEWER_SCRIPT);
+    const call = /^\/cua\.env\.v1\.(\w+\/\w+)$/.exec(req.url ?? '')?.[1];
+    if (req.method !== 'POST' || !call) return res.writeHead(404).end();
+    const kind = /^Bearer e2e-(input|watch)-\d+$/.exec(String(req.headers['x-cua-env-authorization'] ?? ''))?.[1];
+    log({ viewer: 'call', call, ticket: kind ?? 'none', cookie: Boolean(req.headers.cookie), sandbox: name });
+    if (!kind) return res.writeHead(401).end();
+    if (call !== 'StreamService/OpenMedia')
+      return res.writeHead(200, { 'content-type': 'application/grpc-web+proto' }).end(Buffer.alloc(5));
+    const where = Buffer.from(`/media?ticket=e2e.${kind}.${++streams}`);
+    // Its field (4, a string), then another (5, a varint), as Cua's answer has more after it.
+    const message = Buffer.concat([Buffer.from([0x22, where.length]), where, Buffer.from([0x28, 0x01])]);
+    const head = Buffer.alloc(5);
+    head.writeUInt32BE(message.length, 1);
+    res.writeHead(200, { 'content-type': 'application/grpc-web+proto' }).end(Buffer.concat([head, message]));
+  });
+  server.on('upgrade', (req, socket) => {
+    socket.on('error', () => undefined);
+    const kind = /^\/media\?ticket=e2e\.(input|watch)\.\d+$/.exec(req.url ?? '')?.[1];
+    if (!kind) return socket.destroy();
+    const accept = crypto
+      .createHash('sha1')
+      .update(req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+      .digest('base64');
+    socket.write(
+      `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\nSec-WebSocket-Protocol: rcdp.v2\r\n\r\n`,
+    );
+    socket.write(Buffer.concat([Buffer.from([0x81, kind.length]), Buffer.from(kind)]));
+    let buf = Buffer.alloc(0);
+    socket.on('data', (d) => {
+      buf = Buffer.concat([buf, d]);
+      while (buf.length >= 6) {
+        const op = buf[0] & 0x0f;
+        const len = buf[1] & 0x7f;
+        if (len > 125 || buf.length < 6 + len) break;
+        const mask = buf.subarray(2, 6);
+        const text = Buffer.from(buf.subarray(6, 6 + len).map((b, i) => b ^ mask[i % 4])).toString();
+        buf = buf.subarray(6 + len);
+        if (op === 1) log({ viewer: 'input', text, ticket: kind, sandbox: name });
+        else if (op === 8) socket.end();
+      }
+    });
+  });
+  server.listen(0, '127.0.0.1', () => {
+    fs.mkdirSync(VIEWERS, { recursive: true });
+    fs.writeFileSync(path.join(VIEWERS, `${name}.port`), String(server.address().port));
+  });
+}
+
+/** `cua mcp`: newline-delimited JSON-RPC on stdio, the computer tools; and the computer's viewer beside it. */
 function mcp(ref) {
   const name = nameOf(ref);
+  viewer(name);
   let inputs = 0;
   const reply = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
   const text = (id, t, isError = false) => reply(id, { content: [{ type: 'text', text: t }], ...(isError ? { isError: true } : {}) });
@@ -292,13 +404,22 @@ function main() {
       fs.rmSync(file(name), { force: true });
       return process.stdout.write(`Sandbox 'local:${name}' is being deleted.\n`);
     }
-    case 'view':
+    case 'view': {
       if (!sandbox(name)) return fail(`not found: sandbox ${name}`);
+      let port;
+      try {
+        port = fs.readFileSync(path.join(VIEWERS, `${name}.port`), 'utf8');
+      } catch {
+        return fail(`sandbox ${name} has no viewer running`);
+      }
+      const watch = args.includes('--view-only');
+      // As Cua's own link has them: watching, `clipboard=0` first (the page reads the first).
       return out({
         name: `local:${name}`,
-        url: `http://127.0.0.1:41999/viewer/#ticket=e2e${args.includes('--view-only') ? '&view=1' : ''}`,
+        url: `http://127.0.0.1:${port}/viewer/#ticket=e2e-${watch ? 'watch' : 'input'}-${Date.now()}${watch ? '&clipboard=0' : ''}&clipboard=view`,
         expires_at_unix: Math.floor(Date.now() / 1000) + 1800,
       });
+    }
     case 'cp': {
       const [from, to] = more;
       if (/^local:[^:]+:\//.test(from)) fs.writeFileSync(to, 'from the fake computer');

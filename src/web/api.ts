@@ -562,13 +562,9 @@ export const api = {
   /** What the user did in the computer's panel, in order, while they have control. */
   computerInput: (id: string, events: ComputerInput[]) =>
     request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/computer/input`, { events }),
-  /** A link to Cua's own viewer of the computer (watch only unless the user has control). */
+  /** A link to Cua's own viewer of the computer, through Harness Relay's proxy: input only while the user has control. */
   computerViewer: (id: string) =>
-    request<{ url: string; viewOnly: boolean; expiresAt?: number }>(
-      'POST',
-      `/api/conversations/${encodeURIComponent(id)}/computer/viewer`,
-      {},
-    ),
+    request<{ url: string; viewOnly: boolean }>('POST', `/api/conversations/${encodeURIComponent(id)}/computer/viewer`, {}),
   /** Settings → Common apps → Computer: Cua here, and the chats' computers; `check` asks what this computer can run. */
   computerSettings: (check = false) => request<ComputerSettingsView>('GET', '/api/computer' + (check ? '?check=1' : '')),
   connectors: () => request<ConnectorsView>('GET', '/api/connectors'),
