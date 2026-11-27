@@ -254,7 +254,7 @@ const test = base.extend<{ microsoft: FakeMicrosoft; mail: FakeMail }>({
 base('the common apps keep Slack’s provider connections and use direct sign-in for Teams and Drive', async ({ page, relay }) => {
   await page.goto(relay.base + '/#/settings/apps');
   const apps = page.locator('.common-apps');
-  await expect(apps.locator('.app-row')).toHaveCount(10);
+  await expect(apps.locator('.app-row')).toHaveCount(11);
   for (const name of ['Gmail', 'Google Calendar']) await expect(apps.getByRole('listitem', { name, exact: true })).toHaveCount(0);
   const slack = apps.getByRole('listitem', { name: 'Slack', exact: true });
   const options = slack.locator('.app-options > summary');
@@ -650,7 +650,7 @@ base('Obsidian connects two local vaults, keeps them after reload and disconnect
   await page.route('**/api/cwds/pick', (route) => route.fulfill({ json: { paths: picked } }));
   await page.goto(`${relay.base}/#/settings/apps`);
   const apps = page.locator('.common-apps');
-  await expect(apps.locator('.app-row')).toHaveCount(10);
+  await expect(apps.locator('.app-row')).toHaveCount(11);
   const obsidian = apps.getByRole('listitem', { name: 'Obsidian' });
   await expect(obsidian.getByRole('button', { name: 'Choose vault' })).toBeHidden();
   await expect(obsidian.locator('.app-chat-access > summary')).toBeHidden();
