@@ -32,10 +32,12 @@ export const SYSTEMS = ['Linux', 'macOS', 'Windows'] as const;
 export type System = (typeof SYSTEMS)[number];
 
 /**
- * Minutes of test time the whole suite may take on each system, in Chromium (both halves). MEASURED
- * on the run that set them, with room for a runner's day.
+ * Minutes of test time the whole suite may take on each system, in Chromium (both halves). Set from
+ * the runs around the pull request that added this check (2026-11-27): Linux 39.3 to 44.8 before it
+ * and 39.6 and 40.2 with it (run 46016782311), macOS 46.7 to 57.1 and 56.0, Windows 94.3 to 126.2 and
+ * 81.2; with room for a runner's day (Linux's, the one enforced, about a quarter over its time now).
  */
-export const BUDGET_MINUTES: Record<System, number> = { Linux: 60, macOS: 80, Windows: 180 };
+export const BUDGET_MINUTES: Record<System, number> = { Linux: 50, macOS: 70, Windows: 130 };
 
 /** The systems whose budget fails the check; the others' is reported. */
 export const ENFORCED: readonly System[] = ['Linux'];
@@ -112,9 +114,12 @@ export function nearLimit(ran: readonly Ran[]): Ran[] {
   return ran.filter((t) => t.passed && t.timeout > 0 && t.ms > NEAR_LIMIT * t.timeout).sort((a, b) => b.ms / b.timeout - a.ms / a.timeout);
 }
 
+/** The budget's browser's tests. */
+export const budgeted = (ran: readonly Ran[]): Ran[] => ran.filter((t) => t.project === BUDGET_PROJECT);
+
 /** The budget's browser's minutes of test time. */
 export function minutesOf(ran: readonly Ran[]): number {
-  return ran.filter((t) => t.project === BUDGET_PROJECT).reduce((sum, t) => sum + t.ms, 0) / 60_000;
+  return budgeted(ran).reduce((sum, t) => sum + t.ms, 0) / 60_000;
 }
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
@@ -134,7 +139,7 @@ export function jobSummary(system: System, ran: readonly Ran[]): string {
   const lines = [
     `### End-to-end tests' time (${system}, this half)`,
     '',
-    `${ran.length} tests took ${minutesOf(ran).toFixed(1)} minutes of test time in ${BUDGET_PROJECT}.`,
+    `${budgeted(ran).length} tests in ${BUDGET_PROJECT} took ${minutesOf(ran).toFixed(1)} minutes of test time.`,
     '',
   ];
   if (near.length) {
@@ -172,11 +177,13 @@ export interface Job {
   attempt: number;
 }
 
+const REPORT_NAME = /^e2e-report-(.+)-node(\d+)-part(\d+)-attempt(\d+)$/;
+
 /** The jobs' reports among these folder names, the latest attempt of each job (a job run again uploads beside the one before). */
 export function latestJobs(names: readonly string[]): Job[] {
   const latest = new Map<string, Job>();
   for (const name of names) {
-    const m = /^e2e-report-(.+)-node(\d+)-part(\d+)-attempt(\d+)$/.exec(name);
+    const m = REPORT_NAME.exec(name);
     const system = m && RUNNERS[m[1]!];
     if (!m || !system) continue;
     const job: Job = { name, system, node: m[2]!, part: Number(m[3]), attempt: Number(m[4]) };
@@ -186,19 +193,28 @@ export function latestJobs(names: readonly string[]): Job[] {
   return [...latest.values()].sort((a, b) => a.system.localeCompare(b.system) || Number(a.node) - Number(b.node) || a.part - b.part);
 }
 
+/** The jobs' reports whose name or runner the check does not know: they would not be counted (a renamed runner, say). */
+export function unknownReports(names: readonly string[]): string[] {
+  return names.filter((n) => n.startsWith('e2e-report-') && !RUNNERS[REPORT_NAME.exec(n)?.[1] ?? '']);
+}
+
 /** A system and Node.js's whole suite against the budget. */
 export interface Verdict {
   system: System;
   node: string;
-  /** Its halves' minutes, in order; undefined when one is missing (not counted). */
+  /** Its halves' minutes, in order; undefined when it could not be counted (`missing` says why). */
   halves?: number[];
+  missing?: string;
   minutes: number;
   budget: number;
   enforced: boolean;
   over: boolean;
 }
 
-/** Each system and Node.js's suite, from its jobs' tests: all `parts` halves, or none counted. */
+/**
+ * Each system and Node.js's suite, from its jobs' tests: all `parts` halves, each with tests in the
+ * budget's browser, or it is not counted (never 0 minutes within the budget).
+ */
 export function verdicts(jobs: readonly { job: Job; ran: readonly Ran[] }[], parts: number): Verdict[] {
   const groups = new Map<string, { job: Job; ran: readonly Ran[] }[]>();
   for (const j of jobs) {
@@ -208,13 +224,18 @@ export function verdicts(jobs: readonly { job: Job; ran: readonly Ran[] }[], par
   return [...groups.values()].map((group) => {
     const { system, node } = group[0]!.job;
     const whole = group.length === parts && new Set(group.map((g) => g.job.part)).size === parts;
-    const halves = whole ? group.map((g) => minutesOf(g.ran)) : undefined;
+    const missing = !whole
+      ? "a half's results are missing"
+      : group.some((g) => !budgeted(g.ran).length)
+        ? `a half ran no test in ${BUDGET_PROJECT}`
+        : undefined;
+    const halves = missing ? undefined : group.map((g) => minutesOf(g.ran));
     const minutes = halves ? halves.reduce((a, b) => a + b, 0) : 0;
     const budget = BUDGET_MINUTES[system];
     return {
       system,
       node,
-      ...(halves ? { halves } : {}),
+      ...(halves ? { halves } : { missing }),
       minutes,
       budget,
       enforced: ENFORCED.includes(system),
@@ -232,7 +253,7 @@ export function budgetSummary(list: readonly Verdict[]): string {
   ];
   for (const v of list) {
     const status = !v.halves
-      ? 'not counted: a half is missing'
+      ? `not counted: ${v.missing}`
       : !v.over
         ? 'within it'
         : v.enforced
@@ -247,15 +268,17 @@ export function budgetSummary(list: readonly Verdict[]): string {
 }
 
 /**
- * An error for each suite over an enforced budget, and when no suite could be counted at all (the
- * results were not where the check reads them: it would pass whatever the time); a warning for a suite
- * over a reported budget, and for one a half of which is missing.
+ * An error for each suite over an enforced budget, for one on an enforced system that could not be
+ * counted, and for an enforced system with no results at all (the results were not where the check
+ * reads them, or its runner was renamed: it would pass whatever the time); a warning for a suite over a
+ * reported budget, for one on another system that could not be counted, and for a report the check
+ * does not know.
  */
-export function budgetAnnotations(list: readonly Verdict[]): string[] {
+export function budgetAnnotations(list: readonly Verdict[], unknown: readonly string[] = []): string[] {
   const out = list.flatMap((v) =>
     !v.halves
       ? [
-          `::warning::${data(`The end-to-end tests' time on ${v.system} with Node.js ${v.node} was not counted: a half's results are missing`)}`,
+          `::${v.enforced ? 'error' : 'warning'}::${data(`The end-to-end tests' time on ${v.system} with Node.js ${v.node} was not counted: ${v.missing}`)}`,
         ]
       : v.over
         ? [
@@ -265,13 +288,19 @@ export function budgetAnnotations(list: readonly Verdict[]): string[] {
           ]
         : [],
   );
-  if (!list.some((v) => v.halves))
-    out.push(`::error::${data(`No end-to-end results to check against the budget (${RESULTS_FILE} in each job's report)`)}`);
+  for (const system of ENFORCED)
+    if (!list.some((v) => v.system === system))
+      out.push(
+        `::error::${data(`No end-to-end results for ${system} to check against the budget (${RESULTS_FILE} in each job's report)`)}`,
+      );
+  for (const name of unknown)
+    out.push(`::warning::${data(`Not counted, from a runner the check does not know (RUNNERS in scripts/e2e-budget.ts): ${name}`)}`);
   return out;
 }
 
-/** Whether the check fails: a suite over an enforced budget, or none counted. */
-export const fails = (list: readonly Verdict[]): boolean => list.some((v) => v.over && v.enforced) || !list.some((v) => v.halves);
+/** Whether the check fails: a suite over an enforced budget, or an enforced system's suite not counted. */
+export const fails = (list: readonly Verdict[]): boolean =>
+  list.some((v) => v.enforced && (v.over || !v.halves)) || ENFORCED.some((system) => !list.some((v) => v.system === system));
 
 function output(lines: readonly string[], text: string): void {
   for (const line of lines) console.log(line);
@@ -294,13 +323,14 @@ function main(args: string[]): number {
       console.error(USAGE);
       return 2;
     }
-    const jobs = latestJobs(readdirSync(runs)).flatMap((job) => {
+    const names = readdirSync(runs);
+    const jobs = latestJobs(names).flatMap((job) => {
       const file = join(runs, job.name, RESULTS_FILE);
       if (!existsSync(file)) return [];
       return [{ job, ran: testsOf(JSON.parse(readFileSync(file, 'utf8')) as Report) }];
     });
     const list = verdicts(jobs, parts);
-    output(budgetAnnotations(list), budgetSummary(list));
+    output(budgetAnnotations(list, unknownReports(names)), budgetSummary(list));
     return fails(list) ? 1 : 0;
   }
   const file = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--system');
@@ -309,7 +339,14 @@ function main(args: string[]): number {
     console.error(USAGE);
     return 2;
   }
-  const ran = testsOf(JSON.parse(readFileSync(file, 'utf8')) as Report);
+  // Never the job's failure: its tests passed, and the whole suite is checked in the last check.
+  let ran: Ran[];
+  try {
+    ran = testsOf(JSON.parse(readFileSync(file, 'utf8')) as Report);
+  } catch (err) {
+    console.log(`::warning::${data(`Could not read the tests' results (${file}): ${err instanceof Error ? err.message : String(err)}`)}`);
+    return 0;
+  }
   output(jobAnnotations(system, ran), jobSummary(system, ran));
   return 0;
 }

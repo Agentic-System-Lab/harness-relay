@@ -4,8 +4,7 @@
  * the default working directory), the fake CLIs first on its PATH and the OS credential store off.
  * Beside it runs the test's fake model endpoint (`FakeEndpoint`), which is set up as a model backend,
  * and the open agents' default model is one of its models, so they are ready to run. Only the CLIs the
- * test is about are installed there, besides Claude Code, Codex and Grok (`missingClis`, by default
- * `notInstalledBut()`). Nothing of the user's own Harness Relay, CLIs or keychain is read or changed.
+ * test uses are installed there, besides Claude Code (`missingClis`, by default `notInstalledBut()`). Nothing of the user's own Harness Relay, CLIs or keychain is read or changed.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
@@ -31,6 +30,7 @@ import { OPEN_PROVIDERS, PROVIDERS, type Provider } from '../../src/shared/types
 import { FACTS } from './clis/all';
 import { fakeBin, notInstalledBut } from './fake-cli';
 import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
+import { serverBundleCurrent } from './server-bundle';
 
 /** The API key a test server gives a CLI whose default account runs on a key only (`defaultKeyOnly`). */
 export const DEFAULT_KEY = 'AIza-e2e-default-key-0000';
@@ -165,6 +165,9 @@ export interface StartOptions {
 }
 
 const STARTUP_MS = 60_000;
+
+/** This worker said once that the server's bundle is older than its files (`startRelay`). */
+let staleNoted = false;
 
 /**
  * The longest a test server's data folder may be on each system (in bytes), for Harness Relay's own
@@ -379,10 +382,20 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
 
   let output = '';
   // The server bundled before the tests (global-setup.ts, `support/server-bundle.ts`), which starts far
-  // sooner than its source through tsx. From its source when nothing bundled it, and for a test that
-  // preloads a hook into it (`NODE_OPTIONS=--import=…`): a hook may change one of the server's own
-  // modules (`support/catalog-mcp.mjs`, `teams-download-loader.mjs`), which a bundle holds a copy of.
-  const bundled = /--import\b/.test(env.NODE_OPTIONS ?? '') ? undefined : process.env.E2E_SERVER_BUNDLE;
+  // sooner than its source through tsx. From its source when nothing bundled it, when one of its files
+  // changed since (in `--ui` or a watch), when E2E_SERVER_SOURCE=1 asks (its stack traces then name the
+  // source's files), and for a test that preloads a hook into it (`NODE_OPTIONS=--import=…`): a hook may
+  // change one of the server's own modules (`support/catalog-mcp.mjs`, `teams-download-loader.mjs`),
+  // which a bundle holds a copy of.
+  const bundle = process.env.E2E_SERVER_BUNDLE;
+  if (bundle && !staleNoted && !serverBundleCurrent(bundle)) {
+    staleNoted = true;
+    console.warn(`[e2e] the server's files changed since ${bundle} was bundled: its tests start it from its source (slower)`);
+  }
+  const bundled =
+    bundle && process.env.E2E_SERVER_SOURCE !== '1' && !/--import\b/.test(env.NODE_OPTIONS ?? '') && serverBundleCurrent(bundle)
+      ? bundle
+      : undefined;
   const child: ChildProcess = spawn(process.execPath, bundled ? [bundled] : ['--import', 'tsx', SERVER_ENTRY], {
     cwd: ROOT,
     env,

@@ -17,6 +17,7 @@ import {
   minutesOf,
   nearLimit,
   testsOf,
+  unknownReports,
   verdicts,
   type Job,
   type Report,
@@ -109,7 +110,8 @@ describe("one job's tests", () => {
     // 83%, then 73%.
     expect(nearLimit(ran).map((t) => t.title)).toEqual(['in WebKit', 'a group › near its limit']);
     const text = jobSummary('Linux', ran);
-    expect(text).toContain('5 tests took 2.9 minutes of test time in chromium.');
+    // Chromium's tests alone, as their minutes.
+    expect(text).toContain('4 tests in chromium took 2.9 minutes of test time.');
     expect(text).toContain('| a group › near its limit (`chat.spec.ts:40`) | 44.0 s | 60.0 s | 73% |');
     // The slowest first.
     expect(text.slice(text.indexOf('The slowest:'))).toMatch(
@@ -200,23 +202,73 @@ describe('the whole suite against its budget', () => {
       `::warning::The end-to-end tests took ${(BUDGET_MINUTES.Windows + 1).toFixed(1)} minutes of test time on Windows with Node.js 24, over their budget of ${BUDGET_MINUTES.Windows} (scripts/e2e-budget.ts)`,
       "::warning::The end-to-end tests' time on macOS with Node.js 24 was not counted: a half's results are missing",
     ]);
+    expect(list.find((v) => v.system === 'macOS')!.missing).toBe("a half's results are missing");
     const text = budgetSummary(list);
     expect(text).toContain(
       `| Linux | 24 | ${(BUDGET_MINUTES.Linux + 1).toFixed(1)} (${(BUDGET_MINUTES.Linux / 2).toFixed(1)} + ${(BUDGET_MINUTES.Linux / 2 + 1).toFixed(1)}) | ${BUDGET_MINUTES.Linux} | **over it** |`,
     );
     expect(text).toContain('| Linux | 22 | 2.0 (1.0 + 1.0) |');
     expect(text).toContain('over it (reported only: its runners vary too much)');
-    expect(text).toContain('| macOS | 24 | — |');
+    expect(text).toContain(
+      "| macOS | 24 | — | 80 | not counted: a half's results are missing |".replace('80', String(BUDGET_MINUTES.macOS)),
+    );
     expect(text).toContain('raise `BUDGET_MINUTES` in scripts/e2e-budget.ts in the same commit, saying why');
     // Within it everywhere: passes.
     expect(fails(list.filter((v) => !v.over))).toBe(false);
   });
 
-  it('fails when no suite could be counted, which would pass whatever the time', () => {
-    expect(fails([])).toBe(true);
-    expect(budgetAnnotations([])).toEqual([
-      `::error::No end-to-end results to check against the budget (${RESULTS_FILE} in each job's report)`,
+  it('fails when Linux could not be counted, whatever its time: no results, a half missing, or no test in Chromium', () => {
+    const half = (m: number) => testsOf(one(min(m)));
+    const elsewhere = [
+      { job: job('Windows', '24', 1), ran: half(1) },
+      { job: job('Windows', '24', 2), ran: half(1) },
+    ];
+    // No Linux results at all (not where the check reads them, or its runner renamed).
+    const none = verdicts(elsewhere, 2);
+    expect(fails(none)).toBe(true);
+    expect(budgetAnnotations(none)).toEqual([
+      `::error::No end-to-end results for Linux to check against the budget (${RESULTS_FILE} in each job's report)`,
     ]);
+    expect(fails([])).toBe(true);
+    // One half.
+    const oneHalf = verdicts([...elsewhere, { job: job('Linux', '24', 1), ran: half(1) }], 2);
+    expect(fails(oneHalf)).toBe(true);
+    expect(budgetAnnotations(oneHalf)).toEqual([
+      "::error::The end-to-end tests' time on Linux with Node.js 24 was not counted: a half's results are missing",
+    ]);
+    // Both halves, one with no test in Chromium (another browser's run): never 0 minutes within the budget.
+    const webkit: Report = {
+      suites: [
+        { title: 'x', file: 'x.spec.ts', specs: [spec('t', 1, [{ project: 'webkit', results: [{ duration: 1000, status: 'passed' }] }])] },
+      ],
+    };
+    const noChromium = verdicts(
+      [...elsewhere, { job: job('Linux', '24', 1), ran: half(1) }, { job: job('Linux', '24', 2), ran: testsOf(webkit) }],
+      2,
+    );
+    expect(noChromium.find((v) => v.system === 'Linux')).toMatchObject({
+      missing: 'a half ran no test in chromium',
+      minutes: 0,
+      over: false,
+    });
+    expect(fails(noChromium)).toBe(true);
+    // And on a system only reported: a warning, not a failure.
+    const counted = verdicts(
+      [...elsewhere.slice(0, 1), { job: job('Linux', '24', 1), ran: half(1) }, { job: job('Linux', '24', 2), ran: half(1) }],
+      2,
+    );
+    expect(fails(counted)).toBe(false);
+    expect(budgetAnnotations(counted)).toEqual([
+      "::warning::The end-to-end tests' time on Windows with Node.js 24 was not counted: a half's results are missing",
+    ]);
+  });
+
+  it('warns of a report from a runner it does not know, which it would not count', () => {
+    const names = ['e2e-report-ubuntu-24.04-node24-part1-attempt1', 'e2e-report-ubuntu-latest-node24-part1-attempt1', 'something-else'];
+    expect(unknownReports(names)).toEqual(['e2e-report-ubuntu-24.04-node24-part1-attempt1']);
+    expect(budgetAnnotations([], unknownReports(names)).at(-1)).toBe(
+      '::warning::Not counted, from a runner the check does not know (RUNNERS in scripts/e2e-budget.ts): e2e-report-ubuntu-24.04-node24-part1-attempt1',
+    );
   });
 
   it('runs as the workflow runs it, on the reports as they are downloaded', () => {
@@ -229,7 +281,8 @@ describe('the whole suite against its budget', () => {
       put('e2e-report-ubuntu-latest-node24-part1-attempt1', one(min(1)));
       put('e2e-report-ubuntu-latest-node24-part2-attempt1', one(min(1)));
       const run = (...args: string[]) =>
-        spawnSync(process.execPath, ['scripts/e2e-budget.ts', ...args], {
+        // Through tsx, as test/ci-scope.test.ts runs its script: a Node.js before 22.18 does not strip types by itself.
+        spawnSync(process.execPath, ['--import', 'tsx', 'scripts/e2e-budget.ts', ...args], {
           encoding: 'utf8',
           env: { ...process.env, GITHUB_STEP_SUMMARY: '' },
         });
@@ -245,6 +298,10 @@ describe('the whole suite against its budget', () => {
       const single = run(join(dir, 'e2e-report-ubuntu-latest-node24-part1-attempt1', RESULTS_FILE), '--system', 'Linux');
       expect(single.status, single.stderr).toBe(0);
       expect(single.stdout).toContain("End-to-end tests' time (Linux, this half)");
+      // Results it cannot read: a warning, still never the job's failure.
+      const unread = run(join(dir, 'nowhere.json'), '--system', 'Linux');
+      expect(unread.status).toBe(0);
+      expect(unread.stdout).toMatch(/^::warning::Could not read the tests' results/m);
       // Without how many halves there are: refused.
       expect(run('--runs', dir).status).toBe(2);
     } finally {
@@ -265,7 +322,12 @@ describe('the whole suite against its budget', () => {
     expect(workflow).toContain(
       'name: e2e-report-${{ matrix.os }}-node${{ matrix.node }}-part${{ matrix.part }}-attempt${{ github.run_attempt }}',
     );
-    for (const os of /^ {8}os: \[([^\]]+)\]$/m.exec(workflow)![1]!.split(/,\s*/))
-      expect(latestJobs([`e2e-report-${os}-node24-part1-attempt1`]), os).toHaveLength(1);
+    // Every runner the matrix names, its `include:` entries too, is one the check counts.
+    const runners = [
+      .../^ {8}os: \[([^\]]+)\]$/m.exec(workflow)![1]!.split(/,\s*/),
+      ...[...workflow.matchAll(/\{ os: ([\w.-]+),/g)].map((m) => m[1]!),
+    ];
+    expect(runners.length).toBeGreaterThan(3);
+    for (const os of runners) expect(latestJobs([`e2e-report-${os}-node24-part1-attempt1`]), os).toHaveLength(1);
   });
 });

@@ -211,22 +211,23 @@ jobs:
           done
 
       # The whole suite's time against its budget, for each system and Node.js (both halves, from their
-      # reports): over it, this check fails on Linux, whose runners take about the same time each run,
-      # and it is reported on macOS and Windows (scripts/e2e-budget.ts). Only once the tests ran and passed.
+      # reports): over it, or not counted, this check fails on Linux, whose runners take about the same
+      # time each run, and it is reported on macOS and Windows (scripts/e2e-budget.ts). Only once the tests
+      # ran and passed, in Chromium (the budget's browser; a run by hand may choose others).
       - uses: actions/checkout@v7
-        if: needs.e2e.result == 'success'
+        if: needs.e2e.result == 'success' && contains(inputs.browsers || 'chromium', 'chromium')
 
       - uses: actions/setup-node@v7
-        if: needs.e2e.result == 'success'
+        if: needs.e2e.result == 'success' && contains(inputs.browsers || 'chromium', 'chromium')
         with:
           node-version: 24
 
       - uses: actions/download-artifact@v8
-        if: needs.e2e.result == 'success'
+        if: needs.e2e.result == 'success' && contains(inputs.browsers || 'chromium', 'chromium')
         with:
           pattern: e2e-report-*
           path: ${{ runner.temp }}/e2e-reports
 
       - name: The tests' time against their budget
-        if: needs.e2e.result == 'success'
+        if: needs.e2e.result == 'success' && contains(inputs.browsers || 'chromium', 'chromium')
         run: node scripts/e2e-budget.ts --runs "$RUNNER_TEMP/e2e-reports" --parts 2

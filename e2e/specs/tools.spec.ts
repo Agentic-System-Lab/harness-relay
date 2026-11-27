@@ -659,7 +659,7 @@ test('the browser to start is set in Settings: a path with no file there is refu
   await expect(page.locator('.browser-path summary')).not.toContainText(process.execPath);
 });
 
-// OpenCode's fake installed for it, besides Claude Code, Codex and Grok.
+// OpenCode's fake installed for it, besides Claude Code.
 test.describe(() => {
   withClis('opencode');
 

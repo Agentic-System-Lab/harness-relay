@@ -243,7 +243,7 @@ test.describe('an open agent without a model backend', () => {
 });
 
 test.describe('settings', () => {
-  // Every CLI installed: the others' tests leave all but Claude Code, Codex, Grok and their own out.
+  // Every CLI installed: the others' tests leave all but Claude Code (Codex and Grok, here) and their own out.
   test.describe(() => {
     withEveryCli();
 

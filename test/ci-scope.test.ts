@@ -125,8 +125,11 @@ describe('needsOf', () => {
     expect(runs('e2e/specs/chat.spec.ts', 'playwright.config.ts', 'e2e/global-setup.ts')).toEqual(['windows', 'e2e']);
     expect(runs('e2e/fake-cli/agents/claude.cjs')).toEqual(['windows', 'desktop', 'e2e']);
     expect(runs('e2e/support/clis/claude.ts')).toEqual(['windows', 'desktop', 'e2e']);
-    // The workflow checks the sandbox before the tests.
+    // The workflow checks the sandbox before the tests, and their time after them; the server they start
+    // is bundled for them alone.
     expect(runs('scripts/sandbox-check.ts')).toEqual(['windows', 'e2e']);
+    expect(runs('scripts/e2e-budget.ts')).toEqual(['windows', 'e2e']);
+    expect(runs('e2e/support/server-bundle.ts')).toEqual(['windows', 'e2e']);
     // The live tests never run on CI; the typecheck takes them in.
     expect(runs('e2e/live/ollama.spec.ts', 'playwright.live.config.ts')).toEqual(['windows']);
     // A CLI's new version is checked by hand; its tests run on Windows too.

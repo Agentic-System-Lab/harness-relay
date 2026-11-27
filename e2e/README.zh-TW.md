@@ -24,7 +24,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。即使 Windows 上的伺服器啟動較慢，瀏覽器測試仍有完整的執行時間。
 
-- **自己的伺服器**：從測試開始前打包好一次的伺服器啟動（[`support/server-bundle.ts`](support/server-bundle.ts)，打包到 `dist/e2e-server/`），比透過 tsx 從原始碼啟動快得多（在伺服器裡預先載入 hook 的測試，即 `serverEnv` 的 `NODE_OPTIONS=--import=…`，從原始碼啟動，因為 hook 可能會改掉它的某個模組），使用空閒的 port，資料、家目錄與各 CLI 的家目錄（那個家目錄裡的 `.claude`、`.codex`、`.grok`、`.gemini`、`.copilot`、`.config/cursor`，以及 Muse Code 的 `.config/muse` 與 `.local/share/muse`，開源 agent 的則在資料資料夾裡）都在暫存資料夾裡，並關閉作業系統的鑰匙圈：不會讀取或更動你自己的 Harness Relay、CLI 或鑰匙圈，你的憑證（Cursor、Antigravity 與 Google 的也一樣）不會留在它的環境變數裡（Antigravity 的預設帳號改拿測試自己的替身 Gemini API key，放在 `GEMINI_API_KEY`，這是它在 Harness Relay 唯一的登入方式），git 找 repository 時也不會超出測試的資料夾（[`support/relay.ts`](support/relay.ts)）。在 macOS 與 Linux 上，它的資料夾放在 `/tmp`（或 `E2E_TMP_DIR`），路徑短到放得下 Harness Relay 自己的沙箱的 socket。
+- **自己的伺服器**：從測試開始前打包好一次的伺服器啟動（[`support/server-bundle.ts`](support/server-bundle.ts)，打包到 `dist/e2e-server/`），比透過 tsx 從原始碼啟動快得多（在伺服器裡預先載入 hook 的測試，即 `serverEnv` 的 `NODE_OPTIONS=--import=…`，從原始碼啟動，因為 hook 可能會改掉它的某個模組；打包之後伺服器的檔案有改過時，例如在 `--ui` 或 watch 模式中，以及設了 `E2E_SERVER_SOURCE=1` 時，每個測試也都從原始碼啟動，這時錯誤的 stack trace 會指向原始碼的檔案），使用空閒的 port，資料、家目錄與各 CLI 的家目錄（那個家目錄裡的 `.claude`、`.codex`、`.grok`、`.gemini`、`.copilot`、`.config/cursor`，以及 Muse Code 的 `.config/muse` 與 `.local/share/muse`，開源 agent 的則在資料資料夾裡）都在暫存資料夾裡，並關閉作業系統的鑰匙圈：不會讀取或更動你自己的 Harness Relay、CLI 或鑰匙圈，你的憑證（Cursor、Antigravity 與 Google 的也一樣）不會留在它的環境變數裡（Antigravity 的預設帳號改拿測試自己的替身 Gemini API key，放在 `GEMINI_API_KEY`，這是它在 Harness Relay 唯一的登入方式），git 找 repository 時也不會超出測試的資料夾（[`support/relay.ts`](support/relay.ts)）。在 macOS 與 Linux 上，它的資料夾放在 `/tmp`（或 `E2E_TMP_DIR`），路徑短到放得下 Harness Relay 自己的沙箱的 socket。
 - **自己的假模型端點**：一個小 HTTP 伺服器，設成模型來源 `e2e`（**設定 → 模型連線**），有 `e2e-model` 與 `e2e-model-mini` 兩個模型，每個開源 agent 的預設模型都設成 `e2e/e2e-model`，所以測試安裝的開源 agent 都可使用（OpenHands 的終端機開關也已打開）。伺服器列出這兩個模型，另外提供只能按 ID 查到的 `unlisted-model`，並收下在沙箱裡執行的假 CLI 送來的紀錄。測試可以不要它（`openBackend: false`）、關掉 OpenHands 的開關（`sandboxTerminal: false`），或讓某些 CLI 未安裝（`missingClis`）。
 - **一個工作目錄**，裡面是一個小專案：`README.md`、`src/hello.ts` 與 `src/lib/math.ts`（`seedProject()`）。需要其他資料夾的測試會在它旁邊新增（`relay.addProject()`）。
 - **已登入的瀏覽器頁面**：用一組新的一次性代碼登入，使用導覽已完成，沙箱元件的詢問已回答過（所以不論這台電腦缺什麼，新對話都不會詢問），「CLI 拿不到的金鑰」提示已看過（所以 spec 的 `serverEnv` 裡有金鑰時，新對話也不會提），介面為英文（[`fixtures.ts`](fixtures.ts)）。測試可用 `test.use()` 改變這些：`lang: 'zh-TW'`、`signIn: false`、`tour: true`、`sandboxAsk: true`、`envNotice: true`，或給伺服器更多環境變數（`serverEnv`）。
@@ -984,10 +984,10 @@ Playwright 給 `relay` fixture 兩分鐘來啟動、設定及清理伺服器。�
 
 ## 它們花的時間
 
-CI 上每個端對端 job 都會檢查它的測試花了多久（[`scripts/e2e-budget.ts`](../scripts/e2e-budget.ts)，讀 Playwright 的 JSON 結果），以免測試不知不覺越跑越慢：
+CI 會檢查端對端測試花了多久（[`scripts/e2e-budget.ts`](../scripts/e2e-budget.ts)，讀 Playwright 的 JSON 結果），以免測試不知不覺越跑越慢：
 
-- **預算**：一個 job 那一半測試在 Chromium 上可以花的測試時間，以每個測試最後一次嘗試加總成分鐘數，每個系統各一個。超過時，在 Linux 上 job 會失敗，因為它的執行器每次花的時間差不多；在 macOS 與 Windows 上只報告，因為它們的執行器差異太大。因為正當理由讓測試變慢的改動，要在同一個 commit 裡提高預算（`BUDGET_MINUTES`）並說明原因。
-- **接近時間上限**：在每個系統上，通過了、但用掉自己時間上限 70% 以上的測試都會列為警告，執行摘要裡還有最慢的十個。較慢的執行器會讓它們逾時（Teams 登入的測試在 Windows 上曾以上限的 88% 通過，後來就在那裡逾時）：讓它們變快，或給它們需要的時間。
+- **接近時間上限**：每個 job 跑完後，在每個系統上，通過了、但用掉自己時間上限 70% 以上的測試都會列為警告，job 的摘要裡還有最慢的十個。較慢的執行器會讓它們逾時（Teams 登入的測試在 Windows 上曾以上限的 88% 通過，後來就在那裡逾時）：讓它們變快，或給它們需要的時間。這從不讓 job 失敗。
+- **預算**：workflow 的最後一個檢查（**End-to-end passed**）為每個系統與 Node.js，把整套測試在 Chromium 上的測試時間（兩半，每個測試最後一次嘗試）加總成分鐘數，和那個系統的預算（`BUDGET_MINUTES`）比較。看整套測試，是因為兩半是按測試數量分的，在任何地方加一個測試都會讓其他測試換到另一半。超過時，在 Linux 上檢查會失敗，因為它的執行器每次花的時間差不多；Linux 的整套測試無法計算時（缺了一半的結果，或沒有在 Chromium 上跑的測試）也會失敗；在 macOS 與 Windows 上只報告，因為它們的執行器差異太大。因為正當理由讓測試變慢的改動，要在同一個 commit 裡提高預算並說明原因。
 
 讓每個測試保持快的做法：除非測試需要，只安裝 Claude Code（見上方）、伺服器只打包一次，以及一個回合的 git 程序數，`test/workspace.test.ts` 會數它。
 

@@ -115,6 +115,8 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     'e2e/live/**',
     'e2e/fixtures.ts',
     'e2e/global-setup.ts',
+    // The server bundled for the end-to-end tests (the app's checks start desktop/scripts/build.ts's).
+    'e2e/support/server-bundle.ts',
     'playwright.config.ts',
     'playwright.live.config.ts',
     'vitest.config.ts',
@@ -124,6 +126,7 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     'scripts/login.ts',
     'scripts/preview-site.ts',
     'scripts/sandbox-check.ts',
+    'scripts/e2e-budget.ts',
     'scripts/cli-check.ts',
     'scripts/cli-check/**',
     // The READMEs' contributors.
