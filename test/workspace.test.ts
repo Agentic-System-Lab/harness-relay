@@ -1013,6 +1013,97 @@ describe("Harness Relay's own repository, and the working repository's .git it n
     expect(store('ls-tree', '-r', '--name-only', (await snapshot(repo)).commit).split('\n')).toContain('dist/a.js');
   });
 
+  it.skipIf(process.platform === 'win32')(
+    'runs no remote helper an agent put in the folder, through a lazy fetch of a git before 2.44 (team checks, the Files panel)',
+    async () => {
+      await committed();
+      // A partial clone whose remote is a helper the agent wrote, which its own config allows.
+      const ran = join(dir, 'ran.txt');
+      mkdirSync(join(repo, 'git-remote-'));
+      writeFileSync(join(repo, 'git-remote-', 'x'), `#!/bin/sh\necho ran >> "${ran}"\nexit 1\n`, { mode: 0o755 });
+      git(repo, 'config', 'core.repositoryformatversion', '1');
+      git(repo, 'config', 'extensions.partialClone', 'origin');
+      git(repo, 'config', 'remote.origin.url', 'x::y');
+      git(repo, 'config', 'remote.origin.vcs', '/x');
+      git(repo, 'config', 'remote.origin.promisor', 'true');
+      git(repo, 'config', 'protocol./x.allow', 'always');
+      git(repo, 'config', 'protocol.allow', 'always');
+      // A branch naming an object that is not there, which git would fetch.
+      writeFileSync(join(repo, '.git', 'refs', 'heads', 'gone'), `${'1'.repeat(40)}\n`);
+      setLazyFetchGuard(false);
+      try {
+        await commitsSince(repo, [], Date.now() - 60_000, 10).catch(() => undefined);
+        await unignoredFiles(repo);
+        await snapshot(repo);
+      } finally {
+        setLazyFetchGuard();
+      }
+      expect(existsSync(ran)).toBe(false);
+    },
+  );
+
+  it('copies every commit it can of what an older version kept: one that is not whole keeps no other out', async () => {
+    await committed();
+    const made: string[] = [];
+    for (const name of ['one', 'two', 'three']) {
+      writeFileSync(join(repo, 'README.md'), `${name}\n`);
+      git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', name);
+      const sha = git(repo, 'rev-parse', 'HEAD');
+      git(repo, 'update-ref', `refs/harness-relay/conv-old/${sha}`, sha);
+      made.push(sha);
+    }
+    // The second's README is gone from the working repository.
+    const blob = git(repo, 'rev-parse', `${made[1]}:README.md`);
+    rmSync(join(repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2)));
+    expect(await fileAt(repo, made[2]!, 'README.md')).toBe('three\n');
+    expect(await fileAt(repo, made[0]!, 'README.md')).toBe('one\n');
+    expect(store('for-each-ref', '--format=%(refname)', 'refs/harness-relay/').split('\n').sort()).toEqual(
+      [made[0], made[2]].map((sha) => `refs/harness-relay/conv-old/${sha}`).sort(),
+    );
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'deletes a conversation at once while it still copies what an older version kept, and the copy does not bring it back',
+    async () => {
+      await committed();
+      writeFileSync(join(repo, 'README.md'), 'kept\n');
+      git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'kept');
+      const kept = git(repo, 'rev-parse', 'HEAD');
+      git(repo, 'update-ref', `refs/harness-relay/conv-old/${kept}`, kept);
+      // The copy held on a named pipe in the objects.
+      const tree = git(repo, 'rev-parse', `${kept}^{tree}`);
+      const pipe = join(repo, '.git', 'objects', tree.slice(0, 2), tree.slice(2));
+      rmSync(pipe, { force: true });
+      execFileSync('mkfifo', [pipe]);
+      try {
+        await snapshot(repo);
+        const started = Date.now();
+        await dropKeptCommits(repo, 'conv-old');
+        expect(Date.now() - started).toBeLessThan(slow(5_000));
+      } finally {
+        try {
+          closeSync(openSync(pipe, constants.O_WRONLY | constants.O_NONBLOCK));
+        } catch {
+          // no reader
+        }
+      }
+      // Once the copy ends (a read of its commit waits for it), nothing of the conversation is back.
+      await fileAt(repo, kept, 'README.md');
+      expect(store('for-each-ref', 'refs/harness-relay/')).toBe('');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('reads no objects through an alternates file that is a named pipe', async () => {
+    await committed();
+    const head = git(repo, 'rev-parse', 'HEAD');
+    git(repo, 'update-ref', `refs/harness-relay/conv-old/${head}`, head);
+    execFileSync('mkfifo', [join(repo, '.git', 'objects', 'info', 'alternates')]);
+    const started = Date.now();
+    await snapshot(repo);
+    expect(await fileAt(repo, head, 'README.md')).toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(slow(10_000));
+  });
+
   it('takes a turn in a worktree in six git processes', async () => {
     await committed();
     const snap = (await snapshot(repo)).commit;
