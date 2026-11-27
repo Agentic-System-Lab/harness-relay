@@ -129,6 +129,26 @@ describe("one job's tests", () => {
     ]);
     expect(jobSummary('macOS', ran)).toContain('| a \\| b, c: 100% d (`chat.spec.ts:7`) | 50.0 s | 60.0 s | 83% |');
   });
+
+  it("keeps a title's own backslash from undoing the escape of a `|`, which would end the cell", () => {
+    // `a\|b` and a title ending in `\`: each `\` and `|` escaped, so no `|` is left unescaped in the title.
+    for (const [title, escaped] of [
+      ['a\\|b', 'a\\\\\\|b'],
+      ['ends in \\', 'ends in \\\\'],
+      ['\\\\|', '\\\\\\\\\\|'],
+    ]) {
+      const ran = testsOf({
+        suites: [{ title: 'x', file: 'x.spec.ts', specs: [spec(title, 1, [{ results: [{ duration: 1000, status: 'passed' }] }])] }],
+      });
+      const row = jobSummary('Linux', ran)
+        .split('\n')
+        .find((l) => l.includes('chat.spec.ts:1'))!;
+      expect(row, title).toBe(`| ${escaped} (\`chat.spec.ts:1\`) | 1.0 s |`);
+      // Split as GitHub splits a row: on each `|` an odd number of backslashes does not escape.
+      const cells = row.slice(1, -1).split(/(?<!(?:^|[^\\])(?:\\\\)*\\)\|/);
+      expect(cells, title).toHaveLength(2);
+    }
+  });
 });
 
 describe('the whole suite against its budget', () => {

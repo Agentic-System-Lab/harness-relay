@@ -119,8 +119,11 @@ export function minutesOf(ran: readonly Ran[]): number {
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 const where = (t: Ran) => `${t.file}:${t.line}`;
-/** A cell of a Markdown table: no line break, no `|` that would end it. */
-const cell = (s: string) => s.replace(/[\r\n]+/g, ' ').replace(/\|/g, '\\|');
+/**
+ * A cell of a Markdown table: no line break, and every `\` and `|` escaped (in one expression, so that a
+ * title's own backslash cannot undo the escape of the `|` after it and end the cell).
+ */
+const cell = (s: string) => s.replace(/[\r\n]+/g, ' ').replace(/[\\|]/g, '\\$&');
 // A workflow command's message escapes %, CR and LF; a property also : and ,.
 const data = (s: string) => s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 const prop = (s: string) => data(s).replace(/:/g, '%3A').replace(/,/g, '%2C');
