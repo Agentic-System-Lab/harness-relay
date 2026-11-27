@@ -19,7 +19,7 @@
     <meta property="og:title" content="Tools for the team · Harness Relay docs" />
     <meta
       property="og:description"
-      content="Connect mail, calendars, Google Drive and Docs, Slack, Teams, Obsidian, GitHub and the browser in Common apps. Configure OAuth, choose assistants and review outgoing messages and document changes. The Tool library holds MCP servers, skills, memory and hooks; Labs holds long-term memory."
+      content="Connect mail, calendars, Google Drive and Docs, Slack, Teams, Obsidian, GitHub and the browser in Common apps, and give each working directory a computer its chats share, with Cua. Configure OAuth, choose assistants and review outgoing messages and document changes. The Tool library holds MCP servers, skills, memory and hooks; Labs holds long-term memory."
     />
     <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
     <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
@@ -297,6 +297,15 @@
                           </ol>
                         </details>
                       </li>
+                      <li>
+                        <details>
+                          <summary>Computer (Cua)</summary>
+                          <ol>
+                            <li><a href="#computer" aria-label="Computer (Cua) overview">Overview</a></li>
+                            <li><a href="#computer-control">Watch it and take control</a></li>
+                          </ol>
+                        </details>
+                      </li>
                     </ol>
                   </details>
                 </li>
@@ -358,7 +367,7 @@
       <div class="doc-body">
         <section id="common-apps" aria-labelledby="common-apps-title">
           <h2 id="common-apps-title">Common apps</h2>
-          <p>The <b>Common apps</b> tab opens with <a href="#oauth-settings">account sign-in settings</a>, followed by four groups. <b>Mail and calendar</b> has Mail and Calendar. <b>Team messaging</b> has Microsoft Teams and Slack. <b>Documents and notes</b> has Google Drive, Notion, Heptabase and Obsidian. <b>Development and browsing</b> has GitHub and Browser.</p>
+          <p>The <b>Common apps</b> tab opens with <a href="#oauth-settings">account sign-in settings</a>, followed by four groups. <b>Mail and calendar</b> has Mail and Calendar. <b>Team messaging</b> has Microsoft Teams and Slack. <b>Documents and notes</b> has Google Drive, Notion, Heptabase and Obsidian. <b>Development and browsing</b> has GitHub, Browser and Computer (Cua).</p>
           <p><a href="../../assets/media/docs/tools-common-apps-desktop-en.webp">Common apps on desktop</a> · <a href="../../assets/media/docs/tools-common-apps-phone-en.webp">Common apps on a phone</a></p>
           <p>
             On <b>Common apps</b>, open <b>Browser</b>, <b>Mail</b> or <b>Calendar</b>, then <b>Choose assistants to enable this tool</b>. Select the assistants that can use that tool. After you select one or more, open <b>Assistants using this tool · N</b> to change them. Direct Drive, Teams, GitHub and Obsidian access works the same way. Slack’s assistant selection is inside its posting settings. For tools with multiple accounts, your selection applies to every account connected to that tool.
@@ -603,6 +612,39 @@
                   passwords saved. An automation nobody watches cannot hand the browser over.</p>
             </div>
           </div>
+        </section>
+
+        <section id="computer" aria-labelledby="computer-title">
+          <h2 id="computer-title">Computer (Cua)</h2>
+          <p><b>Computer</b>: a Linux desktop for each working directory (Ubuntu with Firefox, made with
+              <a href="https://github.com/trycua/cua">Cua</a>), which its chats, their agents and you share. Agents take screenshots of
+              it, click, type, press keys, start apps and run commands in it, and copy files between it and the working
+              directory. It is never the computer Relay runs on, and nothing of yours is signed in on it.</p>
+          <p>Open <b>Common apps → Development and browsing → Computer (Cua)</b> and select <b>Install Cua</b>. Relay
+              downloads Cua's official release, checks it and installs it in its own folder, showing how much is downloaded;
+              a <code>cua</code> 0.31.0 or later that you installed yourself works too. Select <b>Check whether this computer
+              can run it</b>, then choose the assistants that may use it under <b>Choose assistants to enable this tool</b>.
+              Cua needs, on macOS, nothing more (it runs its own Linux virtual machine); on Linux, Docker or Podman; on
+              Windows, WSL 2, which needs virtualization turned on (inside a virtual machine, nested virtualization, which
+              not every one passes on to Windows).</p>
+          <p>The chats in one working directory share one computer: its files, installed apps and sign-ins, and who has
+              control of it. A chat in another folder gets its own. It starts the first time it is used. The very first start
+              on this computer downloads Cua's Linux runtime and the desktop image, about 2 GB, once, and goes on in the
+              background however long it takes; every computer after it starts in seconds. It is suspended after 30 minutes
+              unused. Deleting a chat leaves the computer to the folder's other chats: delete it from the
+              row in Settings, which lists each folder's computer and how many chats use it.</p>
+          <h3 id="computer-control">Watch it and take control</h3>
+          <p>In a chat, open the <b>⋯</b> menu and choose <b>Computer</b>: it opens beside the chat, where the app preview
+              goes, and you drag its edge to make it wider. You watch what the agents do and see a list of who did what. Choose
+              <b>Take control</b> to use it yourself: your clicks, drags, scrolling and keys go to it, and a typing box and a
+              <b>Keys</b> menu help on a phone. Meanwhile every agent waits, and none sees the screen. Choose <b>Hand back to
+              the agents</b> when you are done; each agent looks again before it acts. On the computer Relay runs on,
+              <b>Open in Cua's viewer</b> shows it in a tab with smoother video, to watch only unless you have control.</p>
+          <p>Below full access, Relay asks you before an agent clicks, types or runs a command on it, as for the
+              <a href="#browser">browser</a>; <b>Always allow</b> on its card covers that action for the rest of the chat. When a step
+              needs you (a sign-in, a password, a CAPTCHA), the agent asks you to take over instead of asking for your
+              password: choose <b>Take control of the computer</b> on its card, then hand it back with a note if you like. The
+              agent hears only that, never what you typed. An automation nobody watches cannot ask.</p>
         </section>
 
         <section id="library" aria-labelledby="library-title">

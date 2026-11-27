@@ -238,6 +238,17 @@ export function PreviewIcon({ size }: { size?: number }) {
   );
 }
 
+/** A monitor on its stand: the chat's computer. */
+export function ComputerIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <rect x="3" y="4" width="18" height="12.5" rx="2" />
+      <path d="M9 20h6" />
+      <path d="M12 16.5V20" />
+    </Svg>
+  );
+}
+
 /** A box with an arrow out of it: open in a new tab. */
 export function ExternalIcon({ size }: { size?: number }) {
   return (

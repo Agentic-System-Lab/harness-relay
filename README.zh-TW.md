@@ -62,6 +62,7 @@
 - **首席 agent 替你撰寫**：用一句話說想要什麼，它就寫好範本、團隊檢查（會先查看專案）或自動任務，讓你看過再儲存；它也會替新對話命名、建議群組怎麼整理；你請團隊之後再做或定期做某件事時，agent 會用卡片提議一個自動任務。（[首席助理](docs/user-guide.zh-TW.md#首席助理)、[提議的自動任務](docs/user-guide.zh-TW.md#自動任務)）
 - **一切即時呈現**：回覆、推理、計畫與工具動作即時串流；Mermaid 圖表、圖片與 agent 做出的檔案直接顯示在對話中；可複製、編輯或重試回覆，也可從側欄或指定回覆帶入紀錄開新議題或子分支。（[複製、編輯與重試](docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](docs/user-guide.zh-TW.md#分支對話)）
 - **Harness Relay 自己的工具**：給每個 CLI 的 agent（Grok、Muse Code 與 OpenCode 以外的開源 agent 只在完全存取時）一個它自己的瀏覽器、郵件與行事曆，透過同一個 MCP server；網頁需要你本人時（登入、CAPTCHA），瀏覽器會交給你，用視窗或在對話中操作；會送到別人那裡的東西在待送出匣等你送出。Microsoft 365、Outlook.com 與 Google 的行事曆與郵件在瀏覽器中登入（OAuth），權杖不會交給 agent。（[Harness Relay 的工具](docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)）
+- **每個工作目錄一台電腦**：同一個資料夾的對話共用的 Linux 桌面（[Cua](https://github.com/trycua/cua)，可在設定中單獨安裝），agent 用截圖、點擊、打字與指令操作它，你在對話旁邊觀看，隨時可以接手，agent 也會在需要你時（登入、CAPTCHA）請你接手。（[對話的電腦](docs/user-guide.zh-TW.md#對話的電腦cua)）
 - **自動任務**：在你執行它、到了設定的時間（例如每個平日 9:00 審查昨天的 commit）、某件事發生時（新郵件、即將開始的行程、pull request 或失敗的 CI、檔案；由 Harness Relay 自己檢查），或這台電腦上的程式呼叫它的 webhook 時，把訊息傳給團隊；自動任務可以跨天追蹤一個目標，直到 agent 回報已達成，失敗的執行也會重試。（[自動任務](docs/user-guide.zh-TW.md#自動任務)）
 - **應用程式預覽**：從回覆或「檔案」按一下就能試用應用程式，團隊做出應用程式時也會自動打開。Relay 直接開啟靜態 HTML、依 npm 指令建置前端或執行後端，或在 Docker 中執行任何語言的 `Dockerfile` 或 compose 檔，顯示它的網頁，終端機程式則顯示它的終端機。遇到錯誤時，可以把錯誤文字加入聊天草稿。[預覽應用程式](docs/user-guide.zh-TW.md#預覽應用程式)
 - **發布到雲端**：預覽沒問題後，一鍵發布到你自己的 Render（網站與後端）和 Neon（PostgreSQL）免費帳號，經由你 GitHub 帳號裡的私人儲存庫。[發布應用程式](docs/user-guide.zh-TW.md#發布應用程式)

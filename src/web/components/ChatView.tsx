@@ -33,6 +33,7 @@ import {
   type PreviewSelection,
   type PreviewSuggestion,
 } from '../appPreview';
+import { OPEN_COMPUTER } from '../computer';
 import { highlightsByReply, nextReviewStart } from '../../shared/review';
 import { conversationHeading } from '../../shared/conversationTitle';
 import { followUpSources, topicCutoff } from '../../shared/followUp';
@@ -69,7 +70,18 @@ import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { Deferred, lazyPart } from './Deferred';
 import { pinnedAt, type PendingPins } from '../sidebar';
-import { ArrowDownIcon, BranchIcon, ClockIcon, FolderIcon, MoreIcon, PinIcon, PreviewIcon, ShareIcon, UsersIcon } from './icons';
+import {
+  ArrowDownIcon,
+  BranchIcon,
+  ClockIcon,
+  ComputerIcon,
+  FolderIcon,
+  MoreIcon,
+  PinIcon,
+  PreviewIcon,
+  ShareIcon,
+  UsersIcon,
+} from './icons';
 import { MessageItem } from './MessageItem';
 import { QuestionUsage } from './QuestionUsage';
 import { questionUsage } from '../questionUsage';
@@ -81,6 +93,7 @@ import { useDialog } from './useDialog';
 
 // Loaded when first opened, not with the chat: the file browser, the schedule and sharing.
 const AppPreview = lazyPart(() => import('./AppPreview').then((m) => m.AppPreview));
+const ComputerPanel = lazyPart(() => import('./ComputerPanel').then((m) => m.ComputerPanel));
 const FileBrowser = lazyPart(() => import('./FileBrowser').then((m) => m.FileBrowser));
 const ScheduleDrawer = lazyPart(() => import('./ScheduleDrawer').then((m) => m.ScheduleDrawer));
 const ShareDialog = lazyPart(() => import('./ShareDialog').then((m) => m.ShareDialog));
@@ -178,6 +191,20 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
   /** A schedule a reply proposed, opened in the schedule drawer to be changed before saving it. */
   const [proposalForm, setProposalForm] = useState<{ messageId: string; draft: ScheduleDraft }>();
   const [appPreview, setAppPreview] = useState<PreviewSelection | null>(null);
+  // The chat's computer (Cua), in the panel the app preview takes: one or the other.
+  const [computerOpen, setComputerOpen] = useState(false);
+  useEffect(() => {
+    const open = (e: Event) => {
+      if ((e as CustomEvent<string>).detail !== id) return;
+      setAppPreview(null);
+      setComputerOpen(true);
+    };
+    window.addEventListener(OPEN_COMPUTER, open);
+    return () => window.removeEventListener(OPEN_COMPUTER, open);
+  }, [id]);
+  useEffect(() => {
+    if (appPreview) setComputerOpen(false);
+  }, [appPreview]);
   // Hidden by the header's Preview button: it keeps running until it is closed.
   const [previewHidden, setPreviewHidden] = useState(false);
   const openFilePreview = useCallback((target: PreviewSelection) => {
@@ -851,7 +878,7 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
 
   return (
     <div
-      className={appPreview && !previewHidden ? 'chat previewing' : 'chat'}
+      className={(appPreview && !previewHidden) || computerOpen ? 'chat previewing' : 'chat'}
       ref={chatRef}
       style={previewWidth === undefined ? undefined : { ['--preview-width' as string]: `${previewWidth}px` }}
     >
@@ -934,6 +961,19 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
             >
               <PreviewIcon size={16} />
               <span className="button-label">{t.appPreview.headButton}</span>
+            </button>
+            <button
+              type="button"
+              className={`ghost small-button head-button computer-head-button ${computerOpen ? 'on' : ''}`}
+              aria-pressed={computerOpen}
+              title={t.computer.buttonTitle}
+              onClick={openFromHead(() => {
+                if (!computerOpen) setAppPreview(null);
+                setComputerOpen((open) => !open);
+              })}
+            >
+              <ComputerIcon size={16} />
+              <span className="button-label">{t.computer.button}</span>
             </button>
           </div>
         </div>
@@ -1268,6 +1308,11 @@ export function ChatView({ chooseBranch, focusComposer, id, providers, catalog, 
       {share && (
         <Deferred onClose={() => setShare(null)}>
           <ShareDialog conv={conv} upTo={share.upTo} chat={() => chatRef.current} onClose={() => setShare(null)} />
+        </Deferred>
+      )}
+      {computerOpen && (
+        <Deferred onClose={() => setComputerOpen(false)}>
+          <ComputerPanel convId={conv.id} onClose={() => setComputerOpen(false)} onResize={resizePreview} />
         </Deferred>
       )}
       {appPreview && (

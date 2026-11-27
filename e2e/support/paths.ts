@@ -13,6 +13,8 @@ export const FAKE_DIALOG_SCRIPT = join(FAKE_CLI_DIR, 'fake-dialog.cjs');
 export const FAKE_GH_SCRIPT = join(FAKE_CLI_DIR, 'fake-gh.cjs');
 /** The fake npm (`npm`), which Settings installs some of the CLIs with. */
 export const FAKE_NPM_SCRIPT = join(FAKE_CLI_DIR, 'fake-npm.cjs');
+/** The fake Cua CLI (`cua`), which starts the chats' computers; off the PATH, linked into a server's own Cua folder by the specs that want it. */
+export const FAKE_CUA_SCRIPT = join(FAKE_CLI_DIR, 'fake-cua.cjs');
 /** The PowerShell stand-in for Microsoft Graph device sign-in and Teams messages. */
 export const FAKE_PWSH_SCRIPT = join(FAKE_CLI_DIR, 'fake-pwsh.cjs');
 /** The built UI the servers under test serve (`npm run build`). */

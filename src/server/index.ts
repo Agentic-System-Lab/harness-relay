@@ -75,6 +75,11 @@ import { VoiceService } from './voice';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
 import { commonAppDependencies } from './appDependencies';
+import { cuaEnv, cuaRunner, linuxRuntime } from './computer/cua';
+import { cuaAvailable, findCua, usableCua } from './computer/install';
+import { StdioMcp } from './computer/mcp';
+import { COMPUTER_MCP_PERMISSIONS, ComputerService } from './computer/session';
+import { computerTools } from './computer/tools';
 import { GitInstall } from './gitInstall';
 import { serveWebApp, webAppDir } from './web';
 import { NativeSetupService } from './native';
@@ -181,9 +186,33 @@ const browser = new BrowserService({
       : handoverWindowAt({ desktop: Boolean(parent), platform: process.platform, env: process.env, macGui: macGuiSession }),
   windowHeadless: CONFIG.headlessWindows,
 });
+// The chat's computer: a Cua desktop the agents and the user share (`computer/`), through `cua mcp`.
+const computer = new ComputerService({
+  run: cuaRunner(() => usableCua()?.bin),
+  available: cuaAvailable,
+  found: () => findCua(),
+  runtime: () => linuxRuntime(process.env, process.platform),
+  startMcp: (ref, onExit) => {
+    const bin = usableCua()?.bin;
+    if (!bin) return Promise.reject(new Error('Cua is not installed'));
+    const env = cuaEnv();
+    return StdioMcp.start({
+      bin,
+      args: ['mcp', '--sandbox', ref, '--permissions', COMPUTER_MCP_PERMISSIONS],
+      env,
+      cwd: env.CUA_HOME ?? relayTmpDir(),
+      onExit,
+    });
+  },
+  dataDir: DATA_DIR,
+  handovers: browser.handovers,
+  // One computer per working directory: the chats there share it.
+  folderOf: (id) => store.cwdOf(id),
+});
 gateway.register([
   outboxTool((id) => outbox.list(id)),
   ...browserTools(browser),
+  ...computerTools(computer, () => relayTmpDir()),
   ...messagingTools(settings.slackPosting, teams),
   ...connectorTools(settings.connectors, settings.oauth),
   ...appTools(
@@ -220,6 +249,7 @@ if (process.platform !== 'win32') {
     }),
   ]);
 }
+// A chat's computer stays: the other chats in its folder share it (the user deletes it from its panel or Settings).
 orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
 // The password helper of the commands the user runs from their cards (sudo -A, ssh, git) asks over the gateway's socket.
@@ -361,6 +391,7 @@ const app = createApp({
   alerts,
   scheduler,
   handovers: browser.handovers,
+  computer,
 });
 
 // --- Static web app (production build) ------------------------------------------
@@ -489,6 +520,8 @@ async function shutdown(code = 0): Promise<void> {
   orchestrator.stopAll();
   void gateway.stop();
   browser.closeAll();
+  // The chats' computers are suspended, to wake with the next server.
+  const computersStopped = computer.shutdown();
   providers.shutdown();
   voice.shutdown();
   // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).
@@ -500,6 +533,7 @@ async function shutdown(code = 0): Promise<void> {
     gitInstall.shutdown(),
     appDependencies.shutdown(),
     teams.shutdown(),
+    computersStopped,
   ]);
   // Let stopped runs write their final state while the database is still open.
   await Promise.all([orchestrator.settled(5000), Promise.race([installsStopped, new Promise((r) => setTimeout(r, 5000))])]);

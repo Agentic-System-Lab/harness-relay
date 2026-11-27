@@ -61,6 +61,7 @@ import {
   PUSH_TAKEN,
   type ApprovalAnswer,
   HANDOVER_LIMITS,
+  type ComputerScreenEvent,
   type HandoverAnswer,
   type HandoverScreenEvent,
   type CheckList,
@@ -89,6 +90,8 @@ import { hasRules } from '../shared/checks';
 import { gatewayNode, sandboxAvailable, servingPort } from './relaySandbox';
 import { checksEnvironment } from './checkCommands';
 import { Handovers, checkInputs, type HandoverRefusal } from './browser/handover';
+import { checkComputerInputs } from './computer/input';
+import { ComputerService } from './computer/session';
 import { discoverCalendars } from './connectors/caldav';
 import { calendarBackend } from './connectors/calendar';
 import type { McpOAuth } from './oauth/mcp';
@@ -116,7 +119,7 @@ import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, 
 import { titleFrom } from '../shared/conversationTitle';
 import { HttpError, forClient, scheduleForClient, type Orchestrator } from './orchestrator';
 import { KeyOnlyAccountError, type ProviderService } from './providers';
-import type { SettingsStore } from './settings';
+import { DATA_DIR, type SettingsStore } from './settings';
 import { fileLinkCount, fileLinksIn, megabytesOver, replaceFileLinks, shareFileHref, shareSize } from '../shared/share';
 import {
   ShareError,
@@ -261,6 +264,8 @@ export interface AppDeps {
   scheduler?: Pick<Scheduler, 'check'>;
   /** The hand-overs of the chats' browsers going on (`browser/handover.ts`): the browser tools' own, else none. */
   handovers?: Handovers;
+  /** The chats' Cua computers (`computer/session.ts`): the computer tools' own; without it, one that never finds Cua. */
+  computer?: ComputerService;
   /** Accounts that sign in with OAuth (`oauth/service.ts`); Settings' own when not given (stand-in providers in tests). */
   oauth?: OAuthService;
   /** The tool library MCP servers' own sign-ins (`oauth/mcp.ts`), with `oauth`'s sign-ins; Settings' own when not given. */
@@ -398,6 +403,14 @@ export function createApp({
   mcpOAuth = settings.mcpOAuth,
   previews = new AppPreviews('test'),
   handovers = new Handovers(),
+  computer = new ComputerService({
+    run: () => Promise.reject(new Error('Cua is not installed')),
+    available: () => false,
+    startMcp: () => Promise.reject(new Error('Cua is not installed')),
+    dataDir: DATA_DIR,
+    handovers,
+    folderOf: (id) => store.cwdOf(id),
+  }),
   publisher = new AppPublisher(settings.publish, { owner: 'test' }),
   labsUnavailable = async () => {
     if (process.platform === 'win32') return t().labsWindows;
@@ -1337,7 +1350,7 @@ export function createApp({
   // Stop the install under way.
   app.delete('/api/sandbox-setup/install', (c) => c.json(sandboxSetup.cancel()));
 
-  for (const name of ['github', 'browser'] as const) {
+  for (const name of ['github', 'browser', 'cua'] as const) {
     const path = '/api/apps/' + name + '/install';
     app.get(path, (c) => c.json(appDependencies.view(name)));
     app.post(path, (c) => c.json(appDependencies.install(name)));
@@ -2901,7 +2914,7 @@ export function createApp({
     const note = typeof b.note === 'string' && b.note.trim() ? b.note.trim().slice(0, HANDOVER_LIMITS.noteMax) : undefined;
     let answer: HandoverAnswer;
     if (b.action === 'start') {
-      if (b.mode !== 'window' && b.mode !== 'screencast') throw new HttpError(400, t().invalidField('mode'));
+      if (b.mode !== 'window' && b.mode !== 'screencast' && b.mode !== 'computer') throw new HttpError(400, t().invalidField('mode'));
       answer = { action: 'start', mode: b.mode };
     } else if (b.action === 'done' || b.action === 'cancel') answer = { action: b.action, ...(note ? { note } : {}) };
     else throw new HttpError(400, t().invalidField('action'));
@@ -2963,6 +2976,102 @@ export function createApp({
     handoverRefused(await handovers.input(conv.id, c.req.param('handoverId'), events));
     return c.json({ ok: true });
   });
+
+  // --- The chat's computer (a Cua desktop: `computer/session.ts`) ------------------------------
+
+  // Where the chat's computer stands, who has control, what was done on it lately.
+  app.get('/api/conversations/:id/computer', (c) => c.json(computer.view(getConv(c.req.param('id')).id)));
+
+  // The user starts it, takes control (the agents' calls wait), hands it back, or turns it off (suspended).
+  app.post('/api/conversations/:id/computer', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ action?: unknown; note?: unknown }>(c);
+    const note = typeof b.note === 'string' && b.note.trim() ? b.note.trim().slice(0, HANDOVER_LIMITS.noteMax) : undefined;
+    switch (b.action) {
+      case 'start':
+        try {
+          return c.json(computer.turnOn(conv.id));
+        } catch (err) {
+          throw new HttpError(409, (err as Error).message);
+        }
+      case 'take':
+        return c.json(computer.takeControl(conv.id));
+      case 'return':
+        return c.json(computer.handBack(conv.id, note));
+      case 'stop':
+        return c.json(await computer.turnOff(conv.id));
+      default:
+        throw new HttpError(400, t().invalidField('action'));
+    }
+  });
+
+  // Deletes one of this server's computers by its name (Settings' list), with its disk.
+  app.delete('/api/computers/:name', async (c) => {
+    if (!(await computer.removeByName(c.req.param('name')))) throw new HttpError(404, t().computer.notOn);
+    return c.json({ ok: true });
+  });
+
+  // The computer's panel, as SSE for any signed-in browser (read with fetch: its key in the header): its
+  // state as it changes, and its screen (the latest frame only, for a browser that falls behind), taken
+  // while someone watches.
+  app.get('/api/conversations/:id/computer/screen', (c) => {
+    const conv = getConv(c.req.param('id'));
+    let frame: ComputerScreenEvent | undefined;
+    let state: ComputerScreenEvent | undefined;
+    let wake: (() => void) | undefined;
+    const unwatch = computer.watch(conv.id, (e) => {
+      if (e.type === 'frame') frame = e;
+      else state = e;
+      wake?.();
+    });
+    c.header('cache-control', 'no-store');
+    return streamSSE(c, async (stream) => {
+      stream.onAbort(() => {
+        unwatch();
+        wake?.();
+      });
+      while (!stream.aborted) {
+        while (!stream.aborted && (state || frame)) {
+          const next = state ?? frame!;
+          if (next === state) state = undefined;
+          else frame = undefined;
+          await stream.writeSSE({ data: JSON.stringify(next) });
+        }
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 15_000);
+          wake = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
+        wake = undefined;
+        if (!stream.aborted && !state && !frame) await stream.writeSSE({ event: 'ping', data: '' });
+      }
+      unwatch();
+    });
+  });
+
+  // What the user does in the computer's panel (clicks, drags, scrolling, keys, text), in order, while they
+  // have control.
+  app.post('/api/conversations/:id/computer/input', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ events?: unknown }>(c);
+    const events = checkComputerInputs(b.events);
+    if (typeof events === 'string') throw new HttpError(400, t().invalidField('events'));
+    if (!(await computer.input(conv.id, events))) throw new HttpError(409, t().computer.notYours);
+    return c.json({ ok: true });
+  });
+
+  // A link to Cua's own viewer of the computer (smoother video, the clipboard), for a browser on this
+  // computer: to watch only, unless the user has control.
+  app.post('/api/conversations/:id/computer/viewer', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    return c.json(await computer.viewerLink(conv.id));
+  });
+
+  // Settings → Common apps → Computer: Cua as found here, whether its computers can run, and the chats'
+  // computers. `?check=1` asks Cua what this computer can run (`cua runtime doctor`: seconds).
+  app.get('/api/computer', async (c) => c.json(await computer.settingsView(c.req.query('check') === '1', () => store.folders())));
 
   // Answer an agent's request to do something its permission does not cover.
   app.post('/api/conversations/:id/approvals/:approvalId', async (c) => {

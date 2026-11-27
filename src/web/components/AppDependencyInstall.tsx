@@ -58,11 +58,12 @@ export function AppDependencyInstall({ name, onReady }: { name: AppDependency; o
     setInstallError('');
     setRefresh((n) => n + 1);
   };
-  const label = name === 'github' ? t.apps.installGh : t.apps.installBrowser;
+  const label = name === 'github' ? t.apps.installGh : name === 'cua' ? t.apps.installCua : t.apps.installBrowser;
   return (
     <div className="app-dependency">
       {!view && !error && <p role="status">{t.common.loading}</p>}
-      {busy && <p role="status">{t.apps.installingDependency}</p>}
+      {busy && !view?.job?.progress && <p role="status">{t.apps.installingDependency}</p>}
+      {busy && view?.job?.progress && <DownloadProgress done={view.job.progress.done} total={view.job.progress.total} />}
       {(error || installError) && <p role="alert">{error || installError}</p>}
       {failed && !busy && <p role="alert">{view?.job?.error}</p>}
       {failed && view?.job?.log && (
@@ -77,7 +78,17 @@ export function AppDependencyInstall({ name, onReady }: { name: AppDependency; o
           {view.command ? (
             <code>{view.command}</code>
           ) : (
-            <a href={name === 'github' ? 'https://cli.github.com/' : 'https://www.google.com/chrome/'} target="_blank" rel="noreferrer">
+            <a
+              href={
+                name === 'github'
+                  ? 'https://cli.github.com/'
+                  : name === 'cua'
+                    ? 'https://cua.ai/docs/cua-cli/quickstart'
+                    : 'https://www.google.com/chrome/'
+              }
+              target="_blank"
+              rel="noreferrer"
+            >
               {t.apps.downloadPage}
             </a>
           )}
@@ -95,6 +106,19 @@ export function AppDependencyInstall({ name, onReady }: { name: AppDependency; o
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/** A download under way: how much of it, and a bar when its size is known; then that it is being checked. */
+function DownloadProgress({ done, total }: { done: number; total?: number }) {
+  const t = useT();
+  const mb = (n: number) => (n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0);
+  if (total && done >= total) return <p role="status">{t.apps.unpacking}</p>;
+  return (
+    <div className="download-progress" role="status">
+      <span>{total ? t.apps.downloading(mb(done), mb(total), Math.floor((done / total) * 100)) : t.apps.downloaded(mb(done))}</span>
+      {total ? <progress value={done} max={total} /> : null}
     </div>
   );
 }

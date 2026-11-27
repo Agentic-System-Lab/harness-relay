@@ -655,6 +655,12 @@ export class InstallJob {
   finishedAt?: number;
   private log = '';
   private error?: () => string;
+  private download?: { done: number; total?: number };
+
+  /** How much of a download is done (bytes), of how much in all. */
+  progress(done: number, total?: number): void {
+    this.download = { done, ...(total ? { total } : {}) };
+  }
 
   append(text: string): void {
     this.log += text;
@@ -672,6 +678,7 @@ export class InstallJob {
       state: this.state,
       startedAt: this.startedAt,
       ...(this.finishedAt !== undefined ? { finishedAt: this.finishedAt } : {}),
+      ...(this.download ? { progress: this.download } : {}),
       log: cleanLog(this.log),
       ...(this.error ? { error: this.error() } : {}),
     };

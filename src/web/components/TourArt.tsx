@@ -360,6 +360,35 @@ const PICTURES: Record<TopicId, () => ReactNode> = {
     </svg>
   ),
 
+  // The chat's computer: a desktop on a screen, an agent's pointer clicking in its window, then the
+  // control passing to you (a button), and it is yours.
+  computer: () => (
+    <svg viewBox="0 0 400 280" focusable="false">
+      <g className="enter">
+        <rect className="tour-art-card" x="62" y="20" width="276" height="176" rx="14" />
+        <rect className="tour-art-card surface" x="76" y="34" width="248" height="140" rx="6" />
+        <path className="divider" d="M200 196v20M164 220h72" />
+      </g>
+      <g className="enter" style={at(0.3)}>
+        <rect className="tour-art-card" x="98" y="52" width="140" height="92" rx="8" />
+        <path className="divider" d="M98 70h140" />
+      </g>
+      {[84, 102, 120].map((y, i) => (
+        <rect key={y} className="line" x="112" y={y} width={[96, 70, 84][i]} height="8" rx="4" style={at(0.5 + i * 0.12)} />
+      ))}
+      <g className="pop" style={at(0.95)}>
+        <circle cx="262" cy="126" r="11" fill="var(--codex)" />
+        <path className="tour-art-card" d="M220 100l16 38 6-14 14-6Z" />
+      </g>
+      <g className="show" style={at(1.4)}>
+        <rect className="pill" x="118" y="236" width="128" height="28" rx="14" />
+        <circle className="you" cx="134" cy="250" r="7" />
+        <rect className="pill-text" x="150" y="246" width="80" height="8" rx="4" />
+      </g>
+      <Check cx={276} cy={250} start={1.8} />
+    </svg>
+  ),
+
   // Labs: three choices for using tools, with long-term memory a separate setting below.
   labs: () => (
     <svg viewBox="0 0 400 280" focusable="false">

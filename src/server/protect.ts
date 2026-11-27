@@ -289,7 +289,7 @@ export function protectedReads(
 ): string[] {
   const platform = o.platform ?? process.platform;
   if (platform === 'win32') return [];
-  const relay = [...relayDatabaseFiles(o.dataDir, o.env), relayTmpDir(o.dataDir), relayBrowserDir(o.dataDir)];
+  const relay = [...relayDatabaseFiles(o.dataDir, o.env), relayTmpDir(o.dataDir), relayBrowserDir(o.dataDir), cuaHomeDir(o.env, o.home)];
   const codespace = platform === 'linux' ? codespaceSecretDirs(o.env, o.home, o.codespaceDir) : [];
   // Where $XDG_CONFIG_HOME is, from the environment given ('' when it names none: undefined would be the server's).
   const xdgConfig = (o.env ?? process.env).XDG_CONFIG_HOME ?? '';
@@ -297,6 +297,14 @@ export function protectedReads(
     existsSync(p),
   );
   return [...new Set(paths.flatMap((p) => [p, real(p)]))];
+}
+
+/**
+ * Cua's home (`CUA_HOME`, else `~/.cua`): its computers' state and tokens, with which anything could drive the
+ * chats' computers around the computer tools (`src/server/computer/cua.ts`, `cuaHome()`, which this follows).
+ */
+export function cuaHomeDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  return env.CUA_HOME?.trim() || join(home, '.cua');
 }
 
 /** Whether two paths are the same, or one is inside the other (real paths). */

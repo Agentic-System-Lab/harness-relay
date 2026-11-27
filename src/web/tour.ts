@@ -4,7 +4,7 @@
 const DONE_KEY = 'relay:onboarded';
 /** The topics read, each at the revision it was read in, and the version a "Not now" answered. */
 const GUIDE_KEY = 'relay:guide';
-export const TOUR_VERSION = 48;
+export const TOUR_VERSION = 49;
 
 /** Ordered like tour.steps in both locales. Topics added after the checklist also record when they first appeared. */
 export const TOUR_STEPS = [
@@ -16,6 +16,7 @@ export const TOUR_STEPS = [
   { id: 'phone', revision: 23 },
   { id: 'automations', revision: 44 },
   { id: 'apps', revision: 33 },
+  { id: 'computer', revision: 49, introduced: 49 }, // the chat's Cua computer: watched, taken control of
   { id: 'labs', revision: 48, introduced: 48 },
 ] as const satisfies readonly { id: string; revision: number; introduced?: number }[];
 

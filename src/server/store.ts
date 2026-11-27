@@ -1016,6 +1016,21 @@ export class Store {
 
   // Conversations ------------------------------------------------------------
 
+  /** A conversation's working directory, without loading the conversation (the chat's computer goes by it). */
+  cwdOf(id: string): string | undefined {
+    const row = this.db.prepare('SELECT cwd FROM conversations WHERE id = ?').get(id) as { cwd: string } | undefined;
+    return row?.cwd;
+  }
+
+  /** Every conversation's id, title and working directory (Settings' list of the computers). */
+  folders(): { id: string; title: string; cwd: string }[] {
+    return this.db.prepare('SELECT id, title, cwd FROM conversations ORDER BY updated_at DESC').all() as {
+      id: string;
+      title: string;
+      cwd: string;
+    }[];
+  }
+
   list(
     running: (id: string) => boolean,
     waiting: (id: string) => boolean = () => false,
