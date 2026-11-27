@@ -463,6 +463,7 @@ export const zhTW = {
     // What to do first: a phone shows only the start of a placeholder.
     placeholderCommand: '等固定指令結束，或按「停止」，才能送出',
     placeholderHeld: '等資料夾裡的指令或檔案操作結束，才能送出',
+    preparingTracking: '正在為這個資料夾準備修改紀錄（只有第一次），之後每一回合都會比較快。',
     // Steering on: what is sent goes into the running turn when it can.
     placeholderSteer: '插話給團隊…（可以的話直接送進進行中的回合）',
     placeholderAnswer: (names: string) => `回答 ${names} 的問題…`,

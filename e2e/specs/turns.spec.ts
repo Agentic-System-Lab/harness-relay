@@ -2,7 +2,10 @@ import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
 import { composer, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
-import { chatWith, CLIS, eachCli } from '../support/clis';
+import { chatWith, CLIS, eachCli, withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 test.describe('how members take turns', () => {
   test('an agent that asks the user waits for the answer, then answers with it', async ({ page, relay }) => {

@@ -31,6 +31,7 @@ import {
   textOf,
   withLang,
 } from './orchestrator-harness';
+import { commitWorktree } from '../src/server/workspace';
 
 const cards = (conv: Conversation) => conv.messages.filter((m) => m.checks);
 const lastCard = (conv: Conversation) => cards(conv).at(-1)!;
@@ -1175,8 +1176,8 @@ describe('team checks: applying a parallel result', () => {
     // The member worked on in its worktree since.
     const wt = conv.worktrees.b![0]!;
     writeFileSync(join(wt.path, 'more.txt'), 'more\n');
-    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'add', '-A'], { cwd: wt.path });
-    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'more'], { cwd: wt.path });
+    // Its next turn's result, as the orchestrator records it.
+    expect(await commitWorktree(wt.root, wt.path, wt.branch, 'more')).toBeTruthy();
     const again = await orchestrator.applyAgentWork(conv.id, 'b', { force: true });
     expect(again.held).toBeDefined();
     expect(again.held).not.toBe(first);

@@ -3,7 +3,10 @@ import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import { askAndConfirm, awaitingPlan, chatId, confirmTeam, finishedReply, replies, send, settled, startChat } from '../support/app';
-import { eachHalf, sharedPermission, teamOf } from '../support/clis';
+import { eachHalf, sharedPermission, teamOf, withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /** The most members the lead agent puts in a team it designs for a new question (`newTeamLimit` in src/server/planner.ts). */
 const LEAD_TEAM_MAX = 5;

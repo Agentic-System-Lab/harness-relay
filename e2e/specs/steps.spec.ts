@@ -3,6 +3,10 @@ import { devices, type Locator, type Page } from '@playwright/test';
 import type { Conversation, StepsPart } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { composer, finishedReply, openTeamChat, replies, send } from '../support/app';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /*
  * Steps cards: a member that gives the user steps to take outside Harness Relay (a `<steps>` block,

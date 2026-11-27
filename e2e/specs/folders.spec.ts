@@ -11,7 +11,10 @@ import {
   send,
   submitFirstQuestion,
 } from '../support/app';
-import { chatWith, CLIS, eachCli, endsTurnNote, member, needsBelowFull, writtenBy } from '../support/clis';
+import { chatWith, CLIS, eachCli, endsTurnNote, member, needsBelowFull, withClis, writtenBy } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /*
  * The fake CLIs write only where the real ones could (their permission and sandbox, and the folders

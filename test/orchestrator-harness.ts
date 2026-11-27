@@ -46,6 +46,10 @@ export const { PLANNER_BRIEFING, REVISER_BRIEFING, TEMPLATE_BRIEFING } = await i
 export const { CHECKS_BRIEFING } = await import('../src/server/checksDraft');
 export const { SCHEDULE_BRIEFING } = await import('../src/server/scheduleDraft');
 export const { GROUPER_BRIEFING, ORGANIZER_BRIEFING } = await import('../src/server/grouping');
+// Harness Relay's own repositories (snapshots, kept refs, worktrees' git folders): the test's own, also
+// in a file that loaded a server module (and so DATA_DIR) before this one.
+const { setRepoStore } = await import('../src/server/workspace');
+setRepoStore(join(root, 'data', 'repos'));
 export const { REVIEWER_BRIEFING } = await import('../src/server/reviewer');
 export const { TIDY_BRIEFING } = await import('../src/server/memory');
 export const { APPROVAL_REVIEWER_BRIEFING } = await import('../src/server/approvalReview');

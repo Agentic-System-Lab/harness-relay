@@ -115,6 +115,8 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     'e2e/live/**',
     'e2e/fixtures.ts',
     'e2e/global-setup.ts',
+    // The server bundled for the end-to-end tests (the app's checks start desktop/scripts/build.ts's).
+    'e2e/support/server-bundle.ts',
     'playwright.config.ts',
     'playwright.live.config.ts',
     'vitest.config.ts',
@@ -124,6 +126,7 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     'scripts/login.ts',
     'scripts/preview-site.ts',
     'scripts/sandbox-check.ts',
+    'scripts/e2e-budget.ts',
     'scripts/cli-check.ts',
     'scripts/cli-check/**',
     // The READMEs' contributors.
@@ -137,8 +140,8 @@ export const IGNORES: Record<Scope, readonly string[]> = {
   ],
   // The end-to-end tests are the server and the UI (src/), the specs and the fake CLIs (e2e/), the
   // website's viewer of shared conversations, which they open shares on (site/share/,
-  // site/assets/share.js), and the check of Harness Relay's own sandbox the workflow runs first
-  // (scripts/sandbox-check.ts).
+  // site/assets/share.js), the check of Harness Relay's own sandbox the workflow runs first
+  // (scripts/sandbox-check.ts), and the check of the tests' time it runs after them (scripts/e2e-budget.ts).
   e2e: [
     ...PROSE,
     'LICENSE',
@@ -163,6 +166,7 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     'vitest.config.ts',
     'scripts/**',
     '!scripts/sandbox-check.ts',
+    '!scripts/e2e-budget.ts',
     '!scripts/oauth-guides.ts',
     '.github/contributors.json',
     '.github/workflows/ci.yml',

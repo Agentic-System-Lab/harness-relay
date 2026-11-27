@@ -1,11 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import { finishedReply, openTeamChat, send } from '../support/app';
+import { TURN_MS, finishedReply, openTeamChat, send } from '../support/app';
 import { selectAssistant } from '../support/app-access';
+import { notInstalledBut } from '../support/fake-cli';
 
 test.describe('PowerShell distribution', () => {
-  test.use({ serverEnv: { NODE_OPTIONS: '--import=' + new URL('../support/teams-download-loader.mjs', import.meta.url).href } });
+  // Codex too, whose app links the row must not offer either.
+  test.use({
+    missingClis: notInstalledBut(['codex']),
+    serverEnv: { NODE_OPTIONS: '--import=' + new URL('../support/teams-download-loader.mjs', import.meta.url).href },
+  });
   test('a missing PowerShell installation can be retried after a failed download, including across reloads', async ({ page, relay }) => {
     const file = (name: string) => join(relay.home, 'e2e-teams', name);
     // Fail closed before ever offering the installer if the server did not load its offline transport.
@@ -84,6 +89,9 @@ test('Teams reuses an importable Graph module and repairs a broken one with a ve
 });
 
 test('Graph device sign-in lets the chosen assistant read Teams and each approved Send delivers one message', async ({ page, relay }) => {
+  // Three turns through the gateway and two device sign-ins: on a busy Windows runner each turn first
+  // waited 9 s for its snapshot's git processes (nine of them then, seven since), and the test took 65 s.
+  test.setTimeout(150_000);
   const folder = join(relay.home, 'e2e-teams');
   const posts = join(folder, 'posts.jsonl');
   const allow = (name: string) => writeFileSync(join(folder, name), '');
@@ -138,7 +146,8 @@ test('Graph device sign-in lets the chosen assistant read Teams and each approve
   for (const [index, decision] of ['Discard', 'Send'].entries()) {
     await send(page, proposal);
     const card = page.locator('.outbox-card').nth(index);
-    await expect(card).toContainText('Product team / Planning');
+    // The card comes during the turn, which may take as long as a turn.
+    await expect(card).toContainText('Product team / Planning', { timeout: TURN_MS });
     await expect(card).toContainText(address);
     await expect(card.locator('.outbox-body')).toHaveJSProperty('textContent', text);
     await finishedReply(page, 'Claude');

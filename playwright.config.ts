@@ -23,6 +23,8 @@ const unknown = wanted.filter((b) => !BROWSERS[b]);
 if (unknown.length) throw new Error(`E2E_BROWSERS: unknown ${unknown.join(', ')} (choose from ${Object.keys(BROWSERS).join(', ')})`);
 
 const ci = Boolean(process.env.CI);
+/** Where CI's JSON results go (outside `outputDir`, which each run empties; uploaded with it). */
+const E2E_RESULTS = 'test-results/e2e-results.json';
 
 export default defineConfig({
   testDir: './e2e/specs',
@@ -38,8 +40,9 @@ export default defineConfig({
   // mostly wait on processes starting: three there took no longer each. Four were only a little
   // faster, and on a slow runner some ran out of time.
   workers: ci ? (process.platform === 'win32' ? 3 : 2) : '50%',
+  // On CI, also the results as JSON, whose time scripts/e2e-budget.ts checks after the tests.
   reporter: ci
-    ? [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }], ['github']]
+    ? [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }], ['github'], ['json', { outputFile: E2E_RESULTS }]]
     : [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
   use: {
     trace: 'retain-on-failure',

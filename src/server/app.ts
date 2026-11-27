@@ -1842,6 +1842,8 @@ export function createApp({
       confirmed = orchestrator.teamSetByHand(conv, Boolean(b.agents));
       return save();
     });
+    // Its folders (or permission) changed: their change tracking prepared ahead of the next turn.
+    if (b.settings) orchestrator.warmTracking(conv);
     // The team set by hand answers the question its design was for.
     if (confirmed) orchestrator.startConfirmed(conv);
     return res;
@@ -3285,9 +3287,12 @@ export function createApp({
         activeAgentIds: orchestrator.activeAgentIds(conv.id),
         commandRunning: orchestrator.commandRunning(conv.id),
         folderHeld: orchestrator.folderHeld(conv.id),
+        preparing: orchestrator.isPreparing(conv.id),
       });
       while (queue.length) await send(queue.shift()!);
       ready = true;
+      // Opened: its folders' change tracking prepared ahead of the first turn (once each).
+      orchestrator.warmTracking(conv);
       while (!stream.aborted) {
         await stream.sleep(15_000);
         if (!stream.aborted) await stream.writeSSE({ event: 'ping', data: '' });

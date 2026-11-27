@@ -5,7 +5,10 @@ import type { Download, Locator, Page } from '@playwright/test';
 import { FILE_LIMITS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { chooseChatAction, acceptNextDialog, finishedReply, openTeamChat, send, settled, startChat, confirmTeam } from '../support/app';
-import { CLIS, eachCli, eachHalf, endsTurnNote, logged, member, needsBelowFull, teamOf, teams } from '../support/clis';
+import { CLIS, eachCli, eachHalf, endsTurnNote, logged, member, needsBelowFull, teamOf, teams, withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /**
  * A ZIP file's entries, by name (a folder's ends with `/`), with each one's bytes: read from its central

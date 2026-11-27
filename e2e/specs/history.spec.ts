@@ -1,5 +1,9 @@
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, chatId, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 test.describe("changing a chat's history", () => {
   test('a message can be edited and sent again: what came after it is replaced', async ({ page, relay }) => {

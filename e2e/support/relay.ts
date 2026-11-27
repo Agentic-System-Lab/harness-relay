@@ -1,11 +1,11 @@
 /**
- * One Harness Relay server for one test: `src/server/index.ts` with the built UI, on a free port,
+ * One Harness Relay server for one test: the server bundled before the tests (or its source,
+ * `serverToStart()` in `server-bundle.ts`) with the built UI, on a free port,
  * with everything it keeps in a temporary folder of its own (data, the CLIs' homes, a home folder,
  * the default working directory), the fake CLIs first on its PATH and the OS credential store off.
  * Beside it runs the test's fake model endpoint (`FakeEndpoint`), which is set up as a model backend,
  * and the open agents' default model is one of its models, so they are ready to run. Only the CLIs the
- * test is about are installed there, besides Claude Code, Codex and Grok (`missingClis`, by default
- * `notInstalledBut()`). Nothing of the user's own Harness Relay, CLIs or keychain is read or changed.
+ * test uses are installed there, besides Claude Code (`missingClis`, by default `notInstalledBut()`). Nothing of the user's own Harness Relay, CLIs or keychain is read or changed.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
@@ -31,6 +31,7 @@ import { OPEN_PROVIDERS, PROVIDERS, type Provider } from '../../src/shared/types
 import { FACTS } from './clis/all';
 import { fakeBin, fakeDockerIn, notInstalledBut } from './fake-cli';
 import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
+import { serverToStart } from './server-bundle';
 
 /** The API key a test server gives a CLI whose default account runs on a key only (`defaultKeyOnly`). */
 export const DEFAULT_KEY = 'AIza-e2e-default-key-0000';
@@ -150,7 +151,7 @@ export interface StartOptions {
   live?: boolean;
   /**
    * The CLIs not installed in this server: their executable is set to a path that does not exist.
-   * By default all but Claude Code, Codex and Grok (`DEFAULT_CLIS`), and those whose fake is not
+   * By default all but Claude Code (`DEFAULT_CLIS`), and those whose fake is not
    * written yet (`notInstalledBut()`): each CLI installed is asked for its status, models and what it
    * loads by itself whenever a page opens. Not in live runs.
    */
@@ -170,6 +171,9 @@ export interface StartOptions {
 }
 
 const STARTUP_MS = 60_000;
+
+/** This worker said once that the server's bundle is older than its files (`startRelay`). */
+let staleNoted = false;
 
 /**
  * The longest a test server's data folder may be on each system (in bytes), for Harness Relay's own
@@ -392,7 +396,18 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   if (process.platform === 'win32') delete env.Path;
 
   let output = '';
-  const child: ChildProcess = spawn(process.execPath, ['--import', 'tsx', SERVER_ENTRY], {
+  // The server bundled before the tests, or its source (`serverToStart()`, which says when and why).
+  const start = serverToStart({
+    bundle: process.env.E2E_SERVER_BUNDLE,
+    source: process.env.E2E_SERVER_SOURCE,
+    nodeOptions: env.NODE_OPTIONS,
+  });
+  if (start.stale && !staleNoted) {
+    staleNoted = true;
+    console.warn(`[e2e] the server's files changed since ${start.stale} was bundled: its tests start it from its source (slower)`);
+  }
+  const bundled = start.bundle;
+  const child: ChildProcess = spawn(process.execPath, bundled ? [bundled] : ['--import', 'tsx', SERVER_ENTRY], {
     cwd: ROOT,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],

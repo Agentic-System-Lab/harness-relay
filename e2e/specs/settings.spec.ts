@@ -5,6 +5,9 @@ import { finishedReply, openTeamChat, openToolCategory, replies, send, startChat
 import { chatWith, CLIS, eachCli, faked, member, OPEN, SIGNED_IN, withClis, withEveryCli } from '../support/clis';
 import { notInstalledBut } from '../support/fake-cli';
 
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
+
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 test('Apps and tools is one section with bookmarkable tabs that preserve drafts', async ({ page, relay }) => {
@@ -100,6 +103,8 @@ test.describe('a CLI that is not signed in', () => {
     test.describe(() => {
       // One that runs on a key only has none: its fake stays signed in (a Google sign-in agy keeps), unused.
       test.use({ serverEnv: cli.defaultKeyOnly ? { [cli.apiKeyEnv!]: '' } : { E2E_FAKE_SIGNED_OUT: cli.provider } });
+      // Claude Code's test checks that Codex stays signed in: install it too (the others check Claude Code).
+      if (cli.provider === 'claude') withClis('codex');
 
       test(`${cli.provider}: shows as signed out in Settings and the sidebar, and its reply says why`, async ({ page, relay }) => {
         // Another CLI stays signed in.
@@ -144,8 +149,8 @@ test.describe('a CLI that is not signed in', () => {
 });
 
 test.describe('a CLI that is not installed', () => {
-  // Left out, as they are by default (the CLIs installed are Claude Code, Codex and Grok).
-  test.use({ missingClis: [...new Set<Provider>([...notInstalledBut(), 'cursor', 'antigravity'])] });
+  // Left out, as they are by default (the CLIs installed here are Claude Code, Codex and Grok).
+  test.use({ missingClis: [...new Set<Provider>([...notInstalledBut(['codex', 'grok']), 'cursor', 'antigravity'])] });
 
   test('shows so in Settings and the sidebar', async ({ page }) => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
@@ -238,7 +243,7 @@ test.describe('an open agent without a model backend', () => {
 });
 
 test.describe('settings', () => {
-  // Every CLI installed: the others' tests leave all but Claude Code, Codex, Grok and their own out.
+  // Every CLI installed: the others' tests leave all but Claude Code (Codex and Grok, here) and their own out.
   test.describe(() => {
     withEveryCli();
 

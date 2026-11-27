@@ -6,8 +6,8 @@
  * page, signed out), `tour` (true: the guided tour is not marked done), `envNotice` (true: New chat
  * may say which keys of the server's environment a CLI is not given), `serverEnv` (more
  * environment for the server and the CLIs it starts), `live` (the real CLIs: `e2e/live/`),
- * `missingClis` (the CLIs not installed: by default all but Claude Code, Codex and Grok,
- * `DEFAULT_CLIS`; `withClis()` and the per-CLI helpers of `support/clis.ts` set it),
+ * `missingClis` (the CLIs not installed: by default all but Claude Code, `DEFAULT_CLIS`;
+ * `withClis()` and the per-CLI helpers of `support/clis.ts` set it),
  * `openBackend` (false: no model backend, so the open agents are installed but not ready),
  * `sandboxTerminal` (false: OpenHands' terminal switch off) and `fakeDocker` (true: the fake Docker CLI
  * first on the server's PATH, for a spec that removes Cua, so that the host's Docker is never touched).

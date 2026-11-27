@@ -1,10 +1,13 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog } from '../support/app';
 import { notInstalledBut } from '../support/fake-cli';
 import type { RelayServer } from '../support/relay';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /**
  * Installing a CLI from its card in Settings (`src/server/cliInstall.ts`), with the fake npm
@@ -22,8 +25,8 @@ function fakeNpm(relay: RelayServer) {
 }
 
 test.describe('installing a CLI from Settings', () => {
-  // Copilot and Cline are not installed, as by default; Grok neither, here.
-  test.use({ missingClis: [...new Set<Provider>([...notInstalledBut(), 'grok'])] });
+  // Claude Code and Codex installed; Copilot and Cline not, as by default; Grok neither, here.
+  test.use({ missingClis: notInstalledBut(['codex']) });
 
   test('installs a CLI that is not found into a folder of its own, and removes it again', async ({ page, relay }) => {
     const npm = fakeNpm(relay);

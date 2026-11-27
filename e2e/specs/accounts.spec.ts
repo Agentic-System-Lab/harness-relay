@@ -4,8 +4,11 @@ import type { Locator, Page, Request } from '@playwright/test';
 import type { Provider, SettingsView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { chooseChatAction, acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
-import { defaultHome, eachCli, homeIn, logoutArgs, sessionFile, SIGNED_IN, statusInOwnFolder, type Cli } from '../support/clis';
+import { defaultHome, eachCli, homeIn, logoutArgs, sessionFile, SIGNED_IN, statusInOwnFolder, type Cli, withClis } from '../support/clis';
 import type { FakeLogEntry, RelayServer } from '../support/relay';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /*
  * The CLIs with a sign-in of their own have accounts (the open agents have none: they run on the

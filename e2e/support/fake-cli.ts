@@ -79,14 +79,16 @@ export const IMPLEMENTED_FAKES: readonly Provider[] = PROVIDERS.filter((p) => FA
 export const NOT_YET_FAKED: readonly Provider[] = PROVIDERS.filter((p) => !FACTS[p].implemented);
 
 /**
- * The CLIs a test server has installed unless the test says otherwise: Claude Code, Codex and Grok,
- * which the tests about no CLI of their own use. As a page opens, the server asks every installed CLI
- * for its version, its sign-in, its models and what it loads by itself, some six starts of it (each a
- * Node process, and on Windows a single executable of about 100 MB): all ten made about 65 starts a
- * test, these three about 20, and on CI each test took a second longer (three on Windows). A test
- * about another CLI installs that one too (`eachCli()`, `eachHalf()` and `withClis()` in `clis.ts`).
+ * The CLIs a test server has installed unless the test says otherwise: Claude Code alone, which the
+ * tests about no CLI of their own use. As a page opens, the server asks every installed CLI for its
+ * version, its sign-in, its models and what it loads by itself, some six starts of it (each a Node
+ * process, and on Windows a single executable of about 100 MB): all ten made about 65 starts a test,
+ * Claude Code, Codex and Grok about 20 (on CI each test took a second longer, three on Windows), and
+ * on a busy Windows runner those starts slow every other test running beside it. A test that uses
+ * another CLI installs it (`eachCli()`, `eachHalf()` and `withClis()` in `clis.ts`): a spec that uses
+ * Codex and Grok throughout calls `withClis('codex', 'grok')` at its top.
  */
-export const DEFAULT_CLIS: readonly Provider[] = ['claude', 'codex', 'grok'];
+export const DEFAULT_CLIS: readonly Provider[] = ['claude'];
 
 /**
  * A test server's `missingClis` for one that has `clis` installed besides `DEFAULT_CLIS`: every other

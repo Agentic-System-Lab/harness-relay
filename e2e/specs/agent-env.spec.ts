@@ -1,6 +1,10 @@
 import type { SettingsView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { finishedReply, openNewChat, openTeamChat, replies, send } from '../support/app';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /*
  * Another model provider's key in the environment Harness Relay was started with reaches only that

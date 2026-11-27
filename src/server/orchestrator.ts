@@ -257,6 +257,9 @@ import {
   forgetCommits,
   keepCommits,
   repoRoot,
+  trackingReady,
+  warmUp,
+  wouldWarm,
   removeWorktree,
   snapshot,
   worktreeChanged,
@@ -1084,6 +1087,10 @@ export class Orchestrator {
    * runs once pinned.
    */
   private folderHolds = new Map<string, number>();
+  /** For each conversation, how many of its working directories are being prepared for change tracking (`warmTracking()`). */
+  private preparingTracking = new Map<string, number>();
+  /** Working directories whose change tracking is known ready (`warmTracking()`): no git process to look again. */
+  private trackedCwds = new Set<string>();
   /**
    * Each folder a conversation holds (`holdFolder()`): how many holds it has, and whether the
    * conversation had a lock on it before (left to it once they end). Each folder is let go when its own
@@ -4235,6 +4242,50 @@ export class Orchestrator {
   }
 
   /**
+   * Prepares change tracking ahead of the first turn, in the background: each working directory agents
+   * may write (not in read-only mode, nor Harness Relay's own folder in edit mode) that is a repository
+   * and that Harness Relay has no index of its own of yet gets its first snapshot (`warmUp()`, which
+   * hashes and writes every file once), so that the turns' own snapshots hash only what changed. The
+   * chat says so meanwhile (`preparing` in its status). A folder that is not a repository yet is made one
+   * by its first run, which then takes that snapshot itself (saying so too). Called when the chat is
+   * opened and when its folders change.
+   */
+  warmTracking(conv: Conversation): void {
+    if (this.closing || conv.settings.permission === 'read-only') return;
+    if (relayFolderRefusal(conv.settings, agentFolderOptions(this.settings))) return;
+    const exclude = this.snapshotExcludes();
+    const key = (cwd: string) => `${cwd}\0${exclude.join('\0')}`;
+    void (async () => {
+      for (const cwd of cwdsOf(conv.settings)) {
+        if (this.trackedCwds.has(key(cwd))) continue;
+        const root = await repoRoot(cwd).catch(() => null);
+        if (!root) continue;
+        if (wouldWarm(root, exclude)) await this.preparing(conv.id, () => warmUp(root, exclude));
+        if (trackingReady(root, exclude)) this.trackedCwds.add(key(cwd));
+      }
+    })().catch(() => undefined);
+  }
+
+  /** Runs `work` with the conversation saying it prepares change tracking (`isPreparing()`). */
+  private async preparing<T>(convId: string, work: () => Promise<T>): Promise<T> {
+    this.preparingTracking.set(convId, (this.preparingTracking.get(convId) ?? 0) + 1);
+    this.emitStatus(convId);
+    try {
+      return await work();
+    } finally {
+      const left = (this.preparingTracking.get(convId) ?? 1) - 1;
+      if (left > 0) this.preparingTracking.set(convId, left);
+      else this.preparingTracking.delete(convId);
+      this.emitStatus(convId);
+    }
+  }
+
+  /** Whether one of the conversation's working directories is being prepared for change tracking (its first snapshot). */
+  isPreparing(convId: string): boolean {
+    return this.preparingTracking.has(convId);
+  }
+
+  /**
    * Lock directories for this conversation's writes, all of them or none. Another conversation's lock
    * on one of them, or on one inside or around it (nested repositories), conflicts.
    */
@@ -4456,7 +4507,7 @@ export class Orchestrator {
     for (const w of conv.worktrees[TEAM_WORKTREE] ?? []) {
       if (w.needsReset || !roots.includes(w.root) || !existsSync(w.path)) continue;
       try {
-        if (await worktreeChanged(w.path, w.base)) return true;
+        if (await worktreeChanged(w.root, w.path, w.branch, w.base)) return true;
       } catch (err) {
         console.warn(`[orchestrator] could not read the team's worktree ${w.path}:`, (err as Error).message);
         return true;
@@ -4514,7 +4565,7 @@ export class Orchestrator {
         const span = new Map<string, { base: string; head: string; files: Set<string> }>();
         const heads: string[] = [];
         for (const wt of wts) {
-          const head = await worktreeHead(wt.path);
+          const head = await worktreeHead(wt.root, wt.branch);
           heads.push(head);
           const patch = await checkPatch(wt.root, wt.base, head);
           if (!patch) continue;
@@ -4770,7 +4821,9 @@ export class Orchestrator {
     const conv = this.store.get(convId);
     const wts = conv ? await this.currentWorktrees(conv, agentId) : [];
     if (!wts.length) throw new HttpError(404, agentId === TEAM_WORKTREE ? t().noTeamWorktree : t().noWorktree);
-    return this.diffs(await Promise.all(wts.map(async (w) => ({ root: w.root, base: w.base, head: await worktreeHead(w.path) }))));
+    return this.diffs(
+      await Promise.all(wts.map(async (w) => ({ root: w.root, base: w.base, head: await worktreeHead(w.root, w.branch) }))),
+    );
   }
 
   private activity(convId: string, msg: ChatMessage, e: AgentEvent): void {
@@ -5233,7 +5286,7 @@ export class Orchestrator {
       const by = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
       for (const wt of await this.currentWorktrees(conv, agentId)) {
         if (wt.needsReset) continue;
-        const files = await diffFiles(wt.root, wt.base, await worktreeHead(wt.path));
+        const files = await diffFiles(wt.root, wt.base, await worktreeHead(wt.root, wt.branch));
         for (const folder of folders.filter((f) => f.root === wt.root)) {
           for (const f of files) {
             const rel = relative(folder.cwd, join(wt.root, f.path));
@@ -6744,6 +6797,16 @@ export class Orchestrator {
     let workspace: BriefingWorkspace = { kind: 'shared' };
     let before: Map<string, { commit: string; tree?: string }> | undefined;
     let setupError: unknown = notEmptied;
+    // A repository whose changes this turn cannot record (git refused it, say: a link in its git folder)
+    // is said in the reply, not only in the server's log: the user would see no changes and not know why.
+    const unrecorded = (root: string, err: unknown) => {
+      console.warn(`[orchestrator] could not record changes in ${root}:`, (err as Error).message);
+      const text = t().changesNotRecorded(root, (err as Error).message);
+      if (msg.parts.some((p) => p.type === 'notice' && p.text === text)) return;
+      msg.parts.push({ type: 'notice', text });
+      this.hub.emit(conv.id, { type: 'message', message: msg });
+      this.store.saveMessage(conv.id, msg, true);
+    };
     try {
       // Settings from before the check (or changed since): edit mode in Harness Relay's own folder.
       const refusal = relayFolderRefusal(conv.settings, agentFolderOptions(this.settings));
@@ -6783,15 +6846,24 @@ export class Orchestrator {
     try {
       if (run.ws.isolated && !setupError) {
         before = new Map();
-        for (const wt of wts) before.set(wt.root, { commit: await worktreeHead(wt.path) });
-      } else if (!run.ws.isolated && roots.length) {
+        for (const wt of wts) before.set(wt.root, { commit: await worktreeHead(wt.root, wt.branch) });
+      } else if (!run.ws.isolated && roots.length && !setupError) {
+        // (A turn whose setup failed runs no agent: nothing to record, and a first snapshot of a large
+        // folder, which hashes and writes all its files, would only hold its error back.)
         before = new Map();
         // Each repository on its own: one that cannot be snapshotted keeps the others' changes recorded.
         for (const root of roots) {
           try {
-            before.set(root, await snapshot(root, this.snapshotExcludes()));
+            // A first one (no warm-up came before it) hashes and writes every file: the chat says so.
+            const first = !trackingReady(root, this.snapshotExcludes());
+            before.set(
+              root,
+              first
+                ? await this.preparing(conv.id, () => snapshot(root, this.snapshotExcludes()))
+                : await snapshot(root, this.snapshotExcludes()),
+            );
           } catch (err) {
-            console.warn(`[orchestrator] could not snapshot ${root} before turn:`, (err as Error).message);
+            unrecorded(root, err);
           }
         }
       }
@@ -6807,7 +6879,7 @@ export class Orchestrator {
       if (!before) return;
       const earlier = msg.changes;
       try {
-        msg.changes = await this.captureChanges(conv.id, before, run.ws.isolated ? wts : undefined, agent);
+        msg.changes = await this.captureChanges(conv.id, before, run.ws.isolated ? wts : undefined, agent, unrecorded);
         if (msg.changes?.some((c) => !c.isolated && c.files.length)) this.markChecksStale(conv);
         // Recorded again (the run that asked for left-out cards changed files too): the first snapshot is not kept.
         for (const c of earlier ?? []) {
@@ -7468,6 +7540,8 @@ export class Orchestrator {
     before: Map<string, { commit: string; tree?: string }>,
     wts: AgentWorktree[] | undefined,
     agent: AgentConfig,
+    failed: (root: string, err: unknown) => void = (root, err) =>
+      console.warn(`[orchestrator] could not record changes in ${root}:`, (err as Error).message),
   ): Promise<MessageChanges[] | undefined> {
     const out: MessageChanges[] = [];
     for (const [root, state] of before) {
@@ -7481,7 +7555,7 @@ export class Orchestrator {
         );
         if (changes) out.push(changes);
       } catch (err) {
-        console.warn('[orchestrator] could not record changes:', (err as Error).message);
+        failed(root, err);
       }
     }
     return out.length ? out : undefined;
@@ -7496,8 +7570,9 @@ export class Orchestrator {
     agent: AgentConfig,
   ): Promise<MessageChanges | undefined> {
     if (wt) {
-      // An agent that committed by itself leaves nothing staged: its commits are the turn's result.
-      const head = (await commitWorktree(wt.path, `@${agent.name} (Harness Relay)`)) ?? (await worktreeHead(wt.path));
+      // Its worktree's files as they are, whatever the agent did with git there (`commitWorktree()`).
+      const head =
+        (await commitWorktree(wt.root, wt.path, wt.branch, `@${agent.name} (Harness Relay)`)) ?? (await worktreeHead(wt.root, wt.branch));
       if (head === before.commit) return undefined;
       const files = await diffFiles(wt.root, before.commit, head);
       // The branch moves on a reset; keep this turn's commits so its diff stays viewable.
@@ -7563,6 +7638,7 @@ export class Orchestrator {
       activeAgentIds: this.activeAgentIds(id),
       commandRunning: this.commandRunning(id),
       folderHeld: this.folderHeld(id),
+      preparing: this.isPreparing(id),
     });
   }
 }

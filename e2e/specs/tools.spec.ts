@@ -11,6 +11,9 @@ import { chooseChatAction, acceptNextDialog, finishedReply, openTeamChat, openTo
 import { belowFull, chatOf, eachHalf, libraryEnv, logged, skillReadAsks, teamOf, withClis, type Cli } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
+
 /*
  * Settings → Apps and tools → Tool library, as a person sets it up, and what each CLI then gets: the fakes say which
  * MCP servers they were given, the memory in their briefing, and the first line of each skill's
@@ -656,7 +659,7 @@ test('the browser to start is set in Settings: a path with no file there is refu
   await expect(page.locator('.browser-path summary')).not.toContainText(process.execPath);
 });
 
-// OpenCode's fake installed for it, besides Claude Code, Codex and Grok.
+// OpenCode's fake installed for it, besides Claude Code.
 test.describe(() => {
   withClis('opencode');
 

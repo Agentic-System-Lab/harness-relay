@@ -4,6 +4,10 @@ import { join } from 'node:path';
 import { expect, test } from '../fixtures';
 import { chooseChatAction, openChatActions, composer, finishedReply, openTeamChat, previewControls, replies, send } from '../support/app';
 import { DEV_WEB_DIR } from '../support/paths';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 test('Files previews a static site, rebuilds edits, stops it and copies errors to an editable draft', async ({ page, relay }) => {
   const site = join(relay.workDir, 'site');

@@ -5,7 +5,7 @@
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { fileRoots } from '../src/server/files';
@@ -29,6 +29,8 @@ import {
   textOf,
   withLang,
 } from './orchestrator-harness';
+import { repoStore, trackingReady } from '../src/server/workspace';
+import { recordSpawns } from '../src/server/process';
 
 describe("Harness Relay's own folder", () => {
   it('refuses an edit-mode turn there, also for a conversation saved before the check', async () => {
@@ -43,6 +45,70 @@ describe("Harness Relay's own folder", () => {
       expect(m.status).toBe('error');
       expect(m.error).toMatch(/holds Harness Relay itself/);
     }
+  });
+});
+
+describe('change tracking prepared ahead of the first turn', () => {
+  const statuses = (convId: string) => {
+    const seen: boolean[] = [];
+    (orchestrator as unknown as { hub: InstanceType<typeof Hub> }).hub.subscribe(convId, (e) => {
+      if (e.type === 'status') seen.push(Boolean(e.preparing));
+    });
+    return seen;
+  };
+
+  it("takes each folder's first snapshot in the background, the chat saying so meanwhile, and the turn then hashes only what changed", async () => {
+    execFileSync('git', ['init', '-q'], { cwd: project });
+    const conv = conversation({ mode: 'roundtable' });
+    const seen = statuses(conv.id);
+    orchestrator.warmTracking(conv);
+    await vi.waitFor(() => expect(seen).toEqual([true, false]));
+    expect(trackingReady(realpathSync(project), [])).toBe(true);
+    // Opened again: nothing more to prepare, and no git process to look.
+    const started: string[] = [];
+    recordSpawns({
+      start: ({ bin }) => {
+        if (/^git(\.exe)?$/i.test(basename(bin))) started.push(bin);
+        return undefined;
+      },
+    });
+    try {
+      orchestrator.warmTracking(conv);
+      await new Promise((r) => setTimeout(r, 200));
+    } finally {
+      recordSpawns(undefined);
+    }
+    expect(started).toEqual([]);
+    expect(seen).toEqual([true, false]);
+    // A turn needs no first snapshot of its own then.
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(seen.filter(Boolean)).toHaveLength(1);
+    expect(
+      agentMessages(conv)[0]!
+        .changes![0]!.files.map((f) => f.path)
+        .sort(),
+    ).toEqual(['Alice.txt', 'shared.txt']);
+  });
+
+  it("says so during a turn's own first snapshot, and prepares nothing for a read-only chat or a folder that is no repository yet", async () => {
+    const readOnly = conversation({ mode: 'roundtable', permission: 'read-only' });
+    const seenReadOnly = statuses(readOnly.id);
+    execFileSync('git', ['init', '-q'], { cwd: project });
+    orchestrator.warmTracking(readOnly);
+    const plain = join(project, '..', `${basename(project)}-plain`);
+    mkdirSync(plain, { recursive: true });
+    const elsewhere = conversation({ mode: 'roundtable', cwd: plain });
+    const seenElsewhere = statuses(elsewhere.id);
+    orchestrator.warmTracking(elsewhere);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(seenReadOnly).toEqual([]);
+    expect(seenElsewhere).toEqual([]);
+    // Its first turn makes it a repository and takes that first snapshot itself, saying so.
+    await orchestrator.send(elsewhere.id, 'go');
+    await finish(elsewhere.id);
+    expect(seenElsewhere).toContain(true);
+    expect(orchestrator.isPreparing(elsewhere.id)).toBe(false);
   });
 });
 
@@ -107,6 +173,47 @@ describe('roundtable mode with edit permission', () => {
     expect(bob!.changes![0]!.files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'shared.txt']);
     expect(conv.worktrees).toEqual({});
   });
+
+  it("writes nothing through a link in the repository's .git, and records the turn's changes in its own repository", async () => {
+    execFileSync('git', ['init', '-q'], { cwd: project });
+    const outside = join(dirname(project), 'outside-refs');
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(outside, join(project, '.git', 'refs', 'harness-relay'), process.platform === 'win32' ? 'junction' : 'dir');
+    const conv = conversation({ mode: 'roundtable' });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+
+    const [alice] = agentMessages(conv);
+    expect(alice!.changes![0]!.files.map((f) => f.path).sort()).toEqual(['Alice.txt', 'shared.txt']);
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    "says in the reply when it cannot record a turn's changes, with git's reason",
+    async () => {
+      execFileSync('git', ['init', '-q'], { cwd: project });
+      // A file git cannot read: the snapshot before the turn fails.
+      const locked = join(project, 'locked.txt');
+      writeFileSync(locked, 'x\n');
+      chmodSync(locked, 0o000);
+      try {
+        const conv = conversation({ mode: 'roundtable' });
+        await withLang('en', () => orchestrator.send(conv.id, 'go'));
+        await finish(conv.id);
+        const [alice] = agentMessages(conv);
+        expect(alice!.status).toBe('done');
+        expect(alice!.changes).toBeUndefined();
+        expect(alice!.parts).toContainEqual({
+          type: 'notice',
+          text: expect.stringMatching(
+            /^Harness Relay could not record what this turn changed in .*, so its changes are not shown: git add failed: /,
+          ),
+        });
+      } finally {
+        chmodSync(locked, 0o644);
+      }
+    },
+  );
 
   it('lets read-only conversations read while it writes', async () => {
     let release!: () => void;
@@ -321,7 +428,9 @@ describe('two conversations writing in the same folder', () => {
 
 describe('kept snapshot refs', () => {
   const refs = () =>
-    execFileSync('git', ['for-each-ref', '--format=%(refname)', 'refs/harness-relay/'], { cwd: project, encoding: 'utf8' })
+    execFileSync('git', ['--git-dir', repoStore(project), 'for-each-ref', '--format=%(refname)', 'refs/harness-relay/'], {
+      encoding: 'utf8',
+    })
       .split('\n')
       .filter(Boolean);
 

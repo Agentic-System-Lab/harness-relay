@@ -75,6 +75,7 @@ npm run dev        # API 在 :8789（檔案變更時重啟）+ 介面在 http://
 - `run_code`（`src/server/runCode.ts`，只在「設定 → 實驗室」開啟其中一種模式時才有）只在 Harness Relay 自己的沙箱裡執行 agent 的程式碼，所有權限都一樣：唯讀、沒有網路，也沒有伺服器的任何環境變數。它的呼叫只能透過 runner 自己的 stdin 與 stdout 連到伺服器，絕不使用權杖，而且每個呼叫都和這一回合自己呼叫那個工具時一樣依等級決定。RLM 模式下，由伺服器自己詢問子模型（`src/server/llmQuery.ts`）：沒有工具的單純補全，只送到那個模型連線自己的主機，金鑰絕不離開伺服器；或透過 CLI 帳號問（`src/server/cliSubModel.ts`），只限 Claude Code、Copilot 或 Muse Code，它們的執行完全沒有工具（`RunOptions.toolless`）。子模型絕不會有工具，一個 CLI 只有在它沒有工具的執行被證實完全不給模型工具之後，才能加進這個名單（`scripts/cli-check.ts` 的 `toolless` 情境）。
 - OAuth 帳號的更新權杖存在憑證儲存區，存取權杖只放在記憶體；權杖只送到它服務的主機（郵件權杖只透過 TLS 或 STARTTLS 送到它服務自己的郵件伺服器），絕不跟隨重新導向，也絕不交給 UI 或 CLI。工具庫 MCP 伺服器自己的登入也這樣保存權杖，而且只在一回合裡、放在那台伺服器的標頭把存取權杖交給 CLI，只給伺服器自己的主機，走 https（純 http 只限這台電腦）；別處伺服器的登入請求只連網際網路上的位址，先查過並固定連到查過的位址；為了防止混淆攻擊，會檢查重新導向的 `iss`，不在授權伺服器來源上的登入頁面也要使用者確認後才打開。
 - 瀏覽器工具的 Chromium 只透過它自己的 proxy（`src/server/browser/proxy.ts`）連線，proxy 會檢查每個連線要去的位址：絕不能不帶那個 proxy 啟動它，也不能讓它載入的任何東西用別的方式連上網路。它在網頁中執行的腳本在 isolated world 中執行，它只拿到 `launchEnv()` 給的環境變數，絕不是伺服器的；它也不在使用者自己瀏覽器的資料夾裡寫任何東西（在 Linux 上，它的設定與快取資料夾都在它的設定檔裡）。
+- Harness Relay 自己的 git 指令（`src/server/workspace.ts` 的 `git()`）在任何沙箱之外執行，而 agent 可能寫得到工作 repository 的 `.git`：所以 Harness Relay 不在那裡寫入任何東西。它的快照、保留快照的 ref 與平行 worktree 的結果，都寫進它資料夾裡自己的 repository（`repoStore()`，`data/repos/`），那個 repository 讀取工作 repository 的 objects；平行 worktree 或檢查樹是給在那裡工作的人自己的 repository，由 Harness Relay 建立，之後不再寫入。請保持這樣，並在 `test/workspace.test.ts` 測試。
 
 ### 資料庫
 
@@ -109,6 +110,8 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 - HTTP API 用 `app.request()`；
 - 把假的 keyring 傳給 `SettingsStore`；
 - 端對端測試（`e2e/`）用 `e2e/fake-cli/` 裡的假 CLI，由訊息中的 `e2e:` 指令操控（見[端對端測試](docs/developer-guide.zh-TW.md#端對端測試)）；情境的每個改變也要寫進 [`e2e/README.zh-TW.md`](e2e/README.zh-TW.md)，兩種語言都要。
+
+端對端測試要保持快，因為每個測試都會啟動自己的伺服器、瀏覽器與 agent：測試的伺服器只裝了 Claude Code，所以只為用到其他 CLI 的測試安裝它（`withClis()`），需要更多時間的測試給它自己的上限（`test.setTimeout()`）。在 CI 上，每個端對端 job 會對通過了、但用掉自己上限 70% 以上的測試發出警告，workflow 的最後一個檢查則把每個系統整套測試花的時間加總，和它的預算比較（`scripts/e2e-budget.ts`）：超過時，Linux 上的檢查會失敗。只在說明原因的 commit 裡提高預算（見[它們花的時間](e2e/README.zh-TW.md#它們花的時間)）。
 
 測試在 Windows 上也要通過，CI 也會在那裡跑：用 `join()` 與 `resolve()` 組路徑，不要直接寫成以 `/` 分隔的文字；只有 macOS 或 Linux 才有的東西用 `skipIf(process.platform === 'win32')` 跳過；時間限制取自 `test/timeouts.ts`。詳見[開發者指南](docs/developer-guide.zh-TW.md#測試)。
 

@@ -3,6 +3,10 @@ import { join } from 'node:path';
 import type { ToolLibraryView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { appStates } from '../support/draft-apps';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 // Install each test's routes before starting a new signed-in app window with the fixture's cookie.
 test.beforeEach(async ({ page }) => {

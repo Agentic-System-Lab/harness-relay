@@ -3,6 +3,10 @@ import { expect, test } from '../fixtures';
 import { en } from '../../src/web/locales/en';
 import { awaitingPlan, finishedReply, heightWithoutAddCard, openNewChat, replies, settled, startChat, confirmTeam } from '../support/app';
 import { notInstalledBut } from '../support/fake-cli';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /** The CLI each member of the open template is on, in order. */
 const memberClis = (page: Page) =>
@@ -39,7 +43,7 @@ test.describe('templates on the CLIs that can run here', () => {
   });
 
   test.describe('without Grok', () => {
-    test.use({ missingClis: [...notInstalledBut(), 'grok'] });
+    test.use({ missingClis: notInstalledBut(['codex']) });
 
     test("a template's member on a CLI not installed here moves to one that is, says so, and the template can be saved so", async ({
       page,

@@ -118,12 +118,16 @@ describe('the fake CLIs', () => {
     }
   });
 
-  it('are installed in a test server as Claude Code, Codex and Grok, and the CLIs a test names', () => {
-    expect(DEFAULT_CLIS).toEqual(['claude', 'codex', 'grok']);
+  it('are installed in a test server as Claude Code alone, and the CLIs a test names', () => {
+    // Each CLI installed is probed some six times whenever a page opens: one more here slows every test.
+    expect(DEFAULT_CLIS).toEqual(['claude']);
     const installed = (missing: readonly Provider[]) => PROVIDERS.filter((p) => !missing.includes(p));
     expect(installed(notInstalledBut())).toEqual(DEFAULT_CLIS.filter((p) => !NOT_YET_FAKED.includes(p)));
+    expect(installed(notInstalledBut(['codex', 'grok']))).toEqual(
+      PROVIDERS.filter((p) => ['claude', 'codex', 'grok'].includes(p) && !NOT_YET_FAKED.includes(p)),
+    );
     expect(installed(notInstalledBut(['cursor', 'pi']))).toEqual(
-      PROVIDERS.filter((p) => ['claude', 'codex', 'grok', 'cursor', 'pi'].includes(p) && !NOT_YET_FAKED.includes(p)),
+      PROVIDERS.filter((p) => ['claude', 'cursor', 'pi'].includes(p) && !NOT_YET_FAKED.includes(p)),
     );
     // A CLI whose fake is not written is never installed, named or not.
     for (const p of NOT_YET_FAKED) expect(notInstalledBut([p])).toContain(p);

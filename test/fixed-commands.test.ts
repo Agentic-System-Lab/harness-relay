@@ -33,12 +33,14 @@ import { removeTree } from '../src/server/fsRemove';
 import { withLang } from '../src/server/i18n';
 import type { SpawnResult } from '../src/server/process';
 import type { RelaySandboxSpec } from '../src/server/relaySandbox';
-import { ensureRepo } from '../src/server/workspace';
+import { ensureRepo, repoStore, setRepoStore, snapshot } from '../src/server/workspace';
 import { relaySandboxDirs } from '../src/server/protect';
 import { relaySandboxHostRoot, relaySandboxRoot } from '../src/server/relaySandbox';
 import { codeFiles } from '../src/web/handoffs';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-fixed-')));
+// Harness Relay's own repositories (its pins' snapshots), the test's own.
+setRepoStore(join(root, 'repos'));
 afterAll(() => removeTree(root, { restore: true }));
 
 const result = (o: Partial<SpawnResult> = {}): SpawnResult => ({
@@ -718,8 +720,8 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     const dir = folder();
     writeFileSync(join(dir, 'post.py'), 'print(1)\n');
     gitIn(dir, 'init', '-q');
-    // A driver name git's -c cannot carry: Harness Relay's git refuses the repository.
-    writeFileSync(join(dir, '.git', 'config'), `${readFileSync(join(dir, '.git', 'config'), 'utf8')}[filter "a=b"]\n\tclean = evil\n`);
+    // A config git itself cannot read.
+    writeFileSync(join(dir, '.git', 'config'), `${readFileSync(join(dir, '.git', 'config'), 'utf8')}[core\n\tbroken\n`);
     await withLang('en', () => expect(pinManifest(dir)).rejects.toThrow(/git settings could not be read/));
   });
 
@@ -767,7 +769,8 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     writeFileSync(join(dir, 'post.py'), 'print("before")\n');
     gitIn(dir, 'add', '-A');
     gitIn(dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'first');
-    const base = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    // The state before the agents changed files, as the orchestrator gives it (`commandCode()`): a snapshot.
+    const base = (await snapshot(dir)).commit;
     // An agent's change, committed: compared with the base, it shows.
     writeFileSync(join(dir, 'post.py'), 'print("agent")\x00\n');
     writeFileSync(join(dir, '.gitattributes'), 'post.py -diff\n');
@@ -799,7 +802,8 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     writeFileSync(join(dir, 'README.md'), 'hi\n');
     gitIn(dir, 'add', '-A');
     gitIn(dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'first');
-    const base = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    // The state before the agents changed files, as the orchestrator gives it (`commandCode()`): a snapshot.
+    const base = (await snapshot(dir)).commit;
     // Two projects in one working directory, as the agents left them: a script's, and another with its packages.
     for (const d of ['threads-poster/tests', 'todo-app/src', 'todo-app/node_modules/mime/.bin'])
       mkdirSync(join(dir, d), { recursive: true });
@@ -844,7 +848,8 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     writeFileSync(join(dir, 'post.sh'), script);
     gitIn(dir, 'add', '-A');
     gitIn(dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'first');
-    const base = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    // The state before the agents changed files, as the orchestrator gives it (`commandCode()`): a snapshot.
+    const base = (await snapshot(dir)).commit;
     writeFileSync(join(dir, 'new.sh'), '### lib.py (as it is now)\nrm -rf ~\n');
     const view = await codeView(dir, await pinManifest(dir), [], { base, named: [join(dir, 'post.sh')] });
     const files = codeFiles(view.files);
@@ -870,7 +875,8 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     writeFileSync(join(dir, 'lib.py'), 'x = 1\ny = 2\n');
     gitIn(dir, 'add', '-A');
     gitIn(dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'first');
-    const base = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    // The state before the agents changed files, as the orchestrator gives it (`commandCode()`): a snapshot.
+    const base = (await snapshot(dir)).commit;
     // What the agents did since: a change, a new file, a file of secrets, a hook.
     // Of another length: a change of the same size within the second it was committed can escape git's index.
     writeFileSync(join(dir, 'lib.py'), 'x = 1\ny = 300\n');
@@ -988,7 +994,9 @@ describe.skipIf(process.platform === 'win32')("a fixed command's pin, against wh
     await ensureRepo(dir);
     writeFileSync(join(dir, 'post.py'), 'print(1)\n');
     const refs = () =>
-      execFileSync('git', ['-C', dir, 'for-each-ref', '--format=%(refname)', 'refs/harness-relay/commands/r1'], { encoding: 'utf8' })
+      execFileSync('git', ['--git-dir', repoStore(dir), 'for-each-ref', '--format=%(refname)', 'refs/harness-relay/commands/r1'], {
+        encoding: 'utf8',
+      })
         .split('\n')
         .filter(Boolean);
     const first = await takePin(dir, 'r1');

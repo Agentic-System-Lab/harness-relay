@@ -7,6 +7,10 @@ import { chooseChatAction, acceptNextDialog, composer, finishedReply, openTeamCh
 import type { RelayServer } from '../support/relay';
 import { FAKE_OWNER, fakeGithub, openShared, writeGist } from '../support/share';
 import { shareViewerUrl } from '../../src/shared/share';
+import { withClis } from '../support/clis';
+
+// Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
+withClis('codex', 'grok');
 
 /** A share's link: the viewer on Harness Relay's website, naming the gist the fake gh made (its owner, relay-e2e, and id). */
 const VIEWER_LINK = /^https:\/\/agentic-system-lab\.github\.io\/harness-relay\/share\/#relay-e2e\/[0-9a-f]{32}$/;
