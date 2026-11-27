@@ -1,5 +1,6 @@
 import type { AppDependency, AppDependencyView, PreviewDockerView } from '../shared/types';
 import { browserInstallPlan } from './browser/install';
+import { canInstallCua, cuaAvailable, installCua } from './computer/install';
 import { InstallError, InstallJob, type CliInstaller } from './cliInstall';
 import { HttpError } from './errors';
 import { canInstallGithubCli, githubCliAvailable, installGithubCli } from './githubInstall';
@@ -110,6 +111,8 @@ export function commonAppDependencies(
     {
       github: { available: githubCliAvailable, plan: () => (canInstallGithubCli() ? { install: installGithubCli } : {}) },
       browser: { available: browserAvailable, plan: () => browserInstallPlan(linux) },
+      // Cua, for the computer tools: its own release, into Harness Relay's folder, on its own.
+      cua: { available: cuaAvailable, plan: () => (canInstallCua() ? { install: installCua } : {}) },
     },
     { available: hasDockerCli, probe: probePreviewDocker, plan: () => previewDockerInstallPlan(linux, {}, clis) },
   );

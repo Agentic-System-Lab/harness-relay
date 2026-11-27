@@ -3551,6 +3551,7 @@ describe('tool library', () => {
     };
     expect(relay.relayTools).toEqual([
       { group: 'browser', providers: ['claude', 'codex'] },
+      { group: 'computer', providers: [] },
       { group: 'mail', providers: [] },
       { group: 'calendar', providers: [] },
       ...['drive', 'obsidian', 'github', 'teams', 'slack'].map((group) => ({ group, providers: [] })),
@@ -4970,7 +4971,7 @@ describe('sharing conversations', () => {
       ...dep('docker'),
       probe: async () => ({ state: installed.has('docker') ? ('unavailable' as const) : ('missing' as const) }),
     };
-    const appDependencies = new AppDependencies({ github: dep('github'), browser: dep('browser') }, docker);
+    const appDependencies = new AppDependencies({ github: dep('github'), browser: dep('browser'), cua: dep('cua') }, docker);
     const s = new SettingsStore(openDatabase(':memory:'));
     const own = createApp({
       auth: null,
@@ -4981,7 +4982,7 @@ describe('sharing conversations', () => {
       providers: new ProviderService(s),
       appDependencies,
     });
-    for (const name of ['github', 'browser']) {
+    for (const name of ['github', 'browser', 'cua']) {
       const path = '/api/apps/' + name + '/install';
       expect(await (await own.request(path, { headers: HOST })).json()).toMatchObject({ available: false, canInstall: true });
       expect(installed.has(name)).toBe(false);

@@ -19,6 +19,7 @@ import { GoogleProjectConnection } from './GoogleProjectConnection';
 import { SlackAppRow } from './SlackAppRow';
 import { TeamsSignIn } from './TeamsSignIn';
 import { GithubConnectionRow } from './GithubConnectionRow';
+import { ComputerSettings } from './ComputerSettings';
 
 const remote = { notion: 'Notion', heptabase: 'Heptabase' } as const;
 type Change = (call: () => Promise<ToolLibraryView>, report?: (error: string) => void) => Promise<boolean>;
@@ -182,6 +183,7 @@ export function CommonApps({
           {relayAccess('browser')}
           {browserSettings}
         </AppRow>
+        <ComputerSettings access={relayAccess('computer')} />
       </AppGroup>
     </div>
   );

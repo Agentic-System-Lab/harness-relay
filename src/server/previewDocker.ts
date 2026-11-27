@@ -51,6 +51,11 @@ export function hasDockerCli() {
   return Boolean(dockerPaths(realHost()).bin);
 }
 
+/** The PATH Docker's CLI is looked for on (the server's, then where Docker Desktop and OrbStack put it), for a program that starts it (`cua`). */
+export function dockerSearchPath(env: NodeJS.ProcessEnv = process.env): string {
+  return dockerPaths({ ...realHost(), env }).search;
+}
+
 // The CLI as configured for Relay's user discovers the local socket. Pin it for all later calls,
 // including cleanup, so changing Docker contexts cannot send files to another daemon.
 export type DockerOptions = Pick<SpawnOptions, 'signal' | 'stdin' | 'keepStdinOpen' | 'timeoutMs' | 'maxCapture' | 'onSpawn' | 'cwd'>;

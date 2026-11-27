@@ -326,6 +326,7 @@ describe('ToolLibrary', () => {
     const lib = new ToolLibrary(db);
     expect(lib.view().relayTools).toEqual([
       { group: 'browser', providers: [] },
+      { group: 'computer', providers: [] },
       { group: 'mail', providers: [] },
       { group: 'calendar', providers: [] },
       ...['drive', 'obsidian', 'github', 'teams', 'slack'].map((group) => ({ group, providers: [] })),

@@ -1045,7 +1045,8 @@ export class ToolGateway {
         return { text: (err as Error).message, isError: true };
       }
       // Keyed as the gateway's own (`relay:<tool>`), so "always allow" is never another server's tool of that name;
-      // no folder lock either: the call writes nothing in the working directory.
+      // no folder lock either: no gateway call writes in the working directory but computer_download, which a
+      // read-only run (the only one an approval would have to lock the folder for) is refused.
       const answered = tool.asking?.(ctx);
       const reason = described.detail;
       const answer = await ctx.ask!({

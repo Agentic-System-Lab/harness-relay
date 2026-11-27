@@ -3,13 +3,10 @@ import { PREVIEW_NO_RECIPE, type AppPreviewRequest, type AppPreviewSession, type
 import { api, ApiError } from '../api';
 import {
   NO_TERMINAL,
-  CHAT_MIN_WIDTH,
   nextTerminalState,
   openPreviewTab,
-  PREVIEW_MIN_WIDTH,
   previewErrorDraft,
   previewFrameError,
-  previewWidth,
   recordPreviewError,
   safePreviewSession,
   startsByItself,
@@ -22,6 +19,7 @@ import { isAppWindow } from '../update';
 import { Deferred, lazyPart } from './Deferred';
 import { useDialog } from './useDialog';
 import { PreviewDockerDialog } from './PreviewDockerDialog';
+import { PanelDivider } from './PanelDivider';
 
 // The publish dialog comes only when the user opens it.
 const PublishDialog = lazyPart(() => import('./PublishDialog').then((m) => m.PublishDialog));
@@ -54,10 +52,6 @@ export function AppPreview({
   const panel = useRef<HTMLElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const [narrow, setNarrow] = useState(() => matchMedia('(max-width: 1100px)').matches);
-  /** The panel's width and the most it may take, for the divider's value. */
-  const [measured, setMeasured] = useState<{ width: number; max: number }>();
-  /** Ends a drag of the divider under way. */
-  const dragEnd = useRef<(() => void) | null>(null);
   // Hidden, it keeps the frame and its backend state (on a phone, while the user edits a report).
   const hidden = collapsed;
   useDialog(panel, onClose, narrow && !hidden);
@@ -69,29 +63,6 @@ export function AppPreview({
     if (!media.matches && !target.auto) panel.current?.focus();
     return () => media.removeEventListener('change', changed);
   }, []);
-
-  useEffect(() => {
-    const box = panel.current;
-    if (!box || narrow || collapsed) {
-      dragEnd.current?.();
-      return;
-    }
-    const measure = () => {
-      const container = box.offsetParent;
-      if (container)
-        setMeasured({
-          width: Math.round(box.getBoundingClientRect().width),
-          max: Math.max(PREVIEW_MIN_WIDTH, Math.round(container.getBoundingClientRect().width) - CHAT_MIN_WIDTH),
-        });
-    };
-    const observer = new ResizeObserver(measure);
-    observer.observe(box);
-    if (box.offsetParent) observer.observe(box.offsetParent);
-    return () => {
-      observer.disconnect();
-      dragEnd.current?.();
-    };
-  }, [narrow, collapsed]);
 
   const [mode, setMode] = useState<AppPreviewRequest['mode']>();
   const [folder, setFolder] = useState(target.folder);
@@ -335,43 +306,6 @@ export function AppPreview({
   const shownFolder = folder ?? target.request.folder;
   const folderName = shownFolder?.split(/[\\/]/).filter(Boolean).pop() || shownFolder || '.';
   const detailsId = 'app-preview-details';
-  // Arrow keys move the divider as a drag does: left widens the panel.
-  const resizeBy = (delta: number) => {
-    const box = panel.current;
-    const container = box?.offsetParent;
-    if (!box || !container || !onResize) return;
-    onResize(previewWidth(box.getBoundingClientRect().width + delta, container.getBoundingClientRect().width), true);
-  };
-  const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
-    const container = panel.current?.offsetParent;
-    if (event.button !== 0 || !container || !onResize) return;
-    event.preventDefault();
-    const handle = event.currentTarget;
-    handle.setPointerCapture(event.pointerId);
-    // The page and the terminal would take the pointer over them: see .resizing-preview.
-    document.body.classList.add('resizing-preview');
-    let last: number | undefined;
-    const move = (e: PointerEvent) => {
-      const box = container.getBoundingClientRect();
-      last = previewWidth(box.right - e.clientX, box.width);
-      onResize(last, false);
-    };
-    const end = () => {
-      document.body.classList.remove('resizing-preview');
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', end);
-      handle.removeEventListener('pointercancel', end);
-      handle.removeEventListener('lostpointercapture', end);
-      dragEnd.current = null;
-      // Kept once, when the drag ends.
-      if (last !== undefined) onResize(last, true);
-    };
-    dragEnd.current = end;
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', end);
-    handle.addEventListener('pointercancel', end);
-    handle.addEventListener('lostpointercapture', end);
-  };
   // A new tab for the page at its single-use address, cut off from this page; in the desktop app's
   // window, in the default browser (`openPreviewTab()`).
   const appWindow = isAppWindow(navigator.userAgent);
@@ -395,29 +329,7 @@ export function AppPreview({
           {p.returnToPreview}
         </button>
       )}
-      {!narrow && !hidden && onResize && (
-        <div
-          className="app-preview-resize"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={p.resize}
-          aria-valuemin={PREVIEW_MIN_WIDTH}
-          aria-valuemax={measured?.max}
-          aria-valuenow={measured?.width}
-          title={p.resizeTitle}
-          tabIndex={0}
-          onPointerDown={startResize}
-          onDoubleClick={() => onResize(undefined, true)}
-          onKeyDown={(e) => {
-            const step = e.shiftKey ? 128 : 32;
-            if (e.key === 'ArrowLeft') resizeBy(step);
-            else if (e.key === 'ArrowRight') resizeBy(-step);
-            else if (e.key === 'Home' || e.key === 'Enter') onResize(undefined, true);
-            else return;
-            e.preventDefault();
-          }}
-        />
-      )}
+      {!narrow && !hidden && onResize && <PanelDivider panel={panel} onResize={onResize} label={p.resize} title={p.resizeTitle} />}
       <aside
         hidden={hidden}
         ref={panel}

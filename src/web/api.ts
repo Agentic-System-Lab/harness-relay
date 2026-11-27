@@ -28,6 +28,9 @@ import type {
   AgentConfig,
   ApprovalAnswer,
   AuthSessionView,
+  ComputerInput,
+  ComputerSettingsView,
+  ComputerView,
   HandoverAnswer,
   HandoverInput,
   BranchPoint,
@@ -535,6 +538,36 @@ export const api = {
     request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/handovers/${encodeURIComponent(handoverId)}/input`, {
       events,
     }),
+  /** The chat's computer (a Cua desktop): where it stands, who has control, what was done on it lately. */
+  computer: (id: string) => request<ComputerView>('GET', `/api/conversations/${encodeURIComponent(id)}/computer`),
+  /** Start it, take control of it, hand it back (with a note for an agent that asked), or turn it off. */
+  computerAction: (id: string, action: 'start' | 'take' | 'return' | 'stop', note?: string) =>
+    request<ComputerView>('POST', `/api/conversations/${encodeURIComponent(id)}/computer`, { action, ...(note ? { note } : {}) }),
+  /** Remove Cua: this server's computers, Cua's downloads (unless another sandbox uses them), and Harness Relay's own copy. */
+  removeCua: () => request<ComputerSettingsView>('POST', '/api/computer/remove', {}),
+  /** Delete one of this server's computers by its name (Settings' list). */
+  deleteComputerNamed: (name: string) => request<{ ok: true }>('DELETE', `/api/computers/${encodeURIComponent(name)}`),
+  /** The computer's panel, as the server streams it (SSE, read with fetch so that the key goes in its header). */
+  computerScreen: async (id: string, signal: AbortSignal): Promise<Response> => {
+    const res = await fetch(`/api/conversations/${encodeURIComponent(id)}/computer/screen`, { headers: headers(false, readKey()), signal });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      throw new ApiError(err.error ?? `${res.status} ${res.statusText}`, res.status, err.code);
+    }
+    return res;
+  },
+  /** What the user did in the computer's panel, in order, while they have control. */
+  computerInput: (id: string, events: ComputerInput[]) =>
+    request<{ ok: true }>('POST', `/api/conversations/${encodeURIComponent(id)}/computer/input`, { events }),
+  /** A link to Cua's own viewer of the computer (watch only unless the user has control). */
+  computerViewer: (id: string) =>
+    request<{ url: string; viewOnly: boolean; expiresAt?: number }>(
+      'POST',
+      `/api/conversations/${encodeURIComponent(id)}/computer/viewer`,
+      {},
+    ),
+  /** Settings → Common apps → Computer: Cua here, and the chats' computers; `check` asks what this computer can run. */
+  computerSettings: (check = false) => request<ComputerSettingsView>('GET', '/api/computer' + (check ? '?check=1' : '')),
   connectors: () => request<ConnectorsView>('GET', '/api/connectors'),
   saveMailAccount: (id: string, b: MailAccountUpdate) => request<ConnectorsView>('PUT', `/api/connectors/mail/${id}`, b),
   addDiscoveredCalendar: (b: CalendarAccountUpdate) => request<ConnectorsView>('POST', '/api/connectors/calendar', b),

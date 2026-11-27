@@ -430,6 +430,7 @@ describe('the docs', () => {
       'obsidian',
       'github',
       'browser-mail-calendar',
+      'computer',
       'library',
       'mcp-servers',
       'skills',
@@ -470,6 +471,9 @@ describe('the docs', () => {
       // The browser's overview and taking it over, in a branch of their own, as the MCP servers' are.
       for (const id of ['browser-mail-calendar', 'browser-hand-over'])
         expect(parents(id)).toEqual([common, zh ? '開發與瀏覽' : 'Development and browsing', zh ? '瀏覽器' : 'Browser']);
+      // The computer's overview and taking control of it, in a branch of their own beside the browser's.
+      for (const id of ['computer', 'computer-control'])
+        expect(parents(id)).toEqual([common, zh ? '開發與瀏覽' : 'Development and browsing', zh ? '電腦（Cua）' : 'Computer (Cua)']);
       for (const id of ['mcp-servers', 'skills', 'memory', 'hooks', 'default-team-checks'])
         expect(parents(id)[0]).toBe(zh ? '工具庫' : 'Tool library');
       for (const id of ['outbox', 'per-member', 'own-setup', 'labs']) expect(parents(id)[0]).toBe(zh ? '延伸主題' : 'Related topics');

@@ -45,20 +45,20 @@ test('Apps and tools is one section with bookmarkable tabs that preserve drafts'
   await tools.press('ArrowLeft');
   await expect(common).toBeFocused();
   const rows = card.getByRole('tabpanel', { name: 'Common apps' }).locator('.common-apps .app-row');
-  await expect(rows).toHaveCount(10);
+  await expect(rows).toHaveCount(11);
   const groups = card.locator('.common-apps > section');
   const categories = [
     ['Mail and calendar', ['Mail', 'Calendar']],
     ['Team messaging', ['Microsoft Teams', 'Slack']],
     ['Documents and notes', ['Google Drive', 'Notion', 'Heptabase', 'Obsidian']],
-    ['Development and browsing', ['GitHub', 'Browser']],
+    ['Development and browsing', ['GitHub', 'Browser', 'Computer (Cua)']],
   ] as const;
   await expect(groups.locator('h4')).toHaveText(categories.map(([name]) => name));
   for (const [name, apps] of categories) {
     await expect(card.getByRole('region', { name, exact: true }).locator('.app-row-copy > strong:visible')).toHaveText([...apps]);
   }
   // Device and account tools can be selected for a chat from their service row.
-  for (const name of ['Mail', 'Calendar', 'GitHub', 'Obsidian', 'Browser']) {
+  for (const name of ['Mail', 'Calendar', 'GitHub', 'Obsidian', 'Browser', 'Computer (Cua)']) {
     await expect(rows.and(page.getByRole('listitem', { name, exact: true })).locator('.app-chat-access')).toHaveCount(1);
   }
   // Hosted apps offer account management. Direct actions need a grant before showing their own assistant selector.
