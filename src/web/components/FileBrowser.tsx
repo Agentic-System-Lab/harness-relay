@@ -555,7 +555,7 @@ function Preview({
           <video src={raw} controls preload="metadata" />
         </div>
       ) : showNotebook ? (
-        <NotebookPreview notebook={notebook} />
+        <NotebookPreview key={`${preview.size}:${preview.mtime}`} notebook={notebook} />
       ) : (
         <>
           {notebookText && !notebook && <p className="warn-line small">{t.files.notebookUnreadable}</p>}

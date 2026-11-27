@@ -2981,6 +2981,7 @@ export const en: Messages = {
     binary: 'This file cannot be previewed (it is not text). Download saves it to this device.',
     emptyFile: 'This file is empty.',
     cells: (n) => (n === 1 ? '1 cell' : `${n} cells`),
+    moreCells: (n) => (n === 1 ? 'Show 1 more cell' : `Show ${n} more cells`),
     emptyNotebook: 'This notebook has no cells yet.',
     notebookUnreadable: 'Could not preview this notebook. Showing its source.',
     notebookImage: 'Cell output image',

@@ -1,7 +1,10 @@
 // The parts of an ipynb file the Files panel can display without starting a kernel.
 type Output = { kind: 'text' | 'error'; text: string } | { kind: 'image'; src: string; alt?: string } | { kind: 'unsupported' };
 
-type Cell = { kind: 'markdown' | 'raw'; source: string } | { kind: 'code'; source: string; count: number | null; outputs: Output[] };
+type Cell =
+  | { kind: 'markdown'; source: string; attachments: ReadonlyMap<string, string> }
+  | { kind: 'raw'; source: string }
+  | { kind: 'code'; source: string; count: number | null; outputs: Output[] };
 
 export interface Notebook {
   language?: string;
@@ -19,6 +22,37 @@ function multiline(value: unknown, separator = ''): string | undefined {
   return undefined;
 }
 
+/** Only notebook-supplied raster bytes can become image sources. */
+function rasterImage(bundle: unknown): string | undefined {
+  if (!object(bundle)) return undefined;
+  for (const mime of ['image/png', 'image/jpeg']) {
+    const data = multiline(bundle[mime])?.replace(/\s/g, '');
+    if (data && /^[A-Za-z0-9+/]+={0,2}$/.test(data)) return `data:${mime};base64,${data}`;
+  }
+  return undefined;
+}
+
+function cellAttachments(value: unknown): ReadonlyMap<string, string> {
+  const images = new Map<string, string>();
+  if (object(value)) {
+    for (const [name, bundle] of Object.entries(value)) {
+      const image = rasterImage(bundle);
+      if (image) images.set(name, image);
+    }
+  }
+  return images;
+}
+
+/** A Markdown attachment reference can contain a literal filename or its URL-encoded form. */
+export function attachmentImage(images: ReadonlyMap<string, string>, name: string): string | undefined {
+  if (images.has(name)) return images.get(name);
+  try {
+    return images.get(decodeURIComponent(name));
+  } catch {
+    return undefined;
+  }
+}
+
 function output(value: unknown): Output {
   if (object(value)) {
     let text: string | undefined;
@@ -31,10 +65,8 @@ function output(value: unknown): Output {
       text = multiline(value.traceback, '\n') || [value.ename, value.evalue].filter((s) => typeof s === 'string').join(': ');
     } else if ((value.output_type === 'display_data' || value.output_type === 'execute_result') && object(value.data)) {
       text = multiline(value.data['text/plain']);
-      for (const mime of ['image/png', 'image/jpeg']) {
-        const data = multiline(value.data[mime])?.replace(/\s/g, '');
-        if (data && /^[A-Za-z0-9+/]+={0,2}$/.test(data)) return { kind: 'image', src: `data:${mime};base64,${data}`, alt: text };
-      }
+      const src = rasterImage(value.data);
+      if (src) return { kind: 'image', src, alt: text };
     }
     if (text !== undefined) return { kind: error ? 'error' : 'text', text: text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '') };
   }
@@ -63,7 +95,9 @@ export function readNotebook(text: string): Notebook | null {
         count: typeof cell.execution_count === 'number' && Number.isInteger(cell.execution_count) ? cell.execution_count : null,
         outputs: (cell.outputs ?? []).map(output),
       });
-    } else if (cell.cell_type === 'markdown' || cell.cell_type === 'raw') {
+    } else if (cell.cell_type === 'markdown') {
+      cells.push({ kind: 'markdown', source, attachments: cellAttachments(cell.attachments) });
+    } else if (cell.cell_type === 'raw') {
       cells.push({ kind: cell.cell_type, source });
     } else {
       return null;

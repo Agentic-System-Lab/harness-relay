@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readNotebook } from '../src/web/notebook';
+import { attachmentImage, readNotebook } from '../src/web/notebook';
 
 describe('Jupyter notebook preview', () => {
   it('reads the cell order, language and sources of a compact notebook', () => {
@@ -14,12 +14,27 @@ describe('Jupyter notebook preview', () => {
     expect(readNotebook(JSON.stringify(file))).toEqual({
       language: 'julia',
       cells: [
-        { kind: 'markdown', source: '# Results\nDetails' },
+        { kind: 'markdown', source: '# Results\nDetails', attachments: new Map() },
         { kind: 'raw', source: '<b>raw</b>' },
         { kind: 'code', source: '', count: null, outputs: [] },
       ],
     });
     expect(readNotebook('{"cells":[]}')?.cells).toEqual([]);
+  });
+
+  it('resolves raster attachments within their own Markdown cell, including encoded names', () => {
+    const cell = { cell_type: 'markdown', source: '![diagram](attachment:my%20plot.jpg)' };
+    const cells = readNotebook(
+      JSON.stringify({
+        cells: [{ ...cell, attachments: { 'my plot.jpg': { 'image/jpeg': '/9j/' }, 'my.svg': { 'image/svg+xml': '<svg/>' } } }, cell],
+      }),
+    )!.cells;
+    expect(cells.map((c) => c.kind === 'markdown' && attachmentImage(c.attachments, 'my%20plot.jpg'))).toEqual([
+      'data:image/jpeg;base64,/9j/',
+      undefined,
+    ]);
+    expect(cells[0]).toMatchObject({ attachments: new Map([['my plot.jpg', 'data:image/jpeg;base64,/9j/']]) });
+    expect(attachmentImage(new Map(), '%')).toBeUndefined();
   });
 
   it('reads saved streams, errors and image or text representations without rendering active content', () => {

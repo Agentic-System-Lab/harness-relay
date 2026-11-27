@@ -2958,6 +2958,7 @@ export const zhTW = {
     binary: '這個檔案無法預覽（不是文字檔），可以按「下載」存到這台裝置。',
     emptyFile: '這個檔案是空的。',
     cells: (n: number) => `${n} 個儲存格`,
+    moreCells: (n: number) => `再顯示 ${n} 個儲存格`,
     emptyNotebook: '這份筆記本還沒有儲存格。',
     notebookUnreadable: '無法預覽這份筆記本，以下顯示原始內容。',
     notebookImage: '儲存格輸出的圖片',

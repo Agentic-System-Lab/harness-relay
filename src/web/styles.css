@@ -9071,6 +9071,7 @@ summary + .checks-editor-body {
   gap: 6px 10px;
 }
 
+.notebook-more,
 .notebook-cell + .notebook-cell {
   margin-top: 18px;
 }
@@ -9093,6 +9094,7 @@ summary + .checks-editor-body {
   border-left: 2px solid var(--border);
 }
 
+.notebook-cell .markdown img,
 .notebook-output img {
   display: block;
   max-width: 100%;
