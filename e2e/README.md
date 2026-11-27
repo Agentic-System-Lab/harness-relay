@@ -547,7 +547,7 @@ The hand-over's window opens here only headless (`RELAY_HEADLESS_WINDOWS`), so n
 | --- | --- | --- |
 | Install PowerShell 7 from the Teams row | — | When PowerShell is missing, the row offers installation. Reloading during preparation keeps the status visible. A local archive that fails the pinned checksum produces an error. Retry verifies the replacement archive, unpacks and probes PowerShell, installs the Graph module and enables sign-in. |
 | Repair a Graph module that cannot load | — | Relay uses an existing working module. When the system module cannot load, it verifies a replacement in its private data folder and preserves the original. A damaged private copy can also be repaired. |
-| Use the direct Graph connection to read, draft and send | Claude Code | A local PowerShell stand-in exercises Graph module installation, a read-only device sign-in, assistant selection and a Teams lookup. A separate device sign-in enables sending. Discard leaves the destination untouched. Send delivers the exact previewed text. Disconnect ends access. |
+| Use the direct Graph connection to read, draft and send | Claude Code | A local PowerShell stand-in exercises Graph module installation, a read-only device sign-in, assistant selection and a Teams lookup. A separate device sign-in enables sending. Discard leaves the destination untouched. Send delivers the exact previewed text. Disconnect ends access. Claude Code is the only CLI installed, so each page load starts its probes alone, and the test has 150 s, as its three turns may each wait seconds for their snapshot's git processes on a busy Windows runner. |
 
 ## MCP servers that sign in
 

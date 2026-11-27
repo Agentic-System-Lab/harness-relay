@@ -158,10 +158,14 @@ export async function previewControls(panel: Locator): Promise<void> {
 }
 
 /**
- * A member's latest reply, once it has finished streaming (within `timeoutMs`: a turn in Harness
- * Relay's own sandbox starts the sandbox first, and the first of a server checks that it works).
+ * How long a member's turn may take: one in Harness Relay's own sandbox starts the sandbox first (and
+ * the first of a server checks that it works), and on a busy Windows runner a turn first waits seconds
+ * for its snapshot's git processes. Also for what a turn shows while it runs (an outbox card, say).
  */
-export async function finishedReply(page: Page, name: string, timeoutMs = 45_000): Promise<Locator> {
+export const TURN_MS = 45_000;
+
+/** A member's latest reply, once it has finished streaming (within `timeoutMs`, a turn's time by default). */
+export async function finishedReply(page: Page, name: string, timeoutMs = TURN_MS): Promise<Locator> {
   const reply = replies(page, name).last();
   await expect(reply).toBeVisible();
   await expect(reply.locator('.live-tag')).toHaveCount(0, { timeout: timeoutMs });
