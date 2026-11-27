@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation, ConversationSchedule, TeamPreset } from '../src/shared/types';
-import { dataLockFile, lockDataDir, openDatabase, type Database } from '../src/server/db';
+import { dataLockFile, lockDataDir, openDatabase, transaction, type Database } from '../src/server/db';
 import type { SecretStore } from '../src/server/secrets';
 import { OPEN_AGENT_ROOTS_ENV, OPEN_HOMES_DIR, SettingsStore } from '../src/server/settings';
 import { Store } from '../src/server/store';
@@ -686,79 +686,101 @@ describe('Store (SQLite)', () => {
     expect(migrated.messages[0]!.changes).toEqual(turn.changes);
   });
 
-  it("brings a database the model backends migrated as 21–25 or 19–22 (unreleased builds) to today's numbering, keeping what it holds", () => {
-    const store = new Store(db);
+  // backendThrough uses main's numbering: 21 has no model backends, 22–26 add them in stages.
+  // Unreleased builds used the same version numbers for different schemas.
+  it.each([
+    { build: 'with accounts', version: 25, backendThrough: 26 },
+    { build: 'with accounts', version: 22, backendThrough: 23 },
+    { build: 'before accounts', version: 22, backendThrough: 25 },
+    { build: 'before accounts', version: 19, backendThrough: 22 },
+    { build: 'main', version: 21, backendThrough: 21 },
+  ])('upgrades database version $version ($build) and keeps its data', ({ build, version, backendThrough }) => {
     const conv = sampleConversation();
-    store.create(conv);
-    // As such a build left it: no extra_cwds, more_changes or worktrees by repository (today's 21), but
-    // the model backends' tables up to some point. At 25 (everything up to today's 26), and at 22 (up to 23).
-    const early = (version: number, upTo: string) =>
-      db.exec(`ALTER TABLE messages DROP COLUMN usage_question_id; ALTER TABLE messages DROP COLUMN auto_fix; ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
-             DROP TABLE agent_worktrees;
-               CREATE TABLE agent_worktrees (
-                 conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-                 agent_id TEXT NOT NULL, repo_root TEXT NOT NULL, path TEXT NOT NULL, branch TEXT NOT NULL,
-                 base_commit TEXT NOT NULL, needs_reset INTEGER NOT NULL DEFAULT 0,
-                 PRIMARY KEY (conversation_id, agent_id));
-               INSERT INTO agent_worktrees VALUES ('${conv.id}', 'a1', '/tmp', '/wt/a1', 'relay/c/Architect', 'b0', 0);
-               ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
-               DROP TABLE memories; DROP TABLE schedule_attachments; DROP TABLE task_requests; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE schedules DROP COLUMN command; ALTER TABLE schedules DROP COLUMN command_only; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox;
-               ${upTo}
-               PRAGMA user_version = ${version};`);
-    const version = () => (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-    const has = (sql: string) => Boolean(db.prepare(sql).get());
-    db.prepare("INSERT INTO deleted_endpoints (id, deleted_at) VALUES ('oldlab', 1)").run();
-    early(25, '');
+    new Store(db).create(conv);
+    const schemaVersion = () => db.prepare('PRAGMA user_version').get()!.user_version;
+    const tableColumns = () =>
+      db
+        .prepare(
+          `SELECT t.name AS table_name, c.name AS column_name, c.pk
+                  FROM sqlite_schema AS t JOIN pragma_table_info(t.name) AS c
+                  WHERE t.type = 'table' ORDER BY t.name, c.name`,
+        )
+        .all();
+    const latestVersion = schemaVersion();
+    const latestColumns = tableColumns();
+
+    transaction(db, () => {
+      db.exec(`ALTER TABLE messages DROP COLUMN usage_question_id;
+               ALTER TABLE messages DROP COLUMN auto_fix;
+               ALTER TABLE provider_settings DROP COLUMN native_on;
+               ALTER TABLE provider_accounts DROP COLUMN native_on;
+               ALTER TABLE model_backends DROP COLUMN model_limits;
+               ALTER TABLE conversations DROP COLUMN steer;
+               ALTER TABLE messages DROP COLUMN steered;
+               ALTER TABLE conversation_agents DROP COLUMN limits;
+               ALTER TABLE preset_agents DROP COLUMN limits;
+               DROP TABLE memories;
+               DROP TABLE schedule_attachments;
+               DROP TABLE task_requests;
+               DROP TABLE push_subscriptions;
+               DROP TABLE secrets;
+               ALTER TABLE conversations DROP COLUMN lead_review;
+               ALTER TABLE messages DROP COLUMN review;
+               ALTER TABLE conversations DROP COLUMN pinned_at;
+               DROP TABLE notifications;
+               ALTER TABLE schedules DROP COLUMN goal;
+               ALTER TABLE schedules DROP COLUMN tracking;
+               ALTER TABLE schedules DROP COLUMN hook;
+               ALTER TABLE schedules DROP COLUMN hook_hash;
+               ALTER TABLE messages DROP COLUMN event;
+               ALTER TABLE messages DROP COLUMN tracked;
+               ALTER TABLE schedules DROP COLUMN watch;
+               ALTER TABLE schedules DROP COLUMN command;
+               ALTER TABLE schedules DROP COLUMN command_only;
+               ALTER TABLE messages DROP COLUMN event_source;
+               ALTER TABLE conversations DROP COLUMN checks;
+               ALTER TABLE presets DROP COLUMN checks;
+               ALTER TABLE messages DROP COLUMN checks;
+               DROP TABLE check_baselines;
+               DROP TABLE outbox;`);
+      if (build !== 'main') {
+        // These builds kept one worktree per agent, before main's migration 21.
+        db.exec(`DROP TABLE agent_worktrees;
+                 CREATE TABLE agent_worktrees (
+                   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                   agent_id TEXT NOT NULL, repo_root TEXT NOT NULL, path TEXT NOT NULL, branch TEXT NOT NULL,
+                   base_commit TEXT NOT NULL, needs_reset INTEGER NOT NULL DEFAULT 0,
+                   PRIMARY KEY (conversation_id, agent_id));
+                 ALTER TABLE conversations DROP COLUMN extra_cwds;
+                 ALTER TABLE messages DROP COLUMN more_changes;`);
+      }
+      if (build === 'before accounts') {
+        db.exec(`DROP TABLE provider_accounts;
+                 ALTER TABLE provider_settings DROP COLUMN account_label;
+                 ALTER TABLE conversation_agents DROP COLUMN account;
+                 ALTER TABLE preset_agents DROP COLUMN account;
+                 ALTER TABLE agent_sessions DROP COLUMN account;`);
+      }
+      if (backendThrough < 22) db.exec('DROP TABLE model_backends');
+      if (backendThrough < 23) db.exec('ALTER TABLE agent_sessions DROP COLUMN permission');
+      if (backendThrough < 24) db.exec('ALTER TABLE agent_sessions DROP COLUMN by_cli');
+      if (backendThrough < 25) db.exec('ALTER TABLE provider_settings DROP COLUMN sandbox_terminal');
+      if (backendThrough < 26) {
+        db.exec('DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;');
+      } else {
+        db.exec("INSERT INTO deleted_endpoints (id, deleted_at) VALUES ('oldlab', 1)");
+      }
+      db.prepare("INSERT INTO agent_worktrees VALUES (?, 'a1', '/tmp', '/wt/a1', 'relay/c/Architect', 'b0', 0)").run(conv.id);
+      db.exec(`PRAGMA user_version = ${version}`);
+    });
+
     reopen();
-    expect(version()).toBe(45);
-    expect(has("SELECT 1 FROM pragma_table_info('conversations') WHERE name = 'extra_cwds'")).toBe(true);
-    expect(db.prepare('SELECT id FROM deleted_endpoints').all()).toEqual([{ id: 'oldlab' }]);
+    expect(schemaVersion()).toBe(latestVersion);
+    expect(tableColumns()).toEqual(latestColumns);
+    expect(db.prepare('SELECT id FROM deleted_endpoints').all()).toEqual(backendThrough === 26 ? [{ id: 'oldlab' }] : []);
     expect(new Store(db).get(conv.id)!.worktrees).toEqual({
       a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: false }],
     });
-    early(
-      22,
-      'ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;',
-    );
-    reopen();
-    expect(version()).toBe(45);
-    expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'by_cli'")).toBe(true);
-    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
-    // Builds from before the accounts numbered the model backends 19–22: without the accounts or several
-    // working directories (today's 19–21). At 22 (everything up to today's 25), and at 19 (up to 22).
-    const beforeAccounts = (version: number, upTo: string) =>
-      early(
-        version,
-        `DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label; ALTER TABLE conversation_agents DROP COLUMN account;
-         ALTER TABLE preset_agents DROP COLUMN account; ALTER TABLE agent_sessions DROP COLUMN account; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend; ${upTo}`,
-      );
-    beforeAccounts(22, '');
-    reopen();
-    expect(version()).toBe(45);
-    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
-    expect(has("SELECT 1 FROM pragma_table_info('provider_accounts') WHERE name = 'native_items'")).toBe(true);
-    expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'account'")).toBe(true);
-    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
-    expect(new Store(db).get(conv.id)!.worktrees).toEqual({
-      a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: false }],
-    });
-    beforeAccounts(
-      19,
-      'ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;',
-    );
-    reopen();
-    expect(version()).toBe(45);
-    expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'permission'")).toBe(true);
-    expect(has("SELECT 1 FROM pragma_table_info('provider_settings') WHERE name = 'sandbox_terminal'")).toBe(true);
-    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
-    // A database of main's own at 21 (several working directories, no model backends) is left as it is.
-    db.exec(`ALTER TABLE messages DROP COLUMN usage_question_id; ALTER TABLE messages DROP COLUMN auto_fix; ALTER TABLE provider_settings DROP COLUMN native_on; ALTER TABLE provider_accounts DROP COLUMN native_on; ALTER TABLE model_backends DROP COLUMN model_limits; ALTER TABLE conversations DROP COLUMN steer; ALTER TABLE messages DROP COLUMN steered; ALTER TABLE conversation_agents DROP COLUMN limits; ALTER TABLE preset_agents DROP COLUMN limits;
-             DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli;
-             ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
-             DROP TABLE memories; DROP TABLE schedule_attachments; DROP TABLE task_requests; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE schedules DROP COLUMN command; ALTER TABLE schedules DROP COLUMN command_only; ALTER TABLE messages DROP COLUMN event_source; ALTER TABLE conversations DROP COLUMN checks; ALTER TABLE presets DROP COLUMN checks; ALTER TABLE messages DROP COLUMN checks; DROP TABLE check_baselines; DROP TABLE outbox; PRAGMA user_version = 21;`);
-    reopen();
-    expect(version()).toBe(45);
-    expect(has("SELECT 1 FROM sqlite_master WHERE name = 'model_backends'")).toBe(true);
   });
 
   it('reopens an accepted request with its original result until its conversation is deleted', () => {
