@@ -1,4 +1,16 @@
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
+import {
+  appendFileSync,
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { truncatedNote } from '../shared/diff';
@@ -214,6 +226,127 @@ export function needsDriverGuards(args: readonly string[]): boolean {
   return true;
 }
 
+/**
+ * The git commands Harness Relay runs that write into the repository's git folder: objects (`add`,
+ * `write-tree`, `commit-tree`, `mktree`, `commit`), refs and their logs (`update-ref`, `branch`,
+ * `commit`, `worktree add`), a worktree's own folder (`worktree`), and `COMMIT_EDITMSG` (`commit`).
+ */
+const WRITES_GIT_DIR = new Set(['add', 'write-tree', 'commit-tree', 'mktree', 'update-ref', 'branch', 'commit', 'worktree']);
+
+/** The most entries `gitDirLink` looks at in one git folder before it refuses (a folder an agent filled to slow it). */
+const GIT_DIR_ENTRIES_MAX = 200_000;
+
+/**
+ * The repository's git folders as git finds them from `cwd` (no git process): the `.git` folder, or
+ * the one its `.git` file names (a worktree's, a submodule's), and the common one its `commondir`
+ * names. Undefined outside a repository. `link` when `.git` itself is a link.
+ */
+function gitDirsOf(cwd: string): { dirs: string[]; link?: string } | undefined {
+  for (let dir = resolve(cwd); ; dir = dirname(dir)) {
+    const dotGit = join(dir, '.git');
+    let st;
+    try {
+      st = lstatSync(dotGit);
+    } catch {
+      if (dirname(dir) === dir) return undefined;
+      continue;
+    }
+    if (st.isSymbolicLink()) return { dirs: [], link: dotGit };
+    let gitDir = dotGit;
+    if (st.isFile()) {
+      const named = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1]?.trim();
+      if (!named) return undefined;
+      gitDir = resolve(dir, named);
+    }
+    let common = gitDir;
+    try {
+      common = resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim());
+    } catch {
+      // no `commondir`: the git folder is its own common one
+    }
+    return { dirs: [...new Set([gitDir, common])] };
+  }
+}
+
+/**
+ * The first link (a symbolic link, or a junction on Windows) in what Harness Relay's git writes into in
+ * this git folder, relative to it, or undefined. Git follows a link there: a linked folder under
+ * `refs` or `logs` gets the ref or its log written (and deleted) where it points, a linked log is
+ * appended to, a linked `COMMIT_EDITMSG` is overwritten, a linked folder of `objects` or `worktrees`
+ * gets their files. What git replaces by renaming a file over it (a ref, `HEAD`, `index`,
+ * `packed-refs`) replaces the link itself, and the folders it only reads (`hooks`, which `CONFIG`
+ * turns off, `info`) are left alone. Looked at without following any link.
+ */
+export function gitDirLink(gitDir: string): string | undefined {
+  let seen = 0;
+  /** Whether a link is one git may write through here: under `refs`, a link to a file is a ref git replaces by a rename. */
+  const refused = (path: string, fileLinksOk: boolean) => {
+    if (!fileLinksOk) return true;
+    try {
+      return !statSync(path).isFile();
+    } catch {
+      return true; // a link to nothing
+    }
+  };
+  /** The first link git would write through in the real folder `path` (`rel`), `depth` folders down. */
+  const within = (path: string, rel: string, depth: number, fileLinksOk: boolean): string | undefined => {
+    // The entries' types as the folder lists them: no lstat each (a git folder's objects has 256).
+    for (const entry of readdirSync(path, { withFileTypes: true })) {
+      if (++seen > GIT_DIR_ENTRIES_MAX) return `${rel} (more than ${GIT_DIR_ENTRIES_MAX} entries)`;
+      const child = join(path, entry.name);
+      if (entry.isSymbolicLink()) {
+        if (refused(child, fileLinksOk)) return `${rel}/${entry.name}`;
+      } else if (entry.isDirectory() && depth > 1) {
+        const found = within(child, `${rel}/${entry.name}`, depth - 1, fileLinksOk);
+        if (found) return found;
+      }
+    }
+    return undefined;
+  };
+  /** `rel` when `path` is itself such a link; else the first one inside it. */
+  const at = (path: string, rel: string, depth: number, fileLinksOk: boolean): string | undefined => {
+    let st;
+    try {
+      st = lstatSync(path);
+    } catch {
+      return undefined; // not there (yet): git makes it a real folder or file
+    }
+    if (st.isSymbolicLink()) return refused(path, fileLinksOk) ? rel : undefined;
+    return st.isDirectory() && depth > 0 ? within(path, rel, depth, fileLinksOk) : undefined;
+  };
+  return (
+    at(gitDir, '.', 0, false) ??
+    // A loose object is written as a temporary file in its folder, then named: the folders alone.
+    at(join(gitDir, 'objects'), 'objects', 1, false) ??
+    at(join(gitDir, 'refs'), 'refs', Infinity, true) ??
+    at(join(gitDir, 'logs'), 'logs', Infinity, false) ??
+    at(join(gitDir, 'worktrees'), 'worktrees', Infinity, false) ??
+    at(join(gitDir, 'COMMIT_EDITMSG'), 'COMMIT_EDITMSG', 0, false)
+  );
+}
+
+/**
+ * Refuses a git command that writes into the repository's git folder when what it writes into there
+ * goes through a link (`gitDirLink`): an agent whose sandbox lets it write `.git` could have one point
+ * outside, where Harness Relay's git, which runs outside any sandbox, would write. Checked just before
+ * the command; an agent that makes a link while it runs is not caught (no git option stops git from
+ * following one), so this narrows the window to the command itself.
+ */
+function refuseGitDirLinks(cwd: string, command: string): void {
+  const found = gitDirsOf(cwd);
+  if (!found) return;
+  let link = found.link;
+  for (const dir of found.dirs) {
+    if (link) break;
+    const rel = gitDirLink(dir);
+    if (rel) link = rel === '.' ? dir : join(dir, rel);
+  }
+  if (link)
+    throw new GitError(
+      t().gitFailed(command, `${link} is a link in the repository's git folder, which Harness Relay's git would write through`),
+    );
+}
+
 async function git(cwd: string, args: string[], o: GitOptions = {}) {
   const env: NodeJS.ProcessEnv = { ...process.env, ...IDENTITY, ...o.env };
   delete env.GIT_DIR; // never inherit a repository from the server's own environment
@@ -226,6 +359,7 @@ async function git(cwd: string, args: string[], o: GitOptions = {}) {
   // no external diff or textconv either. A command that reads only objects and refs needs no guards.
   const bin = await gitCommand(env);
   const guards = existsSync(cwd) && needsDriverGuards(args) ? await repoDriverGuards(cwd, env, args[0] === 'add', 0, bin) : [];
+  if (WRITES_GIT_DIR.has(args[0] ?? '')) refuseGitDirLinks(cwd, String(args[0]));
   const safe = args[0] === 'diff' ? ['diff', '--no-ext-diff', '--no-textconv', ...args.slice(1)] : args;
   const r = await captureGit(
     [...CONFIG, ...guards, ...safe],

@@ -5,7 +5,9 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -22,8 +24,10 @@ import {
   diffFiles,
   diffText,
   dropKeptCommits,
+  forgetCommits,
   ensureRepo,
   excludePathspecs,
+  gitDirLink,
   keepCommits,
   needsDriverGuards,
   parseDiffFiles,
@@ -435,6 +439,108 @@ describe('the git processes a turn costs', () => {
     mkdirSync(outside);
     git(repo, 'config', 'core.worktree', outside);
     await expect(snapshot(repo)).rejects.toThrow(/core\.worktree/);
+  });
+});
+
+describe("a link in the repository's git folder, which Harness Relay's git would write through", () => {
+  /** A link to a folder (a junction on Windows, which needs no rights there). */
+  const dirLink = (target: string, path: string) => symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir');
+  const gitDir = () => join(repo, '.git');
+  const refused = /is a link in the repository's git folder, which Harness Relay's git would write through/;
+  const listed = (folder: string) => (existsSync(folder) ? readdirSync(folder, { recursive: true }) : []);
+
+  it("refuses to keep a commit's ref, or let one go, through a linked folder of refs or logs, or a linked log, and writes nothing there", async () => {
+    await ensureRepo(repo);
+    const snap = (await snapshot(repo)).commit;
+    const outside = join(dir, 'outside');
+    mkdirSync(outside);
+    dirLink(outside, join(gitDir(), 'refs', 'harness-relay'));
+    await expect(keepCommits(repo, 'conv-1', [snap])).rejects.toThrow(refused);
+    expect(listed(outside)).toEqual([]);
+    // A file there that reads as a kept ref is not deleted through it either.
+    mkdirSync(join(outside, 'conv-1'));
+    writeFileSync(join(outside, 'conv-1', snap), `${snap}\n`);
+    await expect(dropKeptCommits(repo, 'conv-1')).rejects.toThrow(refused);
+    await expect(forgetCommits(repo, 'conv-1', [snap])).rejects.toThrow(refused);
+    expect(readFileSync(join(outside, 'conv-1', snap), 'utf8')).toBe(`${snap}\n`);
+    rmSync(join(gitDir(), 'refs', 'harness-relay'), { recursive: false, force: true });
+
+    // Its logs' folder linked: a log would be written there.
+    const logs = join(dir, 'logs-outside');
+    mkdirSync(logs);
+    mkdirSync(join(gitDir(), 'logs', 'refs'), { recursive: true });
+    dirLink(logs, join(gitDir(), 'logs', 'refs', 'harness-relay'));
+    await expect(keepCommits(repo, 'conv-1', [snap])).rejects.toThrow(refused);
+    expect(listed(logs)).toEqual([]);
+    rmSync(join(gitDir(), 'logs', 'refs', 'harness-relay'), { force: true });
+
+    // A log itself linked: git appends to a log there is, whatever core.logAllRefUpdates says.
+    const victim = join(dir, 'victim.txt');
+    writeFileSync(victim, 'keep\n');
+    mkdirSync(join(gitDir(), 'logs', 'refs', 'harness-relay', 'conv-1'), { recursive: true });
+    symlinkSync(victim, join(gitDir(), 'logs', 'refs', 'harness-relay', 'conv-1', snap));
+    await expect(keepCommits(repo, 'conv-1', [snap])).rejects.toThrow(refused);
+    expect(readFileSync(victim, 'utf8')).toBe('keep\n');
+    rmSync(join(gitDir(), 'logs', 'refs', 'harness-relay', 'conv-1', snap), { force: true });
+
+    // Without a link, kept as before.
+    await keepCommits(repo, 'conv-1', [snap]);
+    expect(git(repo, 'for-each-ref', '--format=%(refname)', 'refs/harness-relay/')).toBe(`refs/harness-relay/conv-1/${snap}`);
+  });
+
+  it("refuses a snapshot through a linked folder of objects, and a worktree's commit that would overwrite a linked COMMIT_EDITMSG", async () => {
+    await ensureRepo(repo);
+    const snap = (await snapshot(repo)).commit;
+    const wt = join(dir, 'wt');
+    await createWorktree(repo, wt, 'relay/test', snap);
+    const outside = join(dir, 'outside');
+    mkdirSync(outside);
+    const objects = join(gitDir(), 'objects');
+    const free = ['ff', 'fe', 'fd', 'fc'].find((n) => !existsSync(join(objects, n)))!;
+    dirLink(outside, join(objects, free));
+    writeFileSync(join(repo, 'README.md'), 'changed\n');
+    await expect(snapshot(repo)).rejects.toThrow(refused);
+    expect(listed(outside)).toEqual([]);
+    rmSync(join(objects, free), { force: true });
+
+    // A worktree's own git folder: git commit writes the message to its COMMIT_EDITMSG.
+    const victim = join(dir, 'victim.txt');
+    writeFileSync(victim, 'keep\n');
+    const admin = readdirSync(join(gitDir(), 'worktrees')).map((n) => join(gitDir(), 'worktrees', n))[0]!;
+    symlinkSync(victim, join(admin, 'COMMIT_EDITMSG'));
+    writeFileSync(join(wt, 'README.md'), 'in the worktree\n');
+    await expect(commitWorktree(wt, 'Harness Relay')).rejects.toThrow(refused);
+    expect(readFileSync(victim, 'utf8')).toBe('keep\n');
+    rmSync(join(admin, 'COMMIT_EDITMSG'), { force: true });
+    expect(await commitWorktree(wt, 'Harness Relay')).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it('refuses a .git that is itself a link, and leaves alone what git only reads or replaces: hooks, a linked ref', async () => {
+    await ensureRepo(repo);
+    const snap = (await snapshot(repo)).commit;
+    // What git only reads (hooks, which Harness Relay turns off) and a ref git replaces by a rename.
+    const hooks = join(dir, 'hooks');
+    mkdirSync(hooks);
+    rmSync(join(gitDir(), 'hooks'), { recursive: true, force: true });
+    dirLink(hooks, join(gitDir(), 'hooks'));
+    const ref = join(dir, 'ref.txt');
+    writeFileSync(ref, `${snap}\n`);
+    symlinkSync(ref, join(gitDir(), 'refs', 'heads', 'linked'));
+    expect(gitDirLink(gitDir())).toBeUndefined();
+    await snapshot(repo);
+    // A ref's link to nothing, or to a folder, is refused.
+    rmSync(join(gitDir(), 'refs', 'heads', 'linked'), { force: true });
+    symlinkSync(join(dir, 'nothing'), join(gitDir(), 'refs', 'heads', 'linked'));
+    expect(gitDirLink(gitDir())).toBe('refs/heads/linked');
+    rmSync(join(gitDir(), 'refs', 'heads', 'linked'), { force: true });
+    expect(gitDirLink(gitDir())).toBeUndefined();
+
+    // The whole .git a link: everything would be written where it points.
+    const moved = join(dir, 'moved.git');
+    renameSync(gitDir(), moved);
+    dirLink(moved, gitDir());
+    await expect(snapshot(repo)).rejects.toThrow(refused);
+    expect(gitDirLink(gitDir())).toBe('.');
   });
 });
 
