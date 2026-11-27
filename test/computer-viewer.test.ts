@@ -3,6 +3,7 @@
  * viewer (`test/fake-cua-viewer.ts`): what passes, with which of Cua's tickets, and how a change of control
  * ends what the page had.
  */
+import { request } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cuaViewerTicket, FOLLOW_SCRIPT, mediaPaths, ViewerProxy, withFollow } from '../src/server/computer/viewer';
 import { FakeCua, field, frame, openMediaAnswer, openStream, send } from './fake-cua-viewer';
@@ -14,10 +15,19 @@ afterEach(() => {
 
 async function setup(o: { input?: boolean; failMint?: boolean } = {}) {
   const cua = await FakeCua.start();
-  const state = { input: o.input ?? false, mints: [] as boolean[], used: 0, now: 1_000_000, failMint: o.failMint ?? false };
+  const state = {
+    input: o.input ?? false,
+    mints: [] as boolean[],
+    used: 0,
+    now: 1_000_000,
+    failMint: o.failMint ?? false,
+    /** Held before a ticket is made. */
+    gate: undefined as Promise<void> | undefined,
+  };
   const proxy = new ViewerProxy({
     mint: async (input) => {
       state.mints.push(input);
+      await state.gate;
       if (state.failMint) throw new Error('cua said no');
       return { origin: cua.origin, ticket: `cua-${input ? 'input' : 'watch'}-${state.mints.length}`, expiresAt: state.now + 30 * 60_000 };
     },
@@ -46,7 +56,17 @@ async function setup(o: { input?: boolean; failMint?: boolean } = {}) {
     const answer = await call('StreamService/OpenMedia');
     return { answer, path: mediaPaths(answer.body)[0]! };
   };
-  return { cua, proxy, state, url, token, origin, call, openMedia };
+  /** The page's script asking whether control changed, saying whether its tab is in front. */
+  const poll = (visible: 0 | 1, auth = `Bearer ${token}`) =>
+    send(origin, 'GET', `/viewer/relay-state?visible=${visible}`, { 'x-cua-env-authorization': auth });
+  return { cua, proxy, state, url, token, origin, call, openMedia, poll };
+}
+
+/** A gate, and its opening. */
+function gate(): { held: Promise<void>; open: () => void } {
+  let open!: () => void;
+  const held = new Promise<void>((resolve) => (open = resolve));
+  return { held, open };
 }
 
 describe('Cua’s viewer through Harness Relay’s proxy', () => {
@@ -59,9 +79,14 @@ describe('Cua’s viewer through Harness Relay’s proxy', () => {
     expect(state.mints).toEqual([false]);
   });
 
-  it('serves Cua’s page with its own script first, Cua’s files, and passes on no cookie or origin', async () => {
-    const { cua, origin, state } = await setup();
-    const page = await send(origin, 'GET', '/viewer/', { cookie: 'relay=secret', 'accept-encoding': 'gzip' });
+  it('serves Cua’s page with its own script first, never from the browser’s copy, and Cua’s files, passing on no cookie or origin', async () => {
+    const { cua, origin, state, poll } = await setup();
+    const page = await send(origin, 'GET', '/viewer/', {
+      cookie: 'relay=secret',
+      'accept-encoding': 'gzip',
+      'if-none-match': '"cua-page"',
+      'if-modified-since': 'Sat, 28 Nov 2026 00:00:00 GMT',
+    });
     expect(page.status).toBe(200);
     const html = page.body.toString();
     expect(html).toContain('<head><script type="module" src="./relay-follow.js?mode=watch"></script>');
@@ -69,10 +94,16 @@ describe('Cua’s viewer through Harness Relay’s proxy', () => {
     expect(Number(page.headers['content-length'])).toBe(page.body.length);
     expect(page.headers['content-security-policy']).toBe("default-src 'self'");
     expect(page.headers['access-control-allow-origin']).toBeUndefined();
+    // The page differs with the powers it is served with: Cua's validators are not its own.
+    expect(page.headers.etag).toBeUndefined();
+    expect(page.headers['last-modified']).toBeUndefined();
+    expect(page.headers['cache-control']).toBe('no-store');
     const asked = cua.requests.at(-1)!;
     expect(asked.url).toBe('/viewer/');
     expect(asked.headers.cookie).toBeUndefined();
     expect(asked.headers.origin).toBeUndefined();
+    expect(asked.headers['if-none-match']).toBeUndefined();
+    expect(asked.headers['if-modified-since']).toBeUndefined();
     // Asked as it is, to be changed.
     expect(asked.headers['accept-encoding']).toBeUndefined();
     expect(asked.headers.host).toBe(new URL(cua.origin).host);
@@ -82,10 +113,26 @@ describe('Cua’s viewer through Harness Relay’s proxy', () => {
     expect(cua.requests.at(-1)!.headers['accept-encoding']).toBe('gzip');
 
     expect((await send(origin, 'GET', '/viewer/relay-follow.js?mode=watch')).body.toString()).toBe(FOLLOW_SCRIPT);
-    expect(JSON.parse((await send(origin, 'GET', '/viewer/relay-state')).body.toString())).toEqual({ mode: 'watch' });
+    expect(JSON.parse((await poll(1)).body.toString())).toEqual({ mode: 'watch' });
     state.input = true;
-    expect(JSON.parse((await send(origin, 'GET', '/viewer/relay-state')).body.toString())).toEqual({ mode: 'input' });
+    expect(JSON.parse((await poll(1)).body.toString())).toEqual({ mode: 'input' });
     expect((await send(origin, 'GET', '/viewer/')).body.toString()).toContain('relay-follow.js?mode=input');
+  });
+
+  it('counts a tab of it in front as use of the computer, never one behind, nor its streams', async () => {
+    const { origin, state, poll, openMedia } = await setup({ input: true });
+    expect((await poll(1, 'Bearer nope')).status).toBe(401);
+    expect((await send(origin, 'GET', '/viewer/relay-state?visible=1')).status).toBe(401);
+    expect(state.used).toBe(0);
+    await poll(0);
+    expect(state.used).toBe(0);
+    await poll(1);
+    expect(state.used).toBe(1);
+    // What a stream carries (the page acknowledges every frame) says nothing of whether anyone looks.
+    const stream = await openStream(origin, (await openMedia()).path);
+    stream.socket!.write(frame('frame_ack'));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(state.used).toBe(1);
   });
 
   it('refuses a call without its token, from another page or host, and every call Cua’s page never makes', async () => {
@@ -134,8 +181,46 @@ describe('Cua’s viewer through Harness Relay’s proxy', () => {
     expect(cua.requests.at(-1)!.headers['x-cua-env-authorization']).toBe('Bearer cua-input-3');
 
     state.input = false;
-    await call('ComputerService/GetClipboard');
+    await call('PresenceService/UpdateCursor');
     expect(cua.requests.at(-1)!.headers['x-cua-env-authorization']).toBe('Bearer cua-watch-4');
+  });
+
+  it('shares the computer’s clipboard only while the user has control', async () => {
+    const { cua, call, state } = await setup();
+    const before = cua.requests.length;
+    expect((await call('ComputerService/GetClipboard')).status).toBe(403);
+    expect((await call('ComputerService/SetClipboard')).status).toBe(403);
+    expect(cua.requests.length).toBe(before);
+    state.input = true;
+    expect((await call('ComputerService/SetClipboard')).status).toBe(200);
+    expect(cua.requests.at(-1)!.headers['x-cua-env-authorization']).toMatch(/^Bearer cua-input-/);
+    state.input = false;
+    expect((await call('ComputerService/SetClipboard')).status).toBe(403);
+    expect(cua.requests.length).toBe(before + 1);
+  });
+
+  it('asks Cua for OpenMedia’s answer as it is, to read its addresses', async () => {
+    const { cua, call } = await setup();
+    await call('StreamService/OpenMedia', { 'accept-encoding': 'gzip' });
+    expect(cua.requests.at(-1)!.headers['accept-encoding']).toBeUndefined();
+    await call('PresenceService/Join', { 'accept-encoding': 'gzip' });
+    expect(cua.requests.at(-1)!.headers['accept-encoding']).toBe('gzip');
+  });
+
+  it('refuses a call whose control changed while its ticket was made, and passes nothing of it on', async () => {
+    const { cua, call, state, proxy } = await setup();
+    // The ticket with input is made only once the user has control: held there.
+    const held = gate();
+    state.gate = held.held;
+    state.input = true;
+    const asked = call('PresenceService/Join');
+    await vi.waitFor(() => expect(state.mints).toEqual([false, true]));
+    const before = cua.requests.length;
+    state.input = false;
+    proxy.sync();
+    held.open();
+    expect((await asked).status).toBe(401);
+    expect(cua.requests.length).toBe(before);
   });
 
   it('says Cua’s failure to make a ticket, and keeps nothing of it', async () => {
@@ -160,8 +245,6 @@ describe('Cua’s viewer through Harness Relay’s proxy', () => {
     await vi.waitFor(() => expect(cua.received).toContainEqual({ path, text: 'watching' }));
     expect(cua.requests.at(-1)!.headers.cookie).toBeUndefined();
     expect(cua.requests.at(-1)!.headers.origin).toBe(cua.origin);
-    // Watching is not using it.
-    expect(state.used).toBe(0);
 
     // An address Cua did not give is answered with 4401: the page asks for another.
     const made = await openStream(origin, '/media?ticket=v1.made-up');
@@ -181,7 +264,6 @@ describe('Cua’s viewer through Harness Relay’s proxy', () => {
     const typing = await openStream(origin, next.path);
     typing.socket!.write(frame('click'));
     await vi.waitFor(() => expect(cua.received).toContainEqual({ path: next.path, text: 'click' }));
-    expect(state.used).toBeGreaterThan(0);
 
     // Handed back (the computer's state tells the proxy): the stream ends at once, the page sending nothing.
     state.input = false;
@@ -204,6 +286,22 @@ describe('Cua’s viewer through Harness Relay’s proxy', () => {
     expect((await openStream(origin, path)).closeCode).toBe(4401);
   });
 
+  it('refuses a stream whose control changed while its ticket was made', async () => {
+    const { cua, origin, state, proxy, openMedia } = await setup({ input: true });
+    const { path } = await openMedia();
+    // The ticket with input about to expire: the stream waits for a new one, held there.
+    state.now += 29 * 60_000;
+    const held = gate();
+    state.gate = held.held;
+    const opening = openStream(origin, path);
+    await vi.waitFor(() => expect(state.mints).toEqual([true, true]));
+    state.input = false;
+    proxy.sync();
+    held.open();
+    expect((await opening).closeCode).toBe(4401);
+    expect(cua.upgrades).not.toContain(path);
+  });
+
   it('refuses a stream from another page or host', async () => {
     const { cua, origin, openMedia } = await setup();
     const { path } = await openMedia();
@@ -213,13 +311,32 @@ describe('Cua’s viewer through Harness Relay’s proxy', () => {
     expect(cua.upgrades.length).toBe(upgrades);
   });
 
-  it('closes its port and its streams', async () => {
-    const { origin, proxy, openMedia } = await setup();
+  it('closes its port, its streams and its requests to Cua; a request ends at Cua when its browser goes', async () => {
+    const { cua, origin, proxy, openMedia } = await setup();
+    // The browser leaves a request Cua never finishes: Cua's end of it closes too.
+    const at = new URL(origin);
+    const left = request({ host: at.hostname, port: at.port, path: '/viewer/hang.js', headers: { host: at.host } });
+    left.on('error', () => undefined);
+    left.on('response', () => left.destroy());
+    left.end();
+    await vi.waitFor(() => expect(cua.hungUp).toBe(1));
+
     const stream = await openStream(origin, (await openMedia()).path);
+    const hanging = request({ host: at.hostname, port: at.port, path: '/viewer/hang.js', headers: { host: at.host } });
+    hanging.on('error', () => undefined);
+    hanging.end();
+    await vi.waitFor(() => expect(cua.requests.filter((r) => r.url === '/viewer/hang.js').length).toBe(2));
     proxy.close();
     await stream.ended;
+    await vi.waitFor(() => expect(cua.hungUp).toBe(2));
     await expect(send(origin, 'GET', '/viewer/')).rejects.toThrow(/ECONNREFUSED/);
     expect(proxy.closed).toBe(true);
+  });
+
+  it('says it is closed to a link asked for before it listened', async () => {
+    const proxy = new ViewerProxy({ mint: async () => ({ origin: 'http://127.0.0.1:1', ticket: 't' }), input: () => false });
+    proxy.close();
+    await expect(proxy.ready()).rejects.toThrow(/closed/);
   });
 });
 

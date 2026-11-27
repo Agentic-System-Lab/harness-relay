@@ -49,6 +49,8 @@ export class FakeCua {
   readonly streams = new Set<Socket>();
   /** Held before OpenMedia answers. */
   hold?: Promise<void>;
+  /** How many requests for `/viewer/hang.js` (which never ends) were closed: by the proxy, its client gone. */
+  hungUp = 0;
   private media = 0;
   private constructor(private readonly server: Server) {}
 
@@ -57,10 +59,22 @@ export class FakeCua {
     const cua = new FakeCua(server);
     server.on('request', (req: IncomingMessage, res) => {
       cua.requests.push({ method: req.method ?? '', url: req.url ?? '', headers: req.headers });
+      if (req.url === '/viewer/hang.js') {
+        res.writeHead(200, { 'content-type': 'text/javascript' }).write('// never ends');
+        return void req.socket.on('close', () => cua.hungUp++);
+      }
       req.resume();
       req.on('end', async () => {
         const cors = { 'access-control-allow-origin': '*', 'content-security-policy': "default-src 'self'" };
-        if (req.url === '/viewer/') return res.writeHead(200, { ...cors, 'content-type': 'text/html; charset=utf-8' }).end(PAGE);
+        if (req.url === '/viewer/')
+          return res
+            .writeHead(200, {
+              ...cors,
+              'content-type': 'text/html; charset=utf-8',
+              etag: '"cua-page"',
+              'last-modified': 'Sat, 28 Nov 2026 00:00:00 GMT',
+            })
+            .end(PAGE);
         if (req.url === '/viewer/viewer.js') return res.writeHead(200, { ...cors, 'content-type': 'text/javascript' }).end('export {};');
         if (req.url === '/cua.env.v1.StreamService/OpenMedia') {
           await cua.hold;

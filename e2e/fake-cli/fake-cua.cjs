@@ -413,6 +413,7 @@ function main() {
         return fail(`sandbox ${name} has no viewer running`);
       }
       const watch = args.includes('--view-only');
+      // As Cua's own link has them: watching, `clipboard=0` first (the page reads the first).
       return out({
         name: `local:${name}`,
         url: `http://127.0.0.1:${port}/viewer/#ticket=e2e-${watch ? 'watch' : 'input'}-${Date.now()}${watch ? '&clipboard=0' : ''}&clipboard=view`,

@@ -254,6 +254,8 @@ test.describe('the chat’s computer', () => {
         .filter((e) => e.viewer === 'input')
         .map((e) => `${e.text} (${e.ticket})`);
 
+    // Another app's cookie on 127.0.0.1 (cookies are per host, not per port): the browser sends it to the proxy.
+    await page.context().addCookies([{ name: 'elsewhere', value: 'x', domain: '127.0.0.1', path: '/' }]);
     const opened = page.waitForEvent('popup');
     await panel.getByRole('button', { name: "Open in Cua's viewer", exact: true }).click();
     const viewer = await opened;
@@ -278,14 +280,18 @@ test.describe('the chat’s computer', () => {
     // Handed back: watching again; nothing goes on a stream with input any more.
     await panel.getByRole('button', { name: 'Hand back to the agents', exact: true }).click();
     await expect(viewer.locator('#status')).toHaveText('streaming watch', { timeout: 15_000 });
+    // Reloaded by itself (its title is set as it loads): the clipboard off again.
+    await expect(viewer).toHaveTitle('Cua viewer, clipboard 0', { timeout: 15_000 });
     await viewer.keyboard.press('c');
     await expect.poll(keys).toEqual(['key:a (watch)', 'key:b (input)', 'key:c (watch)']);
 
-    // Every call came with one of Cua's tickets (the proxy's, never the page's token), and no cookie of the
-    // browser's (cookies are per host, not per port) went on to Cua.
+    // Every call came with one of Cua's tickets (the proxy's, never the page's token), and the browser's cookie
+    // went no further than the proxy.
     const calls = viewerLog().filter((e) => e.viewer !== 'input');
     expect(calls.filter((e) => e.viewer === 'call').every((e) => e.ticket === 'watch' || e.ticket === 'input')).toBe(true);
-    expect(calls.some((e) => e.cookie)).toBe(false);
+    // The page loaded three times (opened, then reloaded twice), each without the cookie.
+    await expect.poll(() => viewerLog().filter((e) => e.viewer === 'page').length).toBeGreaterThanOrEqual(3);
+    expect(viewerLog().some((e) => e.cookie)).toBe(false);
 
     // Turned off: the viewer's address answers nothing more.
     const address = viewer.url();

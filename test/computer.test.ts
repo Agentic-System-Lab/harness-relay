@@ -50,12 +50,10 @@ import {
   type ComputerMcp,
 } from '../src/server/computer/session';
 import { computerTools, keysOf } from '../src/server/computer/tools';
-import { mediaPaths } from '../src/server/computer/viewer';
 import type { GatewayContext } from '../src/server/gateway';
 import { withLang } from '../src/server/i18n';
 import type { SpawnResult } from '../src/server/process';
 import { cuaHomeDir } from '../src/server/protect';
-import { FakeCua, frame, openStream, send } from './fake-cua-viewer';
 import { slow } from './timeouts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-computer-')));
@@ -112,14 +110,14 @@ function setup(
     before?: (args: string[]) => Promise<void> | undefined;
     /** Told of each `sb cp`, before the fake copies. */
     cp?: (args: string[]) => void;
-    /** The origin of Cua's viewer its links name (a stand-in's: `test/fake-cua-viewer.ts`). */
-    viewer?: string;
     /** Where the desktop image is recorded as downloaded (a file of this setup's own by default). */
     imageRecord?: string;
   } = {},
 ) {
   const runs: string[][] = [];
   let mcpStarts = 0;
+  /** What each `cua mcp` started is told when it exits. */
+  const mcpExits: ((why: string) => void)[] = [];
   const creates = [...(o.create ?? [ok('{"status":"ready"}')])];
   const mcp = new FakeMcp();
   const handovers = new Handovers();
@@ -144,7 +142,7 @@ function setup(
       if (args.includes('view'))
         return ok(
           JSON.stringify({
-            url: `${o.viewer ?? 'http://127.0.0.1:41234'}/viewer/#ticket=cua-${args.includes('--view-only') ? 'watch' : 'input'}-1`,
+            url: `http://127.0.0.1:41234/viewer/#ticket=cua-${args.includes('--view-only') ? 'watch' : 'input'}-1`,
             expires_at_unix: now / 1000 + 1800,
           }),
         );
@@ -153,8 +151,9 @@ function setup(
       return ok();
     },
     available: () => o.available ?? true,
-    startMcp: async () => {
+    startMcp: async (_ref, onExit) => {
       mcpStarts++;
+      mcpExits.push(onExit);
       mcp.alive = true;
       return mcp;
     },
@@ -169,6 +168,7 @@ function setup(
     handoverMs: { start: 5_000, use: 5_000 },
     frameMs: 20,
     idleMs: 60_000,
+    removalPollMs: 1,
     now: () => now,
   });
   return {
@@ -178,10 +178,21 @@ function setup(
     handovers,
     shots,
     mcpStarts: () => mcpStarts,
+    /** The latest `cua mcp` exits. */
+    mcpExit: (why: string) => mcpExits.at(-1)!(why),
     advance: (ms: number) => {
       now += ms;
     },
   };
+}
+
+/** The viewer's own script asking its proxy (a link of `viewerLink()`) whether control changed; `visible`: its tab in front. */
+async function viewerState(url: string, visible: 0 | 1 = 0): Promise<unknown> {
+  const token = new URLSearchParams(new URL(url).hash.slice(1)).get('ticket')!;
+  const answer = await fetch(new URL(`/viewer/relay-state?visible=${visible}`, url), {
+    headers: { 'x-cua-env-authorization': `Bearer ${token}` },
+  });
+  return answer.json();
 }
 
 function ctx(o: Partial<GatewayContext> = {}): GatewayContext {
@@ -1053,7 +1064,7 @@ describe('the chat’s computer', () => {
 
   it('gives a link to Cua’s viewer through its proxy, whose powers follow control, closed when the computer stops', async () => {
     const { service, runs } = setup();
-    await expect(service.viewerLink('c1')).rejects.toThrow();
+    await expect(service.viewerLink('c1')).rejects.toMatchObject({ status: 409 });
     await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
     const views = () => runs.filter((r) => r.includes('view'));
     const watching = await service.viewerLink('c1');
@@ -1061,63 +1072,101 @@ describe('the chat’s computer', () => {
     expect(watching).toEqual({ url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/viewer\/#ticket=[\w-]{40,}$/), viewOnly: true });
     expect(watching.url).not.toContain('cua-');
     expect(views()).toEqual([['--json', 'sb', 'view', `local:${NAME}`, '--no-open', '--ttl', '30m', '--files', 'none', '--view-only']]);
-    const state = async (url: string) => (await fetch(new URL('/viewer/relay-state', url))).json();
-    expect(await state(watching.url)).toEqual({ mode: 'watch' });
+    expect(await viewerState(watching.url)).toEqual({ mode: 'watch' });
 
     // The user takes control: the same proxy, now with input (Cua's ticket with input made for it).
     service.takeControl('c1');
-    expect(await state(watching.url)).toEqual({ mode: 'input' });
+    expect(await viewerState(watching.url)).toEqual({ mode: 'input' });
     const using = await service.viewerLink('c1');
     expect(using).toEqual({ url: watching.url, viewOnly: false });
     expect(views().at(-1)).not.toContain('--view-only');
     service.handBack('c1');
-    expect(await state(watching.url)).toEqual({ mode: 'watch' });
+    expect(await viewerState(watching.url)).toEqual({ mode: 'watch' });
 
     // Turned off: the proxy closes with it, and the next link is another's.
     await service.turnOff('c1');
-    await expect(fetch(new URL('/viewer/relay-state', watching.url))).rejects.toThrow();
-    await expect(service.viewerLink('c1')).rejects.toThrow();
+    await expect(viewerState(watching.url)).rejects.toThrow();
+    await expect(service.viewerLink('c1')).rejects.toMatchObject({ status: 409 });
     await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
     const again = await service.viewerLink('c1');
     expect(again.url).not.toBe(watching.url);
     await service.shutdown();
-    await expect(fetch(new URL('/viewer/relay-state', again.url))).rejects.toThrow();
+    await expect(viewerState(again.url)).rejects.toThrow();
+    // Shutting down: no link at all.
+    await expect(service.viewerLink('c1')).rejects.toMatchObject({ status: 503 });
   });
 
-  it('counts a viewer with input as using the computer, never one that watches', async () => {
-    const cua = await FakeCua.start();
-    const { service, advance } = setup({ viewer: cua.origin });
-    try {
-      await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
-      service.takeControl('c1');
-      const { url } = await service.viewerLink('c1');
-      const origin = new URL(url).origin;
-      const token = new URLSearchParams(new URL(url).hash.slice(1)).get('ticket')!;
-      const media = await send(origin, 'POST', '/cua.env.v1.StreamService/OpenMedia', {
-        origin,
-        'x-cua-env-authorization': `Bearer ${token}`,
-      });
-      const path = mediaPaths(media.body)[0]!;
-      expect(path).toMatch(/input/);
-      const stream = await openStream(origin, path);
-      // The user types in the viewer (nothing in the panel): the computer is in use, past its idle time.
-      advance(50_000);
-      stream.socket!.write(frame('typing'));
-      await vi.waitFor(() => expect(cua.received).toContainEqual({ path, text: 'typing' }));
-      advance(50_000);
-      await service.suspendIdle();
-      expect(service.view('c1').status).toBe('ready');
-      // Handed back: the stream ends, and a viewer left watching keeps nothing awake; suspended, its proxy closes.
-      service.handBack('c1');
-      await stream.ended;
-      advance(61_000);
-      await service.suspendIdle();
-      expect(service.view('c1').status).toBe('off');
-      await expect(fetch(new URL('/viewer/relay-state', url))).rejects.toThrow();
-    } finally {
-      await service.shutdown();
-      cua.close();
-    }
+  it('gives the chats of one folder the same viewer, its ticket made once', async () => {
+    const { service, runs } = setup();
+    await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
+    const [a, b] = await Promise.all([service.viewerLink('c1'), service.viewerLink('c2')]);
+    expect(b.url).toBe(a.url);
+    expect(runs.filter((r) => r.includes('view'))).toHaveLength(1);
+    await service.shutdown();
+  });
+
+  it('keeps the computer awake while a tab of its viewer is in front, as a panel watching it does, never one behind', async () => {
+    const { service, advance } = setup();
+    await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
+    const { url } = await service.viewerLink('c1');
+    // In front (nothing done in the panel): the computer is in use, past its idle time.
+    advance(50_000);
+    await viewerState(url, 1);
+    advance(50_000);
+    await service.suspendIdle();
+    expect(service.view('c1').status).toBe('ready');
+    // Behind other windows: idle, it is suspended, and its viewer closes.
+    advance(30_000);
+    await viewerState(url, 0);
+    advance(31_000);
+    await service.suspendIdle();
+    expect(service.view('c1').status).toBe('off');
+    await expect(viewerState(url)).rejects.toThrow();
+    await service.shutdown();
+  });
+
+  it('says the computer stopped, not how Cua failed, when it stops while the viewer’s ticket is made', async () => {
+    let open!: () => void;
+    const held = new Promise<void>((resolve) => (open = resolve));
+    const { service, runs } = setup({
+      before: (args) => (args.includes('view') ? held.then(() => Promise.reject(new Error('cua went away'))) : undefined),
+    });
+    await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
+    const asked = service.viewerLink('c1');
+    await vi.waitFor(() => expect(runs.some((r) => r.includes('view'))).toBe(true));
+    await service.turnOff('c1');
+    open();
+    await expect(asked).rejects.toMatchObject({ status: 409 });
+    await service.shutdown();
+  });
+
+  it('closes the viewer with its computer however it stops: its MCP server gone, deleted, Cua removed', async () => {
+    let removing = false;
+    let open!: () => void;
+    const held = new Promise<void>((resolve) => (open = resolve));
+    // Remove Cua held at deleting the computers: while it runs.
+    const { service, mcpExit } = setup({ before: (args) => (removing && args[1] === 'rm' ? held : undefined) });
+    await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
+    const first = (await service.viewerLink('c1')).url;
+    mcpExit('cua mcp exited');
+    expect(service.view('c1').status).toBe('failed');
+    await expect(viewerState(first)).rejects.toThrow();
+
+    await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
+    const second = (await service.viewerLink('c1')).url;
+    expect(await service.removeByName(NAME)).toBe(true);
+    await expect(viewerState(second)).rejects.toThrow();
+
+    await service.call(ctx(), 'computer_screenshot', {}, 'screenshot');
+    const third = (await service.viewerLink('c1')).url;
+    removing = true;
+    service.startRemoval();
+    // Closed as the removal starts, the computer still listed; and no link while it runs.
+    await expect(viewerState(third)).rejects.toThrow();
+    await expect(service.viewerLink('c1')).rejects.toMatchObject({ status: 409 });
+    open();
+    await vi.waitFor(async () => expect((await service.settingsView(false, () => [])).removal?.state).not.toBe('running'));
+    await service.shutdown();
   });
 
   it('refuses to start when Cua is not installed', async () => {

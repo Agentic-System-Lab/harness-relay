@@ -17,15 +17,19 @@ import type { Duplex } from 'node:stream';
  *
  * Cua cannot take a viewer's ticket back (`cua sb view` makes one, good until it expires; nothing revokes it),
  * so the browser never gets one. It gets this proxy's address and a token of the proxy's (in the link's `#`,
- * which the page keeps in its storage), and the proxy holds Cua's tickets: one to watch only (`--view-only`)
- * while the agents have the computer, one with input while the user has control. Every call the page makes goes
- * through the proxy, which checks the token, the page's origin and the call (only those Cua's page makes), and
- * gives Cua the ticket for who has control now. When that changes, the page's streams end, the media addresses
- * Cua gave before are refused (`4401`: the page asks for a new stream, under the other ticket), and nothing the
+ * which the page keeps in its storage), and the proxy holds Cua's viewer tickets: one to watch only
+ * (`--view-only`) while the agents have the computer, one with input while the user has control. Every call the
+ * page makes goes through the proxy, which checks the token, the page's origin and the call (only those Cua's
+ * page makes; the clipboard's only with input), and gives Cua the ticket for who has control now. The page
+ * sees only the stream tickets in the media addresses OpenMedia gives (short-lived, each for one stream), and
+ * reaches them only through the proxy. When control changes, the page's streams end, the media addresses Cua
+ * gave before are refused (`4401`: the page asks for a new stream, under the other ticket), and nothing the
  * page sends on an older stream goes on: each piece is checked against who has control as it arrives. A script
  * of the proxy's in the page (`FOLLOW_SCRIPT`, same origin, which its policy allows) reloads it then, since
  * Cua's page sets up its input once, as it loads: a page opened to watch takes input only once loaded again.
- * The proxy is closed when the computer stops (and at shutdown); the page's address then answers nothing.
+ * The same script says whether its tab is in front: a viewer in front keeps the computer awake, as a panel
+ * watching it does, and one in the background does not. The proxy is closed when the computer stops (and at
+ * shutdown); the page's address then answers nothing.
  */
 
 /** What `cua sb view` gave: the viewer's own origin (a loopback port) and its ticket. */
@@ -41,7 +45,7 @@ export interface ViewerProxyDeps {
   mint: (input: boolean) => Promise<CuaViewerTicket>;
   /** Whether the user has control now: then the viewer takes input. */
   input: () => boolean;
-  /** Something came from a viewer with input: the computer is in use. */
+  /** A tab of the viewer is in front: the computer is in use, as while a panel watches it. */
   used?: () => void;
   now?: () => number;
 }
@@ -61,6 +65,9 @@ export const VIEWER_CALLS: ReadonlySet<string> = new Set([
   'ComputerService/SetClipboard',
 ]);
 
+/** Those only with input: watching, the page shares no clipboard (as Cua's `--view-only` link says). */
+const INPUT_CALLS: ReadonlySet<string> = new Set(['ComputerService/GetClipboard', 'ComputerService/SetClipboard']);
+
 /** The header Cua's page sends its ticket in (here: the proxy's token, which the proxy swaps for Cua's ticket). */
 const AUTH = 'x-cua-env-authorization';
 /** A stream's address, as OpenMedia gives it. */
@@ -68,8 +75,8 @@ const MEDIA_PATH = /^\/media\?ticket=[A-Za-z0-9._~-]{1,4096}$/;
 const CALL_PATH = /^\/cua\.env\.v1\.([A-Za-z]{1,64}\/[A-Za-z]{1,64})$/;
 /** Cua's page and its files (no `..`: checked apart). */
 const PAGE_FILES = /^\/viewer\/[A-Za-z0-9._/-]{0,200}(\?[A-Za-z0-9._~=&%-]{0,500})?$/;
-const FOLLOW_PATH = '/viewer/relay-follow.js';
-const STATE_PATH = '/viewer/relay-state';
+const FOLLOW_PATH = /^\/viewer\/relay-follow\.js(\?mode=(input|watch))?$/;
+const STATE_PATH = /^\/viewer\/relay-state(\?visible=([01]))?$/;
 /** A ticket is minted again when this little of it is left. */
 const REFRESH_MS = 2 * 60_000;
 /** How many media addresses are kept as allowed (the latest), and how big an answer read whole may be. */
@@ -77,7 +84,10 @@ const ALLOWED_MAX = 32;
 const READ_MAX = 1 << 20;
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
-/** The request headers passed on to Cua: never a cookie (cookies are per host, not per port), origin or referrer. */
+/**
+ * The request headers passed on to Cua: never a cookie (cookies are per host, not per port, so the browser
+ * sends the proxy those of any other page on 127.0.0.1), origin or referrer.
+ */
 const PASSED = [
   'accept',
   'accept-encoding',
@@ -114,21 +124,31 @@ const DROPPED = new Set([
 
 /**
  * The proxy's script in Cua's page, before the page's own: the clipboard as the page's powers have it (shared
- * with input, off to watch), and a reload once who has control changed, for the page to set itself up again.
+ * with input, off to watch); every second, with the proxy's token, whether its tab is in front (the computer
+ * kept awake meanwhile), and a reload once who has control changed, for the page to set itself up again. The
+ * token comes in the link the first time (Cua's page takes it out of the address next) and is kept apart.
  */
 export const FOLLOW_SCRIPT = `const start = new URL(import.meta.url).searchParams.get('mode');
 const hash = new URLSearchParams(location.hash.slice(1));
+const token = hash.get('ticket') || sessionStorage.getItem('relay.viewer.token') || '';
+sessionStorage.setItem('relay.viewer.token', token);
 hash.set('clipboard', start === 'input' ? 'view' : '0');
 history.replaceState(history.state, '', location.pathname + location.search + '#' + hash);
+let failures = 0;
 const poll = async () => {
   try {
-    const answer = await fetch('./relay-state', { cache: 'no-store' });
+    const visible = document.visibilityState === 'visible' ? 1 : 0;
+    const answer = await fetch('./relay-state?visible=' + visible, {
+      cache: 'no-store',
+      headers: { 'x-cua-env-authorization': 'Bearer ' + token },
+    });
     if (!answer.ok) return;
+    failures = 0;
     if ((await answer.json()).mode !== start) return location.reload();
   } catch {
-    return;
+    if (++failures >= 5) return;
   }
-  setTimeout(poll, 1000);
+  setTimeout(poll, 1000 * (failures + 1));
 };
 setTimeout(poll, 1000);
 `;
@@ -215,6 +235,7 @@ export class ViewerProxy {
   /** The media addresses Cua gave since control last changed: the only ones a stream may attach to. */
   private allowed = new Set<string>();
   private readonly streams = new Set<Stream>();
+  private stopListening?: (err: Error) => void;
   private readonly tickets = new Map<Mode, CuaViewerTicket>();
   private readonly minting = new Map<Mode, Promise<CuaViewerTicket>>();
   closed = false;
@@ -234,12 +255,16 @@ export class ViewerProxy {
     });
     this.server.on('clientError', (_err, socket) => socket.destroy());
     this.listening = new Promise((resolve, reject) => {
-      this.server.once('error', reject);
+      this.stopListening = reject;
       this.server.listen(0, '127.0.0.1', () => {
+        this.stopListening = undefined;
         this.port = (this.server.address() as AddressInfo).port;
         resolve();
       });
     });
+    // Its listening's failure is `ready()`'s; one later (a connection it could not take) is the connection's.
+    this.server.on('error', (err) => this.stopListening?.(err));
+    this.listening.catch(() => undefined);
   }
 
   get origin(): string {
@@ -274,6 +299,7 @@ export class ViewerProxy {
     this.gen++;
     this.allowed = new Set();
     this.endStreams();
+    this.stopListening?.(new Error('The viewer is closed'));
     this.server.close();
     this.server.closeAllConnections();
   }
@@ -316,11 +342,14 @@ export class ViewerProxy {
     const path = req.url ?? '/';
     if (this.closed || !this.ours(req)) return void res.writeHead(403).end();
     const mode = this.sync();
-    if (req.method === 'GET' && path === STATE_PATH) {
+    const state = STATE_PATH.exec(path);
+    if (req.method === 'GET' && state) {
+      if (!this.tokenOk(req.headers[AUTH])) return void res.writeHead(401).end();
+      if (state[2] === '1') this.deps.used?.();
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       return void res.end(JSON.stringify({ mode }));
     }
-    if (req.method === 'GET' && /^\/viewer\/relay-follow\.js(\?mode=(input|watch))?$/.test(path)) {
+    if (req.method === 'GET' && FOLLOW_PATH.test(path)) {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
       return void res.end(FOLLOW_SCRIPT);
     }
@@ -329,9 +358,10 @@ export class ViewerProxy {
       if (req.method !== 'POST' || !VIEWER_CALLS.has(call)) return void res.writeHead(404).end();
       if (req.headers.origin !== this.origin) return void res.writeHead(403).end();
       if (!this.tokenOk(req.headers[AUTH])) return void res.writeHead(401).end();
+      if (mode === 'watch' && INPUT_CALLS.has(call)) return void res.writeHead(403).end();
       const gen = this.gen;
       const ticket = await this.ticket(mode);
-      // Control changed while the ticket was made: the page asks again, under the other one.
+      // Control changed while the ticket was made: refused (the page's own script reloads it, under the other).
       if (gen !== this.gen || this.closed) return void res.writeHead(401).end();
       return this.forward(req, res, ticket, { auth: ticket.ticket, media: call === 'StreamService/OpenMedia' ? gen : undefined });
     }
@@ -353,12 +383,19 @@ export class ViewerProxy {
     const headers: OutgoingHttpHeaders = { host: target.host };
     for (const name of PASSED) if (req.headers[name] !== undefined) headers[name] = req.headers[name];
     if (o.auth) headers[AUTH] = `Bearer ${o.auth}`;
-    // The page is changed (the proxy's script): asked for as it is.
-    if (o.page) delete headers['accept-encoding'];
+    // An answer read whole is asked for as it is; the page, changed (the proxy's script) for the powers it is
+    // served with, is never one the browser kept from before.
+    if (o.page || o.media !== undefined) delete headers['accept-encoding'];
+    if (o.page) for (const name of ['if-none-match', 'if-modified-since', 'range']) delete headers[name];
     return new Promise((resolve) => {
       const up = httpRequest({ host: hostOf(target), port: target.port, method: req.method, path: req.url, headers }, (answer) => {
         const out: OutgoingHttpHeaders = {};
         for (const [name, value] of Object.entries(answer.headers)) if (!DROPPED.has(name) && value !== undefined) out[name] = value;
+        if (o.page) {
+          delete out.etag;
+          delete out['last-modified'];
+          out['cache-control'] = 'no-store';
+        }
         const html = o.page && /^text\/html\b/i.test(String(answer.headers['content-type'] ?? '')) && !answer.headers['content-encoding'];
         if (o.media === undefined && !html) {
           res.writeHead(answer.statusCode ?? 502, out);
@@ -389,6 +426,10 @@ export class ViewerProxy {
           res.end(body);
           resolve();
         });
+      });
+      // The browser went away (or the proxy closed, `closeAllConnections()`): the request to Cua ends with it.
+      res.on('close', () => {
+        if (!res.writableFinished) up.destroy();
       });
       up.on('error', () => {
         if (!res.headersSent) res.writeHead(502);
@@ -457,7 +498,10 @@ export class ViewerProxy {
       this.streams.delete(s);
       return;
     }
-    if (this.mode === 'input') this.deps.used?.();
-    s.upstream.write(data);
+    // Cua reads slower than the page sends: the page waits.
+    if (!s.upstream.write(data)) {
+      s.client.pause();
+      s.upstream.once('drain', () => s.client.resume());
+    }
   }
 }

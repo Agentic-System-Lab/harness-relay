@@ -874,12 +874,15 @@ export class ComputerService {
    * changing them with it; Cua cannot take a ticket back, so the page never gets one.
    */
   async viewerLink(convId: string): Promise<{ url: string; viewOnly: boolean }> {
+    if (this.stopping) throw new HttpError(503, t().shuttingDown);
+    if (this.removal?.state === 'running') throw new HttpError(409, t().computer.removal.busy);
     const c = this.find(convId);
     if (!c || c.status !== 'ready') throw new HttpError(409, t().computer.notOn);
     const made = !c.viewer;
     const viewer = (c.viewer ??= new ViewerProxy({
       mint: (input) => this.viewerTicket(c, input),
       input: () => c.control === 'user' && c.status === 'ready',
+      // A tab of it in front keeps the computer awake, as a panel watching it does.
       used: () => {
         c.lastUsed = this.now();
       },
@@ -893,6 +896,8 @@ export class ComputerService {
         viewer.close();
         c.viewer = undefined;
       }
+      // The computer stopped meanwhile (its viewer closed with it): that, not how the ticket failed.
+      if (viewer.closed && c.status !== 'ready') throw new HttpError(409, t().computer.notOn);
       throw err;
     }
     // The computer stopped meanwhile: its viewer is closed.
