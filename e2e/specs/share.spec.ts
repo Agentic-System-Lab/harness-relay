@@ -172,8 +172,8 @@ test.describe('sharing as a secret gist', () => {
     await first.hover();
     await first.getByRole('button', { name: 'Share', exact: true }).click();
     const earlier = page.getByRole('dialog', { name: "Share up to @Claude's reply" });
-    await expect(earlier.getByRole('checkbox')).toHaveCount(0);
     const prefix = await sharedBody(earlier);
+    await expect(earlier.getByRole('region', { name: 'Files the replies link to' })).toHaveCount(0);
     expect(prefix).toContain('Hello from Claude (Claude Code). You said: “Outline the slides”.');
     expect(prefix).not.toContain('Build the deck');
   });
