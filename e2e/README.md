@@ -669,7 +669,7 @@ Installing Cua downloads its release from GitHub, which these tests never do: `t
 
 [`settings.spec.ts`](specs/settings.spec.ts)
 
-The Tool library links to the agent picker. Following the link, choosing Codex, using Back and reopening the bookmark preserve the expected selection and keyboard focus. After navigating Forward, selecting the same assistant card closes the picker and returns focus to its button.
+The Tool library links to the agent picker. Following the link, choosing Codex (the picker closes once Codex's card is current), using Back and reopening the bookmark preserve the expected selection and keyboard focus. After navigating Forward, selecting the same assistant card closes the picker and returns focus to its button.
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
