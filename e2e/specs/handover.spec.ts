@@ -2,7 +2,7 @@ import { chromium, type Page } from '@playwright/test';
 import { createServer, type Server } from 'node:http';
 import { findBrowser } from '../../src/server/browser/find';
 import { expect, test } from '../fixtures';
-import { composer, finishedReply, openTeamChat, send } from '../support/app';
+import { TURN_MS, composer, finishedReply, openTeamChat, send } from '../support/app';
 
 /*
  * Taking over the chat's browser (`browser_hand_over`): the agent (Claude Code's fake, `e2e:mcp`) hands a
@@ -73,6 +73,9 @@ const askHandOver = (url: string) =>
 
 test.describe('taking over the browser', () => {
   test.use({ serverEnv: async ({}, use) => use({ RELAY_BROWSER: await aBrowser() }) });
+  // Each test's server starts the chat's own Chromium before the card shows: a first start on a fresh
+  // Windows runner takes tens of seconds (the card waits a turn's time), and the hand-back is a turn more.
+  test.describe.configure({ timeout: 90_000 });
 
   test('the user signs in through the screencast with a mouse and keys, and hands it back with a note', async ({ page, relay }) => {
     const site = await signInSite();
@@ -82,7 +85,7 @@ test.describe('taking over the browser', () => {
       await send(page, askHandOver(site.url));
 
       const card = page.getByRole('region', { name: '@Claude hands the browser to you' });
-      await expect(card).toBeVisible({ timeout: 30_000 });
+      await expect(card).toBeVisible({ timeout: TURN_MS });
       await expect(card).toContainText('Sign in to the test site, then hand it back');
       await expect(card.locator('.handover-url')).toContainText(site.url);
       await expect(card).toContainText("What you sign in to stays usable by the agents in this chat's browser until the chat is deleted");
@@ -151,7 +154,7 @@ test.describe('taking over the browser', () => {
         await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'full' }, 'Hand over in a window');
         await send(page, askHandOver(site.url));
         const card = page.getByRole('region', { name: '@Claude hands the browser to you' });
-        await expect(card).toBeVisible({ timeout: 30_000 });
+        await expect(card).toBeVisible({ timeout: TURN_MS });
         // The chat is at 127.0.0.1, on the computer Harness Relay runs on: the window comes first, saying where it opens.
         await expect(card).toContainText('The window opens on the computer Harness Relay runs on.');
         await card.getByRole('button', { name: 'Open in a window' }).click();

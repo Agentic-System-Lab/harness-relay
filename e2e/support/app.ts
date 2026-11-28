@@ -164,10 +164,14 @@ export async function previewControls(panel: Locator): Promise<void> {
  */
 export const TURN_MS = 45_000;
 
-/** A member's latest reply, once it has finished streaming (within `timeoutMs`, a turn's time by default). */
+/**
+ * A member's latest reply, once it has finished streaming (within `timeoutMs`, a turn's time by default).
+ * It shows only once its turn starts, after what comes first (the lead agent's team design, the turn's
+ * snapshot), which takes seconds on a busy Windows runner: within the same time.
+ */
 export async function finishedReply(page: Page, name: string, timeoutMs = TURN_MS): Promise<Locator> {
   const reply = replies(page, name).last();
-  await expect(reply).toBeVisible();
+  await expect(reply).toBeVisible({ timeout: timeoutMs });
   await expect(reply.locator('.live-tag')).toHaveCount(0, { timeout: timeoutMs });
   return reply;
 }
