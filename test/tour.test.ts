@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { scrollBy, TOPIC_LINKS } from '../src/web/components/Onboarding';
+import { itemTab, routeFromHash } from '../src/web/route';
 import {
   changed,
   guideOnStart,
@@ -40,6 +41,18 @@ describe('guided tour', () => {
     TOUR_STEPS.forEach((s, n) => {
       expect(Boolean(messages.tour.steps[n]!.action), s.id).toBe(Boolean(TOPIC_LINKS[s.id]));
     });
+  });
+
+  it("leads each topic's button where it says, the computer's to Settings' Computer (Cua) row", () => {
+    for (const [id, link] of Object.entries(TOPIC_LINKS)) {
+      const route = routeFromHash(link.href);
+      // A page this version has, never the home page an unknown address opens.
+      expect(route.page, id).not.toBe('home');
+      if (link.item) expect(route, id).toEqual({ page: 'settings', section: itemTab(link.item), item: link.item });
+      else if (link.section) expect(route, id).toEqual({ page: 'settings', section: link.section });
+    }
+    expect(TOPIC_LINKS.computer).toEqual({ href: '#/settings/apps/computer', item: 'computer' });
+    expect(TOPIC_LINKS.apps).toEqual({ href: '#/settings/apps', section: 'apps' });
   });
 
   it('keeps each topic short', () => {

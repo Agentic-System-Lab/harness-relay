@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
-import { hashFor, scrollToSection, settingsHref, type SettingsSection } from '../route';
+import { hashFor, itemHref, revealItem, scrollToSection, settingsHref, type SettingsItem, type SettingsSection } from '../route';
 import { changed, isRead, markRead, readGuide, TOUR_STEPS, unread, type GuideState, type TopicId } from '../tour';
 import { CheckIcon, ChevronIcon } from './icons';
 import { TourArt } from './TourArt';
 
-/** Where a topic's button goes: a page, or a card of Settings (scrolled to, as the app's links to it do). */
-export const TOPIC_LINKS: Partial<Record<TopicId, { href: string; section?: SettingsSection }>> = {
+/**
+ * Where a topic's button goes: a page, a card of Settings (scrolled to, as the app's links to it do), or a
+ * row of Apps and tools (opened there).
+ */
+export const TOPIC_LINKS: Partial<Record<TopicId, { href: string; section?: SettingsSection; item?: SettingsItem }>> = {
   agents: { href: settingsHref('overview'), section: 'overview' },
   chat: { href: hashFor({ page: 'new' }) },
   phone: { href: settingsHref('home-screen'), section: 'home-screen' },
   automations: { href: hashFor({ page: 'schedule' }) },
   apps: { href: settingsHref('apps'), section: 'apps' },
-  computer: { href: settingsHref('apps'), section: 'apps' },
+  computer: { href: itemHref('computer'), item: 'computer' },
   labs: { href: settingsHref('labs'), section: 'labs' },
 };
 
@@ -181,7 +184,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                   className="ghost small-button tour-go"
                   href={link.href}
                   onClick={() => {
-                    if (link.section) scrollToSection(link.section);
+                    if (link.item) revealItem(link.item);
+                    else if (link.section) scrollToSection(link.section);
                     onClose();
                   }}
                 >

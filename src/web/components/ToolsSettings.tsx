@@ -22,7 +22,7 @@ import { checkProblems, hooksFromRows, sameChecks } from '../checks';
 import { useT, type Messages } from '../i18n';
 import { sameServerUrl } from '../oauth';
 import { PROVIDER_COLOR } from '../util';
-import { sectionId, settingsHref } from '../route';
+import { itemId, sectionId, settingsHref, type LibraryItem } from '../route';
 import { ChecksEditor, HooksEditor, useChecksEnvironment } from './ChecksEditor';
 import { AppDependencyInstall } from './AppDependencyInstall';
 import { CommonApps } from './CommonApps';
@@ -204,11 +204,14 @@ export function ToolsCard({
 
 type Change = (call: () => Promise<ToolLibraryView>) => Promise<boolean>;
 
-/** A native disclosure keeps its editors and any unsaved changes mounted when folded. */
-function LibraryCategory({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
+/**
+ * A native disclosure keeps its editors and any unsaved changes mounted when folded. `item`: which part of
+ * the library it is, for its own link (#/settings/tools/<item>), which opens it.
+ */
+function LibraryCategory({ item, title, hint, children }: { item: LibraryItem; title: string; hint: string; children: ReactNode }) {
   const hintId = useId();
   return (
-    <details className="library-category" aria-label={title}>
+    <details id={itemId(item)} className="library-category" aria-label={title}>
       <summary aria-label={title} aria-describedby={hintId}>
         <h4 aria-label={title}>
           {title}
@@ -355,7 +358,7 @@ function McpSection({ lib, change }: { lib: ToolLibraryView; change: Change }) {
   const [editing, setEditing] = useState<string | null>(null);
 
   return (
-    <LibraryCategory title={t.tools.mcp} hint={t.tools.categories.mcp}>
+    <LibraryCategory item="mcp" title={t.tools.mcp} hint={t.tools.categories.mcp}>
       <p className="muted small">
         {t.tools.mcpHint} {t.tools.secretsIn(t.settings.keyStorageName[lib.secretStorage])}
       </p>
@@ -615,7 +618,7 @@ function SkillsSection({ lib, change }: { lib: ToolLibraryView; change: Change }
   };
 
   return (
-    <LibraryCategory title={t.tools.skills} hint={t.tools.categories.skills}>
+    <LibraryCategory item="skills" title={t.tools.skills} hint={t.tools.categories.skills}>
       <p className="muted small">{t.tools.skillsHint}</p>
       {lib.skills.length === 0 && <p className="muted small">{t.tools.noSkills}</p>}
       <ul className="lib-list">
@@ -800,7 +803,7 @@ function MemorySection({ lib, change }: { lib: ToolLibraryView; change: Change }
   const changed = MEMORY_SCOPES.filter((s) => memory[s] !== lib.memory[s]);
 
   return (
-    <LibraryCategory title={t.tools.memory} hint={t.tools.categories.memory}>
+    <LibraryCategory item="memory" title={t.tools.memory} hint={t.tools.categories.memory}>
       <p className="muted small">{t.tools.memoryHint}</p>
       <div className="segmented cli-picker memory-scopes" role="tablist" aria-label={t.tools.memory}>
         {MEMORY_SCOPES.map((s) => (
@@ -901,7 +904,7 @@ function ChecksDefaultSection({
 
   const title = hooksOnly ? t.checks.hooks : t.tools.checksDefault;
   return (
-    <LibraryCategory title={title} hint={t.tools.categories[part]}>
+    <LibraryCategory item={part} title={title} hint={t.tools.categories[part]}>
       <p className="muted small">{hooksOnly ? t.tools.hooksDefaultHint : t.tools.checksDefaultHint}</p>
       <fieldset className="team-fieldset" disabled={busy} aria-label={title}>
         {hooksOnly ? (

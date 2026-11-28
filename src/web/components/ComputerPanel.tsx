@@ -16,6 +16,7 @@ import {
 } from '../computer';
 import { framePoint } from '../handover';
 import { useT } from '../i18n';
+import { itemHref } from '../route';
 import { isAppWindow } from '../update';
 import { DownloadProgress } from './AppDependencyInstall';
 import { PanelDivider } from './PanelDivider';
@@ -238,7 +239,13 @@ export function ComputerPanel({
           </button>
         </header>
         {view && !view.available && status === 'off' ? (
-          <p className="muted computer-note">{c.notInstalled}</p>
+          // Where Cua is installed: Settings' Computer (Cua) row, opened there, as the guided tour's Install Cua does.
+          <div className="computer-note computer-missing">
+            <p className="muted">{c.notInstalled}</p>
+            <a className="ghost small-button computer-install" href={itemHref('computer')}>
+              {c.install}
+            </a>
+          </div>
         ) : (
           <>
             {view?.folder && (

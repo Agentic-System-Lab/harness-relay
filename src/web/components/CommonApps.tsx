@@ -87,6 +87,7 @@ export function CommonApps({
           return (
             <AppRow
               key={kind}
+              item={kind}
               name={t.tools.relay.groups[kind]}
               description={a.details[kind]}
               label={status ? a.manage : a.options}
@@ -100,6 +101,7 @@ export function CommonApps({
       </AppGroup>
       <AppGroup name={a.categories.team}>
         <AppRow
+          item="teams"
           name="Microsoft Teams"
           description={a.details.teams}
           label={teamsAccount ? a.manage : a.connect}
@@ -164,6 +166,7 @@ export function CommonApps({
           return (
             <AppRow
               key={key}
+              item={key}
               name={remote[key]}
               description={a.details[key]}
               label={server?.oauth ? a.manage : undefined}
@@ -179,7 +182,7 @@ export function CommonApps({
       </AppGroup>
       <AppGroup name={a.categories.dev}>
         <GithubConnectionRow access={relayAccess('github')} />
-        <AppRow name={t.tools.relay.groups.browser} description={a.details.browser} label={a.manage}>
+        <AppRow item="browser" name={t.tools.relay.groups.browser} description={a.details.browser} label={a.manage}>
           {relayAccess('browser')}
           {browserSettings}
         </AppRow>
@@ -271,6 +274,7 @@ function VaultConnection({ vaults, change, access }: { vaults: ObsidianVault[]; 
   );
   return (
     <AppRow
+      item="obsidian"
       name="Obsidian"
       description={a.details.obsidian}
       status={

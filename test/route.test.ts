@@ -2,18 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { PROVIDERS } from '../src/shared/types';
 import {
   AGENT_SECTIONS,
+  APPS_ITEMS,
   CORNER_GAP,
+  LIBRARY_ITEMS,
   SETTINGS_NAV,
   SETTINGS_SECTIONS,
   currentSection,
   hashFor,
   isAgentSection,
+  itemHref,
+  itemId,
+  itemTab,
   makeRoomForCorner,
   menuMove,
   navEntryOf,
   readingLine,
   revealLink,
   routeFromHash,
+  rowFitsUnderCard,
   sectionId,
   settingsHref,
 } from '../src/web/route';
@@ -44,6 +50,55 @@ describe('client routes', () => {
     expect(hashFor(routeFromHash('#/settings/tools'))).toBe('#/settings/tools');
     expect(hashFor(routeFromHash('#/settings/agents'))).toBe('#/settings/agents');
     expect(sectionId('voice')).toBe('settings-voice');
+  });
+
+  it('opens each row of Apps and tools at its own address, on its own tab', () => {
+    // Common apps' rows in page order, then the tool library's parts.
+    expect(APPS_ITEMS).toEqual([
+      'mail',
+      'calendar',
+      'teams',
+      'slack',
+      'drive',
+      'notion',
+      'heptabase',
+      'obsidian',
+      'github',
+      'browser',
+      'computer',
+    ]);
+    expect(LIBRARY_ITEMS).toEqual(['mcp', 'skills', 'memory', 'hooks', 'checks']);
+    expect(itemHref('computer')).toBe('#/settings/apps/computer');
+    expect(itemHref('mcp')).toBe('#/settings/tools/mcp');
+    expect(routeFromHash('#/settings/apps/computer')).toEqual({ page: 'settings', section: 'apps', item: 'computer' });
+    expect(routeFromHash('#/settings/tools/hooks')).toEqual({ page: 'settings', section: 'tools', item: 'hooks' });
+    const ids = new Set<string>();
+    for (const item of [...APPS_ITEMS, ...LIBRARY_ITEMS]) {
+      const tab = itemTab(item);
+      expect(tab).toBe((APPS_ITEMS as readonly string[]).includes(item) ? 'apps' : 'tools');
+      expect(routeFromHash(itemHref(item))).toEqual({ page: 'settings', section: tab, item });
+      expect(hashFor(routeFromHash(itemHref(item)))).toBe(itemHref(item));
+      // Its element, apart from the card's and its tab's.
+      expect(itemId(item)).toBe(`settings-${tab}-${item}`);
+      ids.add(itemId(item));
+    }
+    expect(ids.size).toBe(APPS_ITEMS.length + LIBRARY_ITEMS.length);
+    expect(ids.has(sectionId('apps'))).toBe(false);
+    expect(ids.has('settings-tools')).toBe(false);
+    // A row this version does not have, a row of the other tab, or more after a row: the card alone.
+    expect(routeFromHash('#/settings/apps/nope')).toEqual({ page: 'settings', section: 'apps' });
+    expect(routeFromHash('#/settings/tools/computer')).toEqual({ page: 'settings', section: 'tools' });
+    expect(routeFromHash('#/settings/apps/mcp')).toEqual({ page: 'settings', section: 'apps' });
+    expect(routeFromHash('#/settings/apps/computer/more')).toEqual({ page: 'settings', section: 'apps' });
+    expect(routeFromHash('#/settings/apps/')).toEqual({ page: 'settings', section: 'apps' });
+    // From a draft, a row shows with its card's top (the link back) while its title fits below the links.
+    expect(rowFitsUnderCard({ titleBottom: 300, linksHeight: 56, viewHeight: 800 })).toBe(true);
+    expect(rowFitsUnderCard({ titleBottom: 728, linksHeight: 56, viewHeight: 800 })).toBe(true);
+    expect(rowFitsUnderCard({ titleBottom: 729, linksHeight: 56, viewHeight: 800 })).toBe(false);
+    expect(rowFitsUnderCard({ titleBottom: 1400, linksHeight: 56, viewHeight: 800 })).toBe(false);
+    // Other cards have no rows of their own.
+    expect(routeFromHash('#/settings/lead/computer')).toEqual({ page: 'settings', section: 'lead' });
+    expect(routeFromHash('#/settings/nope/computer')).toEqual({ page: 'settings' });
   });
 
   it('has a settings section for every CLI', () => {

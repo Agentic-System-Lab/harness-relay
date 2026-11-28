@@ -168,6 +168,7 @@ export function HostedAppRow({
   const busy = claude.checking || codex.checking;
   return (
     <AppRow
+      item={app}
       onOpen={() => setOpened(true)}
       name={services[app]}
       description={a.details[app]}

@@ -362,7 +362,12 @@ test.describe('schedules', () => {
     await task.fill('Review changed files');
     await page.getByRole('combobox', { name: en.schedule.repeat }).selectOption('event');
     await page.getByRole('link', { name: en.schedule.watch.openSettings }).click();
-    await expect(page.getByRole('tabpanel', { name: 'Common apps' }).getByRole('listitem', { name: 'Mail', exact: true })).toBeVisible();
+    // Mail's own row, opened, below the card's link back to the draft, both in view.
+    await expect(page).toHaveURL(/#\/settings\/apps\/mail$/);
+    const mail = page.getByRole('tabpanel', { name: 'Common apps' }).getByRole('listitem', { name: 'Mail', exact: true });
+    await expect(mail.locator('.app-options')).toHaveAttribute('open', '');
+    await expect(mail.locator('.app-options > summary')).toBeInViewport();
+    await expect(page.getByRole('link', { name: en.newSchedule.returnToDraft })).toBeInViewport();
     await page.getByRole('link', { name: en.newSchedule.returnToDraft }).click();
     await expect(task).toHaveValue('Review changed files');
     await expect(page.getByRole('combobox', { name: en.schedule.repeat })).toHaveValue('event');

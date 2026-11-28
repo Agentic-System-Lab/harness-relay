@@ -201,7 +201,8 @@ test.describe('the guided tour', () => {
     await expect(tour(page).getByRole('link', { name: 'Open Apps and tools' })).toHaveAttribute('href', /#\/settings\/apps$/);
     await listed(page, 'Computer').click();
     await expect(tour(page)).toContainText('take control any time');
-    await expect(tour(page).getByRole('link', { name: 'Install Cua' })).toHaveAttribute('href', /#\/settings\/apps$/);
+    // Settings' Computer (Cua) row itself, not only its card.
+    await expect(tour(page).getByRole('link', { name: 'Install Cua' })).toHaveAttribute('href', /#\/settings\/apps\/computer$/);
     await listed(page, 'Labs').click();
     await expect(tour(page)).toContainText('CodeAct');
     await expect(tour(page)).toContainText('RLM');
@@ -229,6 +230,27 @@ test.describe('the guided tour', () => {
     await expect(tour(page)).toBeHidden();
     await expect(page).toHaveURL(/#\/settings\/home-screen$/);
     await expect(page.locator('#settings-home-screen')).toBeInViewport();
+
+    // The computer's Install Cua: Settings' Computer (Cua) row itself, opened, with its own Install Cua in view.
+    await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
+    await listed(page, 'Computer').click();
+    await tour(page).getByRole('link', { name: 'Install Cua' }).click();
+    await expect(tour(page)).toBeHidden();
+    await expect(page).toHaveURL(/#\/settings\/apps\/computer$/);
+    const row = page.getByRole('listitem', { name: 'Computer (Cua)', exact: true });
+    await expect(row.locator('.app-options')).toHaveAttribute('open', '');
+    await expect(row.getByRole('button', { name: 'Install Cua', exact: true })).toBeInViewport();
+    await expect(row.locator('.app-options > summary')).toBeFocused();
+
+    // Again from that same address, the row folded and scrolled away meanwhile: the link opens it again.
+    await row.locator('.app-options > summary').click();
+    await expect(row.locator('.app-options')).not.toHaveAttribute('open', '');
+    await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
+    await listed(page, 'Computer').click();
+    await tour(page).getByRole('link', { name: 'Install Cua' }).click();
+    await expect(tour(page)).toBeHidden();
+    await expect(row.locator('.app-options')).toHaveAttribute('open', '');
+    await expect(row.getByRole('button', { name: 'Install Cua', exact: true })).toBeInViewport();
   });
 
   test('on a phone, the tour is a sheet at the bottom showing one topic, and All topics shows the list', async ({ page }) => {
