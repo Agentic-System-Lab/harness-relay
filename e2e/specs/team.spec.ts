@@ -2,6 +2,7 @@ import type { Locator } from '@playwright/test';
 import { PROVIDERS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import {
+  DESIGN_MS,
   chooseChatAction,
   awaitingPlan,
   finishedReply,
@@ -106,7 +107,7 @@ test.describe("changing a chat's team", () => {
     const id = await startChat(page, 'Take your time e2e:slow=4 e2e:slowreview', { autoConfirm: true, leadReview: true });
     // The design's card (a review card is one too).
     const card = page.locator('.plan-card:not(.review-card)').last();
-    await expect(card).toContainText('Used without asking');
+    await expect(card).toContainText('Used without asking', { timeout: DESIGN_MS });
     const adjust = card.getByRole('button', { name: 'Adjust team' });
     // The team answers: nothing it could save, so nothing to open.
     await expect(adjust).toBeDisabled();
