@@ -390,6 +390,10 @@ test.describe('settings', () => {
     await codex.press('Enter');
     await expect(page).toHaveURL(/#\/settings\/codex$/);
     await expect(page.locator('#settings-codex')).toContainText('this CLI loads by itself');
+    // Codex's card is current: the menu closed. Only then Back, which opens it again: on a busy runner the
+    // page can still be taking in the new address, and a Back that comes first leaves the menu as it was,
+    // open, with the focus still on Codex.
+    await expect(menu).toBeHidden();
     await page.goBack();
     await expect(page).toHaveURL(/#\/settings\/agents$/);
     await page.clock.runFor(50);
