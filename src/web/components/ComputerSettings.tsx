@@ -114,6 +114,7 @@ export function ComputerSettings({ access }: { access: ReactNode }) {
 
   return (
     <AppRow
+      item="computer"
       name={r.name}
       description={t.apps.details.computer}
       label={view?.cua ? t.apps.manage : t.apps.options}

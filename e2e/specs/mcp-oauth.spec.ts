@@ -462,7 +462,8 @@ legacySlack('a saved Slack grant can reauthorize and sign out without enabling a
   await page.goto(`${relay.base}/#/settings/tools`);
   await openToolCategory(page, 'MCP servers');
   const row = page.locator('#settings-tools .lib-row', { hasText: 'slack-work' });
-  await expect(row.getByRole('link', { name: 'Set up Slack in Common apps' })).toBeVisible();
+  // To Common apps' Slack row itself.
+  await expect(row.getByRole('link', { name: 'Set up Slack in Common apps' })).toHaveAttribute('href', '#/settings/apps/slack');
   await expect(row.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
 });
 
@@ -487,6 +488,8 @@ test("a library MCP server signs in in a new tab, comes back to the web app's ca
   await tab.getByRole('link', { name: 'Allow' }).click();
   await expect(tab.getByRole('status')).toHaveText('Signed in to the MCP server linear.');
   expect(new URL(tab.url()).search).toBe('');
+  // Its way back: the library's MCP servers, opened.
+  await expect(tab.getByRole('link', { name: "Back to Harness Relay's Settings" })).toHaveAttribute('href', '/#/settings/tools/mcp');
   await tab.close();
   await expect(row).toContainText('Signed in to linear.');
   await expect(row.locator('.badge')).toHaveText('Signed in');

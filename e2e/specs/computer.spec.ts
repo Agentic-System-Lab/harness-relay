@@ -307,7 +307,7 @@ test.describe('the chat’s computer', () => {
       .toBe('closed');
   });
 
-  test('without Cua, Settings offers to install it and the panel says it is missing', async ({ page, relay }) => {
+  test('without Cua, Settings offers to install it, and the panel says it is missing with a link to that row', async ({ page, relay }) => {
     await page.goto(`${relay.base}/#/settings/apps`);
     const row = page.locator('.app-row').filter({ hasText: 'Computer (Cua)' });
     await row.locator('summary').first().click();
@@ -316,5 +316,10 @@ test.describe('the chat’s computer', () => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {}, 'No Cua');
     const panel = await openComputer(page);
     await expect(panel).toContainText('Cua is not installed here.');
+    // The way there, as the guided tour's Install Cua: Settings' Computer (Cua) row, opened, its Install Cua in view.
+    await panel.getByRole('link', { name: 'Install it in Settings' }).click();
+    await expect(page).toHaveURL(/#\/settings\/apps\/computer$/);
+    await expect(row.locator('.app-options')).toHaveAttribute('open', '');
+    await expect(row.getByRole('button', { name: 'Install Cua' })).toBeInViewport();
   });
 });

@@ -33,7 +33,7 @@ export function GoogleProjectConnection({
         : a.driveAccounts(linked.length)
     : undefined;
   return (
-    <AppRow name="Google Drive" description={a.details.drive} label={linked.length ? a.manage : a.connect} status={summary}>
+    <AppRow item="drive" name="Google Drive" description={a.details.drive} label={linked.length ? a.manage : a.connect} status={summary}>
       {linked.length ? (
         <>
           <ul className="lib-list drive-accounts">

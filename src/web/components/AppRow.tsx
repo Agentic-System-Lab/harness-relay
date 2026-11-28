@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { itemId, type AppsItem } from '../route';
 import { ChevronIcon } from './icons';
 
 export function AppRowCopy({ name, description, descriptionId }: { name: string; description: string; descriptionId?: string }) {
@@ -12,8 +13,12 @@ export function AppRowCopy({ name, description, descriptionId }: { name: string;
   );
 }
 
-/** Keep sign-in feedback and unfinished forms mounted when a service changes from Connect to Manage. */
+/**
+ * Keep sign-in feedback and unfinished forms mounted when a service changes from Connect to Manage.
+ * `item`: which row of Common apps it is, for its own link (#/settings/apps/<item>), which opens it.
+ */
 export function AppRow({
+  item,
   name,
   description,
   status,
@@ -22,6 +27,7 @@ export function AppRow({
   onOpen,
   children,
 }: {
+  item: AppsItem;
   name: string;
   description: string;
   status?: string;
@@ -42,7 +48,7 @@ export function AppRow({
     }
   }, [label, reveal]);
   return (
-    <li aria-label={name} className="app-row">
+    <li id={itemId(item)} aria-label={name} className="app-row">
       <details
         className="app-options"
         ref={details}

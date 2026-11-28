@@ -41,13 +41,16 @@ import {
   makeRoomForCorner,
   menuMove,
   navEntryOf,
+  openItem,
   readingLine,
   revealLink,
+  rowFitsUnderCard,
   scrollToSection,
   sectionId,
   settingsCard,
   hashFor,
   settingsHref,
+  type SettingsItem,
   type SettingsSection,
   type SettingsReturn,
 } from '../route';
@@ -87,6 +90,8 @@ interface Props {
   browsers: BrowserSessions;
   /** The card to scroll to (#/settings/<section>). */
   section?: SettingsSection;
+  /** The row of Apps and tools to open in it, and scroll to (#/settings/apps/<item>, #/settings/tools/<item>). */
+  item?: SettingsItem;
   settingsReturn?: SettingsReturn;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
@@ -128,6 +133,7 @@ const KEY_PLACEHOLDER: Record<SignInCli, string> = {
 export function SettingsPage({
   browsers,
   section,
+  item,
   settingsReturn,
   providers,
   catalog,
@@ -164,18 +170,33 @@ export function SettingsPage({
 
   // Account and CLI cards above a deep link fill in asynchronously. Keep the target in place
   // as its offset changes, until the reader takes over scrolling or follows a different link.
+  // A row of Apps and tools is opened once it is on the page (the library loads by itself), and kept in
+  // place instead of its card; until then the card is. Coming from a draft, the card stays at the top with
+  // its link back to the draft while the whole opened row fits below it (Mail and Calendar, the rows the
+  // drafts link to, come first); else the row does, all of it in view rather than the way back.
   const loaded = settings !== null;
+  const fromDraft = Boolean(settingsReturn);
   useEffect(() => {
     if (!section || section === 'agents' || !loaded) return;
     const card = document.getElementById(sectionId(section));
     const layout = card?.closest('.page-inner');
-    if (!card || !layout) return;
+    const scroller = layout?.closest<HTMLElement>('.scroll');
+    if (!card || !layout || !scroller) return;
     let previous: number | undefined;
+    let row: HTMLElement | null = null;
+    const underCard = (el: HTMLElement) =>
+      rowFitsUnderCard({
+        rowBottom: el.getBoundingClientRect().bottom - card.getBoundingClientRect().top,
+        linksHeight: parseFloat(scroller.style.getPropertyValue('--settings-nav-height')) || 56,
+        viewHeight: scroller.clientHeight,
+      });
     const align = () => {
-      const offset = Math.round(card.getBoundingClientRect().top - layout.getBoundingClientRect().top);
+      if (item && !row) row = openItem(item);
+      const target = row && !(fromDraft && underCard(row)) ? row : card;
+      const offset = Math.round(target.getBoundingClientRect().top - layout.getBoundingClientRect().top);
       if (offset === previous) return;
       previous = offset;
-      card.scrollIntoView({ block: 'start', behavior: 'instant' });
+      target.scrollIntoView({ block: 'start', behavior: 'instant' });
     };
     align();
     if (typeof ResizeObserver === 'undefined') return;
@@ -188,7 +209,7 @@ export function SettingsPage({
     watch.observe(layout);
     for (const event of gestures) window.addEventListener(event, stop, { capture: true, passive: true });
     return stop;
-  }, [section, loaded]);
+  }, [section, item, loaded, fromDraft]);
 
   useEffect(() => {
     api.getSettings().then(

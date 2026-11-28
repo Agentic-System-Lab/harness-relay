@@ -752,6 +752,7 @@ function RelayApp() {
               browsers={browsers}
               settingsReturn={settingsReturn}
               section={route.section}
+              item={route.item}
               providers={providers}
               catalog={catalog}
               refreshProviders={refreshProviderInfo}

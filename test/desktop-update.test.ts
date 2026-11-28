@@ -1890,21 +1890,29 @@ describe('downloading an update', () => {
 
   it('keeps going as long as bytes keep coming, however long it takes', async () => {
     const to = join(dir, 'slow.dmg');
-    // 18 parts 25 ms apart: the whole takes over twice the limit, each wait an eighth of it.
-    const slow: Fetch = async () =>
-      new Response(
-        new ReadableStream({
-          async start(controller) {
-            for (let at = 0; at < body.length; at += 1000) {
-              await new Promise((r) => setTimeout(r, 25));
-              controller.enqueue(new Uint8Array(body.subarray(at, at + 1000)));
-            }
-            controller.close();
-          },
-        }),
-      );
-    await download({ fetch: slow, asset, to, stallMs: 200 });
-    expect(readFileSync(to)).toEqual(body);
+    // 18 parts 25 ms apart: the whole takes over twice the limit, each wait an eighth of it. On a clock of
+    // the test's own, moved on between parts, each part sent once the one before is written: a busy
+    // computer's late timer (CI's) can never pass for a gap of 200 ms.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
+      let written: (() => void) | undefined;
+      const slow: Fetch = async () => new Response(new ReadableStream<Uint8Array>({ start: (c) => void (stream = c) }));
+      const done = download({ fetch: slow, asset, to, stallMs: 200, onProgress: () => written?.() });
+      // Asked for: the file opened, the body being read.
+      while (!stream) await new Promise((r) => setImmediate(r));
+      for (let at = 0; at < body.length; at += 1000) {
+        await vi.advanceTimersByTimeAsync(25);
+        const wrote = new Promise<void>((r) => (written = r));
+        stream.enqueue(new Uint8Array(body.subarray(at, at + 1000)));
+        await wrote;
+      }
+      stream.close();
+      await done;
+      expect(readFileSync(to)).toEqual(body);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

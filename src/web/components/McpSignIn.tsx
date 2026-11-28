@@ -3,7 +3,7 @@ import { isSlackMcp } from '../../shared/apps';
 import type { McpServerView, OAuthSignInView, ToolLibraryView } from '../../shared/types';
 import { ApiError, api } from '../api';
 import { useI18n, useT } from '../i18n';
-import { settingsHref } from '../route';
+import { itemHref } from '../route';
 import { confirmLines, mcpSignInLine, waiting } from '../oauth';
 import { AppRowCopy } from './AppRow';
 import { openPendingTab, showSignInPage, SignInWaiting, useFollowSignIn } from './OAuthAccounts';
@@ -27,7 +27,7 @@ export function McpSignIn({
 }) {
   const t = useT();
   if (!server.oauth && (server.app === 'slack' || isSlackMcp(server.url))) {
-    return <a href={settingsHref('apps')}>{t.apps.slackInApps}</a>;
+    return <a href={itemHref('slack')}>{t.apps.slackInApps}</a>;
   }
   return (
     <AppSignIn

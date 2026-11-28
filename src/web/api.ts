@@ -66,6 +66,7 @@ import type {
   LoginMethod,
   LoginSessionView,
   McpServerUpdate,
+  McpServerView,
   NativeSetup,
   PickedFolders,
   Provider,
@@ -603,11 +604,14 @@ export const api = {
   confirmOAuthSignIn: (id: string) => request<OAuthSignInView>('POST', `/api/oauth/signins/${id}/confirm`, {}),
   /** The page the provider sent the browser back to posts what it got: its state is the proof (no sign-in needed). */
   oauthCallback: (b: { state?: string; code?: string; error?: string; iss?: string }) =>
-    request<{ status: OAuthSignInView['status']; provider: OAuthSignInView['provider']; email?: string; server?: string; error?: string }>(
-      'POST',
-      '/api/oauth/callback',
-      b,
-    ),
+    request<{
+      status: OAuthSignInView['status'];
+      provider: OAuthSignInView['provider'];
+      email?: string;
+      server?: string;
+      app?: McpServerView['app'];
+      error?: string;
+    }>('POST', '/api/oauth/callback', b),
   oauthCalendars: (id: string) => request<OAuthCalendar[]>('GET', `/api/oauth/accounts/${id}/calendars`),
   addOAuthCalendar: (id: string, b: { name: string; url: string }) =>
     request<ConnectorsView>('POST', `/api/oauth/accounts/${id}/calendars`, b),

@@ -16,7 +16,7 @@ import { api } from '../api';
 import { mentionWarning } from '../copy';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
-import { hashFor } from '../route';
+import { itemHref } from '../route';
 import { TaskInput } from './TaskInput';
 import { revealChosen } from './CliPicker';
 import { LeadAsk } from './LeadAsk';
@@ -581,7 +581,7 @@ function TriggerFields({
           {mailAccounts && !mailAccounts.length ? (
             <p className="small warn-text">
               {w.noAccounts}{' '}
-              <a className="link-button" href={hashFor({ page: 'settings', section: 'apps' })}>
+              <a className="link-button" href={itemHref('mail')}>
                 {w.openSettings}
               </a>
             </p>
@@ -636,7 +636,7 @@ function TriggerFields({
           {calendars && !calendars.length ? (
             <p className="small warn-text">
               {w.noCalendars}{' '}
-              <a className="link-button" href={hashFor({ page: 'settings', section: 'apps' })}>
+              <a className="link-button" href={itemHref('calendar')}>
                 {w.openSettings}
               </a>
             </p>

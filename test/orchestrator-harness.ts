@@ -501,6 +501,9 @@ beforeAll(() => {
 // rmSync cannot remove it as it is (Node 24's, not even an empty one).
 afterAll(() => {
   removeTree(root, { restore: true });
+  // Windows: a process of the last test (a git command, say) may still be letting go of a file in it, which
+  // refuses its removal for a moment (EPERM, EBUSY): again, as Node retries those.
+  if (process.platform === 'win32' && existsSync(root)) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   expect(existsSync(root)).toBe(false);
 });
 

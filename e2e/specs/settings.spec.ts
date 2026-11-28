@@ -1,9 +1,11 @@
+import type { Locator } from '@playwright/test';
 import { PROVIDERS, type ModelBackendsView, type Provider } from '../../src/shared/types';
 import { MIN_VERSIONS } from '../../src/shared/cliVersions';
 import { expect, test } from '../fixtures';
 import { finishedReply, openTeamChat, openToolCategory, replies, send, startChat, confirmTeam } from '../support/app';
 import { chatWith, CLIS, eachCli, faked, member, OPEN, SIGNED_IN, withClis, withEveryCli } from '../support/clis';
 import { notInstalledBut } from '../support/fake-cli';
+import { APPS_ITEMS, LIBRARY_ITEMS, itemHref, itemId, itemTab, type SettingsItem } from '../../src/web/route';
 
 // Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
 withClis('codex', 'grok');
@@ -66,6 +68,67 @@ test('Apps and tools is one section with bookmarkable tabs that preserve drafts'
     await expect(rows.and(page.getByRole('listitem', { name, exact: true })).locator('.app-chat-access')).toHaveCount(0);
   }
   await expect(page.locator('#settings-tools .app-chat-access')).toHaveCount(0);
+});
+
+test('each row of Apps and tools has an address of its own, which opens it on its tab at the top of the view', async ({ page, relay }) => {
+  /** Each row as the page names it: Common apps' rows, then the tool library's parts. */
+  const names: Record<SettingsItem, string> = {
+    mail: 'Mail',
+    calendar: 'Calendar',
+    teams: 'Microsoft Teams',
+    slack: 'Slack',
+    drive: 'Google Drive',
+    notion: 'Notion',
+    heptabase: 'Heptabase',
+    obsidian: 'Obsidian',
+    github: 'GitHub',
+    browser: 'Browser',
+    computer: 'Computer (Cua)',
+    mcp: 'MCP servers',
+    skills: 'Skills',
+    memory: 'Memory',
+    hooks: 'Hooks',
+    checks: 'Default team checks',
+  };
+  const card = page.getByRole('region', { name: 'Apps and tools' });
+  const links = page.getByRole('navigation', { name: 'Sections of this page' });
+  /** Whether a row is just under the sticky links (the cards' scroll margin, 16 pixels), else how far. */
+  const underLinks = (row: Locator) => async () => {
+    const [top, under] = await Promise.all([row.boundingBox(), links.boundingBox()]);
+    const gap = Math.round(top!.y - (under!.y + under!.height));
+    return gap >= 0 && gap <= 24 ? 'under the links' : gap;
+  };
+  // A bookmark: the page opens at the row, unfolded, its title focused.
+  await page.goto(relay.base + '/#/settings/apps/computer');
+  const computer = card.getByRole('listitem', { name: 'Computer (Cua)', exact: true });
+  await expect(computer.locator(':scope > details')).toHaveAttribute('open', '');
+  await expect(computer.locator(':scope > details > summary')).toBeFocused();
+  // Then every row, one link after another, each on its own tab, the others' state kept.
+  for (const item of [...APPS_ITEMS, ...LIBRARY_ITEMS]) {
+    await page.evaluate((hash) => (location.hash = hash), itemHref(item));
+    const apps = itemTab(item) === 'apps';
+    await expect(card.getByRole('tab', { name: apps ? 'Common apps' : 'Tool library', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    const row = apps
+      ? card.getByRole('tabpanel', { name: 'Common apps' }).getByRole('listitem', { name: names[item], exact: true })
+      : card.locator('#settings-tools .library-category').and(page.getByRole('group', { name: names[item], exact: true }));
+    await expect(row, item).toHaveAttribute('id', itemId(item));
+    await expect(apps ? row.locator(':scope > details') : row, item).toHaveAttribute('open', '');
+    // The focus on its title, or on the row where it shows none (Notion and Heptabase, not connected here).
+    const title = row.locator(apps ? ':scope > details > summary' : ':scope > summary');
+    await expect(item === 'notion' || item === 'heptabase' ? row : title, item).toBeFocused();
+    await expect.poll(underLinks(row), { message: item }).toBe('under the links');
+  }
+  // The tab shown already, clicked: the address stays the row's (no jump back to the card's top), the row open.
+  await card.getByRole('tab', { name: 'Tool library', exact: true }).click();
+  await expect(page).toHaveURL(/#\/settings\/tools\/checks$/);
+  await expect(page.locator('#' + itemId('checks'))).toHaveAttribute('open', '');
+  // A row this version does not have: the card on its tab, nothing opened.
+  await page.evaluate(() => (location.hash = '#/settings/tools/nope'));
+  await expect(card.getByRole('tab', { name: 'Tool library', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(card).toBeInViewport();
 });
 
 test.describe('assistant setup on a fresh installation', () => {

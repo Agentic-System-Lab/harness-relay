@@ -62,6 +62,7 @@ export function GithubConnectionRow({ access }: { access: ReactNode }) {
   const token = account?.status !== 'missing' && account?.tokenSource;
   return (
     <AppRow
+      item="github"
       name="GitHub"
       description={a.details.github}
       label={account?.status === 'connected' ? a.manage : a.options}

@@ -9521,9 +9521,17 @@ summary + .checks-editor-body {
   color: var(--muted);
 }
 
-.card[id^='settings-'] {
+.card[id^='settings-'],
+.app-row[id],
+.library-category[id] {
   /* Clear of the sticky links above (their height is measured). */
   scroll-margin-top: calc(var(--settings-nav-height, 56px) + 16px);
+}
+
+/* A row of Apps and tools its own link opened (openItem in route.ts): ringed for a moment. */
+.settings-item-flash {
+  border-radius: 6px;
+  animation: review-flash 1.6s ease-out;
 }
 
 /* With the sidebar collapsed its button sits in the corner (as for .chat-head): once the links come up
@@ -11495,6 +11503,22 @@ a.share-action {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+/* Cua not installed: what is missing, and the way to Settings' Computer (Cua) row, a link dressed as a button. */
+.computer-missing {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.computer-missing p {
+  margin: 0;
+}
+
+.computer-install {
+  color: var(--text);
+  text-decoration: none;
 }
 
 /* Removing Cua: what did not finish, a step a line. */
