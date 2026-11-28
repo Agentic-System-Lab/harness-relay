@@ -919,11 +919,14 @@ export function createApp({
         ...(error ? { error } : {}),
         ...(iss !== undefined ? { iss } : {}),
       });
+      // A library server Common apps added (Notion, Heptabase, Slack): its row there, for the page's way back.
+      const app = v.server ? settings.tools.mcpServerById(v.server.id)?.app : undefined;
       return c.json({
         status: v.status,
         provider: v.provider,
         ...(v.account ? { email: v.account.email } : {}),
         ...(v.server ? { server: v.server.name } : {}),
+        ...(app ? { app } : {}),
         ...(v.error ? { error: v.error } : {}),
       });
     } catch (err) {

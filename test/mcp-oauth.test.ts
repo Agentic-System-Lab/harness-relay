@@ -1204,6 +1204,17 @@ describe('/api/tools/mcp/:name/signin', () => {
     expect(fake.revoked).toHaveLength(1);
   });
 
+  it("names the Common apps row of a server Common apps added in the callback's answer, for the page's way back", async () => {
+    const { call, HOST, settings } = await signedInApp();
+    // Heptabase's row added it (here at the stand-in's address): the callback says which row.
+    settings.tools.saveServer('heptabase', { transport: 'http', url: fake.mcpUrl, headers: [] }, 'heptabase');
+    const started = (await (
+      await call('POST', '/api/tools/mcp/heptabase/signin', { origin: 'http://localhost:5173' })
+    ).json()) as OAuthSignInView;
+    const done = await call('POST', '/api/oauth/callback', callbackParams(fake.allow(started.authorizeUrl!)), HOST);
+    expect(await done.json()).toEqual({ status: 'done', provider: 'mcp', server: 'heptabase', app: 'heptabase' });
+  });
+
   it("confirms a sign-in whose page is elsewhere for the browser that started it only, and refuses a callback's other issuer", async () => {
     const { call, HOST } = await signedInApp();
     const honest = await fakeMcpAuth();

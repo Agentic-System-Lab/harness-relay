@@ -12,6 +12,7 @@ import {
   accountServices,
   calendarName,
   callbackFrom,
+  callbackBack,
   callbackOutcome,
   confirmLines,
   mcpSignInLine,
@@ -56,6 +57,18 @@ describe('signing in with OAuth, in the page', () => {
     expect(callbackFrom(`?error=${'e'.repeat(500)}&error_description=${'d'.repeat(500)}`).error).toBe(
       `${'e'.repeat(100)}: ${'d'.repeat(300)}`,
     );
+  });
+
+  it('leads the callback page back to the row of Settings the sign-in was for', () => {
+    // A server Common apps added: its row there; another library server: the library's MCP servers.
+    expect(callbackBack({ ok: true, status: 'done', server: 'notion', app: 'notion' })).toBe('/#/settings/apps/notion');
+    expect(callbackBack({ ok: true, status: 'failed', server: 'heptabase', app: 'heptabase', error: 'x' })).toBe(
+      '/#/settings/apps/heptabase',
+    );
+    expect(callbackBack({ ok: true, status: 'done', server: 'linear' })).toBe('/#/settings/tools/mcp');
+    // An account, or a sign-in this server does not know: Common apps.
+    expect(callbackBack({ ok: true, status: 'done', email: 'ming@contoso.com' })).toBe('/#/settings/apps');
+    expect(callbackBack({ ok: false, httpStatus: 404, error: 'No such sign-in' })).toBe('/#/settings/apps');
   });
 
   it('takes the code and state off the callback page’s address only once a sign-in here answered', () => {

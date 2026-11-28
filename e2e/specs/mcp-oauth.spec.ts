@@ -462,7 +462,8 @@ legacySlack('a saved Slack grant can reauthorize and sign out without enabling a
   await page.goto(`${relay.base}/#/settings/tools`);
   await openToolCategory(page, 'MCP servers');
   const row = page.locator('#settings-tools .lib-row', { hasText: 'slack-work' });
-  await expect(row.getByRole('link', { name: 'Set up Slack in Common apps' })).toBeVisible();
+  // To Common apps' Slack row itself.
+  await expect(row.getByRole('link', { name: 'Set up Slack in Common apps' })).toHaveAttribute('href', '#/settings/apps/slack');
   await expect(row.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
 });
 

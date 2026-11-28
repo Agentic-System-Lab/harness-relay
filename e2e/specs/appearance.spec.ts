@@ -232,6 +232,9 @@ test.describe('the guided tour', () => {
     await expect(page.locator('#settings-home-screen')).toBeInViewport();
 
     // The computer's Install Cua: Settings' Computer (Cua) row itself, opened, with its own Install Cua in view.
+    // Settings came after New chat (a draft, whose link back is at the card's top): on a window this tall the
+    // card's top would show the row's title, but not its Install Cua; the row wins.
+    await page.setViewportSize({ width: 1280, height: 1200 });
     await page.locator('#settings-tour').getByRole('button', { name: 'Replay the tour' }).click();
     await listed(page, 'Computer').click();
     await tour(page).getByRole('link', { name: 'Install Cua' }).click();

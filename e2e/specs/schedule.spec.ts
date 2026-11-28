@@ -371,6 +371,9 @@ test.describe('schedules', () => {
     await page.getByRole('link', { name: en.newSchedule.returnToDraft }).click();
     await expect(task).toHaveValue('Review changed files');
     await expect(page.getByRole('combobox', { name: en.schedule.repeat })).toHaveValue('event');
+    // The calendar source's link goes to Calendar's own row.
+    await page.getByRole('combobox', { name: en.schedule.watch.source }).selectOption('calendar');
+    await expect(page.getByRole('link', { name: en.schedule.watch.openSettings })).toHaveAttribute('href', '#/settings/apps/calendar');
     await page.getByRole('combobox', { name: en.schedule.watch.source }).selectOption('file');
     await page.getByPlaceholder(en.schedule.watch.patternPlaceholder).fill('notes/*.md');
     await page.getByRole('button', { name: en.newSchedule.create }).click();

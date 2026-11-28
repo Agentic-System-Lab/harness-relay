@@ -124,7 +124,8 @@ export function ToolsCard({
             tabIndex={tab === key ? 0 : -1}
             className={tab === key ? 'on' : undefined}
             onClick={() => {
-              location.hash = settingsHref(key);
+              // The tab shown already stays where it is (a row its address opened, say).
+              if (key !== tab) location.hash = settingsHref(key);
             }}
             onKeyDown={(e) => {
               let next: 'apps' | 'tools';
@@ -134,7 +135,7 @@ export function ToolsCard({
               else return;
               e.preventDefault();
               document.getElementById('tab-' + next)?.focus();
-              location.hash = settingsHref(next);
+              if (next !== tab) location.hash = settingsHref(next);
             }}
           >
             {key === 'apps' ? t.apps.title : t.tools.title}

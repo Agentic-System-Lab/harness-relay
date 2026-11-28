@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError, api } from '../api';
 import { useT } from '../i18n';
-import { CALLBACK_PATH, callbackFrom, callbackOutcome, type CallbackAnswer, type CallbackOutcome } from '../oauth';
-import { itemHref, settingsHref } from '../route';
+import { CALLBACK_PATH, callbackBack, callbackFrom, callbackOutcome, type CallbackAnswer, type CallbackOutcome } from '../oauth';
 import { CopyButton } from './CopyButton';
 import { Logo } from './Logo';
 
@@ -38,8 +37,7 @@ export function OAuthCallback() {
       if (!live) return;
       const shown = callbackOutcome(answer, Boolean(GOT.state));
       if (shown.clearAddress) history.replaceState(null, '', CALLBACK_PATH);
-      // A library MCP server's own sign-in: back to the library's MCP servers, opened; an account's: Common apps.
-      setResult({ outcome: shown.outcome, back: '/' + (answer.ok && answer.server ? itemHref('mcp') : settingsHref('apps')) });
+      setResult({ outcome: shown.outcome, back: callbackBack(answer) });
     });
     return () => {
       live = false;

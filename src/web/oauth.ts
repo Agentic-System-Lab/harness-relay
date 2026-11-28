@@ -12,8 +12,10 @@ import {
   type OAuthProviderId,
   type OAuthSignInView,
   type OAuthUse,
+  type McpServerView,
 } from '../shared/types';
 import type { Messages } from './i18n';
+import { itemHref, settingsHref } from './route';
 
 /** Google desktop token exchanges need the client secret. Microsoft desktop clients use PKCE without one. */
 export function oauthClientStatus(client: OAuthClientView | undefined): 'disabled' | 'ready' | 'missing' {
@@ -75,8 +77,18 @@ export type CallbackOutcome =
 
 /** The server's answer to the callback page's post: how the sign-in went, or the error and its HTTP status. */
 export type CallbackAnswer =
-  | { ok: true; status: OAuthSignInView['status']; email?: string; server?: string; error?: string }
+  | { ok: true; status: OAuthSignInView['status']; email?: string; server?: string; app?: McpServerView['app']; error?: string }
   | { ok: false; httpStatus: number; error: string };
+
+/**
+ * Where the callback page's link back to Settings goes: a server Common apps added (Notion, Heptabase,
+ * Slack) to its row there; another library server to the tool library's MCP servers; an account (or a
+ * sign-in that cannot be told) to Common apps.
+ */
+export function callbackBack(answer: CallbackAnswer): string {
+  if (answer.ok && answer.app) return '/' + itemHref(answer.app);
+  return '/' + (answer.ok && answer.server ? itemHref('mcp') : settingsHref('apps'));
+}
 
 /**
  * What the callback page shows for the server's answer, and whether its address then loses its code

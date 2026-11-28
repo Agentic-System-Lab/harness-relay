@@ -91,11 +91,12 @@ describe('client routes', () => {
     expect(routeFromHash('#/settings/apps/mcp')).toEqual({ page: 'settings', section: 'apps' });
     expect(routeFromHash('#/settings/apps/computer/more')).toEqual({ page: 'settings', section: 'apps' });
     expect(routeFromHash('#/settings/apps/')).toEqual({ page: 'settings', section: 'apps' });
-    // From a draft, a row shows with its card's top (the link back) while its title fits below the links.
-    expect(rowFitsUnderCard({ titleBottom: 300, linksHeight: 56, viewHeight: 800 })).toBe(true);
-    expect(rowFitsUnderCard({ titleBottom: 728, linksHeight: 56, viewHeight: 800 })).toBe(true);
-    expect(rowFitsUnderCard({ titleBottom: 729, linksHeight: 56, viewHeight: 800 })).toBe(false);
-    expect(rowFitsUnderCard({ titleBottom: 1400, linksHeight: 56, viewHeight: 800 })).toBe(false);
+    // From a draft, a row shows with its card's top (the link back) while all of it fits below the links.
+    expect(rowFitsUnderCard({ rowBottom: 300, linksHeight: 56, viewHeight: 800 })).toBe(true);
+    expect(rowFitsUnderCard({ rowBottom: 728, linksHeight: 56, viewHeight: 800 })).toBe(true);
+    expect(rowFitsUnderCard({ rowBottom: 729, linksHeight: 56, viewHeight: 800 })).toBe(false);
+    // The Computer (Cua) row at the end of Common apps, on a tall screen: its title would fit, its Install Cua not.
+    expect(rowFitsUnderCard({ rowBottom: 1340, linksHeight: 56, viewHeight: 1200 })).toBe(false);
     // Other cards have no rows of their own.
     expect(routeFromHash('#/settings/lead/computer')).toEqual({ page: 'settings', section: 'lead' });
     expect(routeFromHash('#/settings/nope/computer')).toEqual({ page: 'settings' });

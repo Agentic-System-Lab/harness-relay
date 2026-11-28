@@ -164,7 +164,7 @@ export function scrollToSection(section: SettingsSection, focusTitle = false): v
 
 /**
  * Opens a row of Apps and tools that the page shows, if it does: unfolded, flashed for a moment and given
- * the focus (its title, where it has one), for a keyboard and a screen reader to land there too. The
+ * the focus (its title, else the row), for a keyboard and a screen reader to land there too. The
  * settings page does it as a link to the row arrives; a link calls it too, as for scrollToSection. The row
  * opened, or null while the page does not show it.
  */
@@ -175,8 +175,13 @@ export function openItem(item: SettingsItem): HTMLElement | null {
   const details = row instanceof HTMLDetailsElement ? row : row.querySelector<HTMLDetailsElement>(':scope > details');
   if (!details) return null;
   details.open = true;
+  // Its title, or the row itself where it shows none (a service not connected yet: its action is the row).
   const title = details.querySelector<HTMLElement>(':scope > summary');
   if (title && !title.hidden) title.focus({ preventScroll: true });
+  else {
+    if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex', '-1');
+    row.focus({ preventScroll: true });
+  }
   row.classList.remove('settings-item-flash');
   requestAnimationFrame(() => {
     row.classList.add('settings-item-flash');
@@ -186,12 +191,12 @@ export function openItem(item: SettingsItem): HTMLElement | null {
 }
 
 /**
- * Whether a row its link opened can show with its card's top, both below the sticky links (`linksHeight`
- * and the cards' scroll margin, `gap`) in a view `viewHeight` tall: its title's bottom `titleBottom` pixels
- * below the card's top. Coming from a draft, the card's top holds the link back to it.
+ * Whether a row its link opened shows whole with its card's top, both below the sticky links (`linksHeight`
+ * and the cards' scroll margin, `gap`) in a view `viewHeight` tall: the opened row's bottom `rowBottom`
+ * pixels below the card's top. Coming from a draft, the card's top holds the link back to it.
  */
-export function rowFitsUnderCard(v: { titleBottom: number; linksHeight: number; viewHeight: number }, gap = 16): boolean {
-  return v.linksHeight + gap + v.titleBottom <= v.viewHeight;
+export function rowFitsUnderCard(v: { rowBottom: number; linksHeight: number; viewHeight: number }, gap = 16): boolean {
+  return v.linksHeight + gap + v.rowBottom <= v.viewHeight;
 }
 
 /** Opens a row of Apps and tools and scrolls to it, for a link whose address may be the one shown already. */

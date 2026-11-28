@@ -172,8 +172,8 @@ export function SettingsPage({
   // as its offset changes, until the reader takes over scrolling or follows a different link.
   // A row of Apps and tools is opened once it is on the page (the library loads by itself), and kept in
   // place instead of its card; until then the card is. Coming from a draft, the card stays at the top with
-  // its link back to the draft while the row's title fits below it (Mail and Calendar, the rows the drafts
-  // link to, come first).
+  // its link back to the draft while the whole opened row fits below it (Mail and Calendar, the rows the
+  // drafts link to, come first); else the row does, all of it in view rather than the way back.
   const loaded = settings !== null;
   const fromDraft = Boolean(settingsReturn);
   useEffect(() => {
@@ -184,14 +184,12 @@ export function SettingsPage({
     if (!card || !layout || !scroller) return;
     let previous: number | undefined;
     let row: HTMLElement | null = null;
-    const underCard = (el: HTMLElement) => {
-      const title = el.querySelector<HTMLElement>(':scope > details > summary:not([hidden]), :scope > summary') ?? el;
-      return rowFitsUnderCard({
-        titleBottom: title.getBoundingClientRect().bottom - card.getBoundingClientRect().top,
+    const underCard = (el: HTMLElement) =>
+      rowFitsUnderCard({
+        rowBottom: el.getBoundingClientRect().bottom - card.getBoundingClientRect().top,
         linksHeight: parseFloat(scroller.style.getPropertyValue('--settings-nav-height')) || 56,
         viewHeight: scroller.clientHeight,
       });
-    };
     const align = () => {
       if (item && !row) row = openItem(item);
       const target = row && !(fromDraft && underCard(row)) ? row : card;

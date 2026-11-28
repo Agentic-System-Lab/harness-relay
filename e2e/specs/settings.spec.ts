@@ -1,3 +1,4 @@
+import type { Locator } from '@playwright/test';
 import { PROVIDERS, type ModelBackendsView, type Provider } from '../../src/shared/types';
 import { MIN_VERSIONS } from '../../src/shared/cliVersions';
 import { expect, test } from '../fixtures';
@@ -91,6 +92,12 @@ test('each row of Apps and tools has an address of its own, which opens it on it
   };
   const card = page.getByRole('region', { name: 'Apps and tools' });
   const links = page.getByRole('navigation', { name: 'Sections of this page' });
+  /** Whether a row is just under the sticky links (the cards' scroll margin, 16 pixels), else how far. */
+  const underLinks = (row: Locator) => async () => {
+    const [top, under] = await Promise.all([row.boundingBox(), links.boundingBox()]);
+    const gap = Math.round(top!.y - (under!.y + under!.height));
+    return gap >= 0 && gap <= 24 ? 'under the links' : gap;
+  };
   // A bookmark: the page opens at the row, unfolded, its title focused.
   await page.goto(relay.base + '/#/settings/apps/computer');
   const computer = card.getByRole('listitem', { name: 'Computer (Cua)', exact: true });
@@ -109,18 +116,15 @@ test('each row of Apps and tools has an address of its own, which opens it on it
       : card.locator('#settings-tools .library-category').and(page.getByRole('group', { name: names[item], exact: true }));
     await expect(row, item).toHaveAttribute('id', itemId(item));
     await expect(apps ? row.locator(':scope > details') : row, item).toHaveAttribute('open', '');
-    // Just under the sticky links (the cards' scroll margin, 16 pixels).
-    await expect
-      .poll(
-        async () => {
-          const [top, under] = await Promise.all([row.boundingBox(), links.boundingBox()]);
-          const gap = Math.round(top!.y - (under!.y + under!.height));
-          return gap >= 0 && gap <= 24 ? 'under the links' : gap;
-        },
-        { message: item },
-      )
-      .toBe('under the links');
+    // The focus on its title, or on the row where it shows none (Notion and Heptabase, not connected here).
+    const title = row.locator(apps ? ':scope > details > summary' : ':scope > summary');
+    await expect(item === 'notion' || item === 'heptabase' ? row : title, item).toBeFocused();
+    await expect.poll(underLinks(row), { message: item }).toBe('under the links');
   }
+  // The tab shown already, clicked: the address stays the row's (no jump back to the card's top), the row open.
+  await card.getByRole('tab', { name: 'Tool library', exact: true }).click();
+  await expect(page).toHaveURL(/#\/settings\/tools\/checks$/);
+  await expect(page.locator('#' + itemId('checks'))).toHaveAttribute('open', '');
   // A row this version does not have: the card on its tab, nothing opened.
   await page.evaluate(() => (location.hash = '#/settings/tools/nope'));
   await expect(card.getByRole('tab', { name: 'Tool library', exact: true })).toHaveAttribute('aria-selected', 'true');
