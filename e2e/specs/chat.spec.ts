@@ -2,7 +2,18 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import { askAndConfirm, awaitingPlan, chatId, confirmTeam, finishedReply, replies, send, settled, startChat } from '../support/app';
+import {
+  DESIGN_MS,
+  askAndConfirm,
+  awaitingPlan,
+  chatId,
+  confirmTeam,
+  finishedReply,
+  replies,
+  send,
+  settled,
+  startChat,
+} from '../support/app';
 import { eachHalf, sharedPermission, teamOf, withClis } from '../support/clis';
 
 // Codex and Grok besides Claude Code, the one CLI a test server has by default: tests here use them.
@@ -305,7 +316,7 @@ test.describe('a new chat', () => {
 
   test("with the lead agent's teams used without asking, the team answers right away", async ({ page }) => {
     await startChat(page, 'Hello there', { autoConfirm: true });
-    await expect(page.locator('.plan-card').last()).toContainText('Used without asking');
+    await expect(page.locator('.plan-card').last()).toContainText('Used without asking', { timeout: DESIGN_MS });
     await expect(await finishedReply(page, 'Claude')).toContainText('You said: “Hello there”.');
     await expect(awaitingPlan(page)).toHaveCount(0);
   });

@@ -123,12 +123,15 @@ export const reviewCards = (page: Page) => page.locator('.review-card');
 export const awaitingPlan = (page: Page) => page.locator('.plan-card.awaiting');
 
 /**
- * Confirms the team the lead agent proposed, once its card waits (within `timeoutMs`: the card
- * comes after the lead's turn and a model check of each member, every one a CLI started anew, all
- * at once; on Windows, slow to start programs, a team of four took 14 s on CI, and the server
- * gives those checks a minute).
+ * How long the lead agent's team design may take: its card is done after the lead's turn and a model
+ * check of each member, every one a CLI started anew, all at once; on Windows, slow to start programs, a
+ * team of four took 14 s on CI, and so did a team of one in two working directories (the server gives
+ * those checks a minute).
  */
-export async function confirmTeam(page: Page, timeoutMs = 30_000): Promise<void> {
+export const DESIGN_MS = 30_000;
+
+/** Confirms the team the lead agent proposed, once its card waits (within `timeoutMs`, a design's time by default). */
+export async function confirmTeam(page: Page, timeoutMs = DESIGN_MS): Promise<void> {
   const card = awaitingPlan(page).last();
   await expect(card).toBeVisible({ timeout: timeoutMs });
   await card.getByRole('button', { name: 'Confirm team' }).click();
